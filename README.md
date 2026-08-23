@@ -43,4 +43,4 @@ CORS constraints, binary data contract) — read it before changing anything 3D 
 
 Imagery: NASA/SDO (AIA, HMI) and the AIA, EVE, and HMI science teams. Space weather data:
 NOAA SWPC. Magnetograms: GONG/NSO. Spacecraft ephemerides: JPL Horizons / ROB SWHV.
-Engine: AAS WorldWide Telescope. Built on the CosmicDS data-story framework.
+Engine: WorldWide Telescope. Built on the CosmicDS data-story framework.

@@ -1000,15 +1000,33 @@ def _prune_orphan_textures(ctx: Ctx, results: List[ProductResult]) -> None:
     doc = read_json(ctx.out / "texture/texture.json")
     if not doc:
         return
-    keep = {str(fr.get("url")) for layer in (doc.get("layers") or [])
-            for fr in (layer.get("frames") or []) if fr.get("url")}
-    keep |= {str(layer.get("url")) for layer in (doc.get("layers") or [])}
+    layers = doc.get("layers") or []
+    # "Orphan" is defined as NOT REFERENCED BY THE MANIFEST, not as "matches the
+    # history-frame name pattern". The pattern version missed the three
+    # schema-1 `aia*_carrington_2048x1024.jpg` maps entirely -- 443 KB that had
+    # been published for two schema revisions and would have stayed forever,
+    # because they predate the naming convention the pattern knew about.
+    #
+    # Off-limb crops MUST be in the keep set: they are referenced from a nested
+    # `off_limb` block rather than as a layer url, and forgetting them here
+    # would delete the corona billboard on every publish.
+    keep = set()
+    for layer in layers:
+        if layer.get("url"):
+            keep.add(str(layer["url"]))
+        off = layer.get("off_limb")
+        if isinstance(off, dict) and off.get("url"):
+            keep.add(str(off["url"]))
+        for fr in (layer.get("frames") or []):
+            if fr.get("url"):
+                keep.add(str(fr["url"]))
+    # A manifest that named nothing would make every file an orphan. Refuse.
     if not keep:
+        print("  WARN texture.json references no images; skipping prune")
         return
-    from .texture.export import HIST_NAME_RE
     tex_dir = ctx.out / "texture"
     for f in sorted(tex_dir.glob("*.jpg")):
-        if HIST_NAME_RE.match(f.name) and f.name not in keep:
+        if f.name not in keep:
             f.unlink(missing_ok=True)
             ctx.log("  removed orphan texture {0}".format(f.name))
 

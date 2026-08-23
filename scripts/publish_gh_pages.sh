@@ -37,13 +37,49 @@ rm -rf .ghp && mkdir .ghp
 if git rev-parse --verify -q "origin/$BR" >/dev/null; then
   # Materialise the existing published tree so the half we do NOT own survives.
   git --work-tree=.ghp checkout "origin/$BR" -- . 2>/dev/null || true
+  # `git --work-tree=X checkout ref -- path` ALSO stages every one of those paths
+  # into THIS repo's index (footgun 31 notes the same trap in data.yml). Harmless
+  # on a throwaway runner; on a workstation it leaves ~60 phantom "AD" entries in
+  # `git status` that look like the app has been deleted. Undo it here rather
+  # than in each caller, so a hand-publish is as clean as a CI one.
+  git reset -q || true
 fi
+
+# rsync where it exists (every CI runner), a portable equivalent where it does
+# not. This matters because publishing BY HAND FROM A WORKSTATION is a normal
+# operation for this project, not an emergency: GONG is unreachable from GitHub
+# runners (footgun 33), so the field-line frames have always been built locally
+# and pushed from here -- and Git Bash on Windows ships no rsync, so the script
+# failed at exactly the step it exists for. `--delete` semantics are the part
+# that has to be preserved: the destination must END UP as a copy of the source,
+# not a union with whatever was published before.
+copy_tree() {   # copy_tree <src> <dst>
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "$1"/ "$2"/
+  else
+    rm -rf "$2"
+    mkdir -p "$2"
+    cp -R "$1"/. "$2"/
+  fi
+}
 
 mkdir -p ".ghp/${DEST}"
 if [ -n "$DEST" ]; then
-  rsync -a --delete "$SRC"/ ".ghp/${DEST}/"
+  copy_tree "$SRC" ".ghp/${DEST}"
 else
-  rsync -a --delete --exclude 'data/' "$SRC"/ .ghp/
+  # Root publish: the app owns everything EXCEPT data/, which the data job owns.
+  # Without rsync's --exclude that means copying into place and then restoring
+  # the data tree we just clobbered, so keep it aside first.
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete --exclude 'data/' "$SRC"/ .ghp/
+  else
+    rm -rf .ghp-data-keep
+    if [ -d .ghp/data ]; then mv .ghp/data .ghp-data-keep; fi
+    find .ghp -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+    cp -R "$SRC"/. .ghp/
+    rm -rf .ghp/data
+    if [ -d .ghp-data-keep ]; then mv .ghp-data-keep .ghp/data; fi
+  fi
 fi
 touch .ghp/.nojekyll
 

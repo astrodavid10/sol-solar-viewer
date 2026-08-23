@@ -203,6 +203,31 @@ def tex_src_scale(channel_scale: float) -> float:
 
 TEX_SRC_SCALE_ARCSEC = tex_src_scale(0.6)   # AIA default, kept for callers
 TEX_LIMB_RADIUS_TOL = 0.03                # warn if the fitted limb is >3% off
+
+# ── Off-limb annulus ────────────────────────────────────────────────────────
+# The Carrington reprojection maps the SURFACE, so everything outside the limb
+# -- prominences, low coronal loops, the inner corona -- is thrown away. It is
+# also the only part of a solar image that is genuinely three-dimensional and
+# that we have no model for, so it cannot go on the sphere at all.
+#
+# Instead it ships as a square crop centred on the disk with the disk itself
+# blacked out, drawn in the app as a camera-facing billboard around the sphere.
+# Black rather than an alpha channel because the billboard is ADDITIVELY
+# blended, so black already contributes nothing -- an alpha channel would cost
+# a PNG (several times the bytes) to encode information the blend mode already
+# carries.
+#
+# The crop is only honest from Earth's viewpoint: it is a 2D projection of
+# structure whose real depth is unknown. The app fades it out as the camera
+# leaves the sub-Earth direction rather than pretending otherwise.
+TEX_OFFLIMB_SIZE = 1024                   # px, square
+TEX_OFFLIMB_QUALITY = 80
+TEX_OFFLIMB_MAX_BYTES = 400_000
+# Feather the inner edge across this fraction of a solar radius so the billboard
+# does not meet the sphere on a hard ring. Starts just inside the limb: the
+# sphere's own edge is drawn by the surface texture, and overlapping slightly
+# hides any sub-pixel disagreement between the two.
+TEX_OFFLIMB_INNER = (0.985, 1.02)
 TEX_LIMB_CENTRE_TOL_PX = 25.0             # warn if the disk is not centred
 
 # SDO has two eclipse seasons a year (mid-Feb to mid-Mar, mid-Aug to mid-Sep)

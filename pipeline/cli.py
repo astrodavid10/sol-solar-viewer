@@ -529,7 +529,7 @@ def run_texture(ctx: Ctx) -> ProductResult:
     for channel in TEX_CHANNELS:
         code = channel["code"]
         try:
-            blob, doc, info = texture_export.build_texture(
+            blob, doc, info, offlimb = texture_export.build_texture(
                 ctx.now, regions, verbose=ctx.verbose, code=code)
         except Exception as exc:                       # noqa: BLE001
             if code == TEX_CHANNELS[0]["code"]:
@@ -537,13 +537,18 @@ def run_texture(ctx: Ctx) -> ProductResult:
             print("  {0} skipped: {1}".format(code, exc))
             continue
         ctx.staging.write_bytes("texture/" + doc["url"], blob)
+        ctx.staging.write_bytes("texture/" + doc["off_limb"]["url"], offlimb)
         texture_export.log_texture(info, len(blob), verbose=ctx.verbose)
-        total_bytes += len(blob)
+        print("    off-limb {0} ({1}, reaches {2:.2f} R_sun)".format(
+            doc["off_limb"]["url"], human_bytes(len(offlimb)),
+            doc["off_limb"]["half_width_rsun"]))
+        total_bytes += len(blob) + len(offlimb)
         layers.append({
             "channel": doc["channel"],
             "label": doc["label"],
             "wavelength_angstrom": doc["wavelength_angstrom"],
             "far_side": doc["far_side"],
+            "off_limb": doc["off_limb"],
             "url": doc["url"],
             "bytes": doc["bytes"],
             "obs_iso": doc["obs_iso"],

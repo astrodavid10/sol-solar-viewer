@@ -286,6 +286,23 @@ const MAX_SOLAR_LAT_DEG = 88;
  *  swipe; this is that scaled for touch, matching the old SOLAR_MOVE_SCALE. */
 const ORBIT_DEG_PER_PX = 0.113;
 
+/**
+ * Drag direction. "Grab the globe and it follows your finger": drag right and
+ * the face you are looking at travels right, which means the CAMERA orbits the
+ * other way.
+ *
+ * These are constants rather than inline signs because the sense cannot be
+ * derived from the engine's own move(): that rotates about WWT's +/-Y pole
+ * (`lng -= x`, `lat += y`) and this rotates about the SUN's axis, so the two
+ * conventions do not carry over — and they do not even agree with each other.
+ * Both were settled by hand at the screen: azimuth needed +1, elevation -1,
+ * because the elevation axis is cross(solar_axis, u), whose direction flips
+ * with which side of the Sun the camera is on. If either ever feels inverted,
+ * it is a one-character fix here.
+ */
+const AZIMUTH_SIGN = 1;
+const ELEVATION_SIGN = -1;
+
 function rotateAbout(v: Vec3, axis: Vec3, angleRad: number): Vec3 {
   // Rodrigues. Cheaper and clearer here than building a quaternion for one use.
   const c = Math.cos(angleRad);
@@ -373,17 +390,16 @@ export function orbitByPixels(dxPx: number, dyPx: number): void {
   const axis = norm3(sunPoleEcliptic(julianDateNow()) as Vec3);
   let u = directionFor(cam.lat, cam.lng);
 
-  // Azimuth about the solar axis. Sign chosen so dragging right sends the
-  // surface right, i.e. the camera goes the other way.
-  u = rotateAbout(u, axis, (-dxPx * ORBIT_DEG_PER_PX * Math.PI) / 180);
+  // Azimuth about the solar axis — see AZIMUTH_SIGN.
+  u = rotateAbout(u, axis, (AZIMUTH_SIGN * dxPx * ORBIT_DEG_PER_PX * Math.PI) / 180);
 
   // Elevation about the horizontal axis perpendicular to both. Clamp on the
-  // ANGLE to the pole rather than on WWT's lat, which measures from a
-  // different pole entirely.
+  // ANGLE to the SOLAR pole, not on WWT's lat, which measures from elsewhere.
   const right = cross3(axis, u);
   const rightLen = Math.hypot(right[0], right[1], right[2]);
   if (rightLen > 1e-6) {
-    const next = rotateAbout(u, norm3(right), (-dyPx * ORBIT_DEG_PER_PX * Math.PI) / 180);
+    const next = rotateAbout(
+      u, norm3(right), (ELEVATION_SIGN * dyPx * ORBIT_DEG_PER_PX * Math.PI) / 180);
     const cosPolar = next[0] * axis[0] + next[1] * axis[1] + next[2] * axis[2];
     const solarLat = 90 - (Math.acos(Math.min(1, Math.max(-1, cosPolar))) * 180) / Math.PI;
     if (Math.abs(solarLat) <= MAX_SOLAR_LAT_DEG) { u = next; }

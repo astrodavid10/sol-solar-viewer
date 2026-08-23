@@ -406,6 +406,9 @@ export default defineComponent({
     "stage  layers"
     "stage  stats";
   column-gap: 0.5rem;
+  // Spacing between the rail's panels comes from the grid, so all three gaps
+  // are the same by construction rather than by three components agreeing.
+  row-gap: var(--sol-rail-gutter);
 
   .sol-area-top {
     grid-area: top;
@@ -428,20 +431,19 @@ export default defineComponent({
 
   .sol-area-info {
     grid-area: info;
+    // Load-bearing: without it the info panel's content sets a floor on this
+    // grid item's height and the 1fr row stops constraining anything.
     min-height: 0;
-    padding-top: var(--sol-rail-gutter);
   }
 
   .sol-area-layers {
     grid-area: layers;
     align-self: start;
-    padding-top: var(--sol-rail-gutter);
   }
 
   .sol-area-stats {
     grid-area: stats;
     align-self: end;
-    padding-top: var(--sol-rail-gutter);
     padding-bottom: var(--sol-rail-gutter);
 
     // SunStats carries its own gutter for the phone layout; the rail owns it

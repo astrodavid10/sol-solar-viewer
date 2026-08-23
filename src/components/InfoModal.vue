@@ -173,17 +173,24 @@ export default defineComponent({
 
 // The rail column: this is the one that scrolls, so the layers and stats
 // below it keep their place no matter how long the copy gets.
+// The rail's scrolling column. `height: 100%` plus `min-height: 0` on BOTH
+// the container and the panel is what actually lets an internally-scrolling
+// flex item exist — without the min-height:0 the panel's content sets a floor
+// on its size, it grows past the grid row, and it clipped mid-sentence with no
+// scrollbar while the layers panel below drew over the top of it.
 .im-inline {
   display: flex;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 
   .im-panel {
+    flex: 1 1 auto;
+    min-height: 0;
     // Fill the rail column: `width: min(100%, 32rem)` is a modal constraint,
     // and in a 35% column it made this panel narrower than its neighbours.
     width: 100%;
     max-width: none;
-    max-height: 100%;
     margin: 0;
     overflow-y: auto;
     // -webkit-overflow-scrolling for momentum on touch laptops/tablets that

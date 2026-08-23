@@ -84,7 +84,8 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       TEX_MAX_SOURCE_TRIES, TEX_MIN_DISK_MEAN, TEX_OUT_H,
                       TEX_OUT_W, TEX_POLE_FADE_DEG, TEX_POLE_FLOOR,
                       TEX_QUIET_ANNULUS_DEG, TEX_QUIET_PERCENTILE,
-                      TEX_CHANNELS, TEX_SRC_RES, tex_src_scale)
+                      TEX_CHANNELS, TEX_OFFLIMB_INNER, TEX_OFFLIMB_QUALITY,
+                      TEX_OFFLIMB_SIZE, TEX_SRC_RES, tex_src_scale)
 from ..io_utils import (PipelineError, age_hours, http_get_full, human_bytes,
                         iso_z, unix_s)
 
@@ -555,9 +556,60 @@ def ar_summary(offsets: List[dict]) -> Tuple[Optional[float], int]:
 # Driver
 # ─────────────────────────────────────────────────────────────────────────────
 
+def offlimb_name(code: str) -> str:
+    """File name for one channel's off-limb crop."""
+    return "sdo{0}_offlimb_{1}.jpg".format(code, TEX_OFFLIMB_SIZE)
+
+
+def build_offlimb(src: SourceImage, cx: float, cy: float, r_fit: float
+                  ) -> Tuple[bytes, float]:
+    """Square crop around the disk with the disk blacked out.
+
+    Returns (jpeg, half_width_rsun) where half_width_rsun is how far from Sun
+    centre the crop's edge reaches -- the app needs it to size the billboard,
+    and it is NOT a constant: it falls out of the fitted limb radius, which
+    differs between AIA (~1.28 R_sun) and HMI (~1.09).
+
+    The disk is removed rather than kept because the sphere already draws it,
+    at a resolution this crop cannot match. Feathered across TEX_OFFLIMB_INNER
+    so the billboard does not meet the sphere on a hard ring.
+    """
+    import numpy as np
+    from PIL import Image
+
+    h, w = src.rgb.shape[:2]
+    # Square, centred on the FITTED disk centre rather than the array centre:
+    # measure_limb reports offsets of 12-14 px on AIA browse frames, and a
+    # billboard built around the wrong centre would sit visibly off the sphere.
+    half = int(min(cx, cy, w - 1 - cx, h - 1 - cy))
+    if half < 32:
+        raise PipelineError(
+            "disk centre ({0:.1f}, {1:.1f}) leaves only {2} px of square crop"
+            .format(cx, cy, half))
+    x0, y0 = int(round(cx)) - half, int(round(cy)) - half
+    crop = src.rgb[y0:y0 + 2 * half, x0:x0 + 2 * half].astype(np.float32)
+
+    # Radius of every pixel, in units of the solar radius.
+    n = crop.shape[0]
+    yy, xx = np.mgrid[0:n, 0:n]
+    centre = (n - 1) / 2.0
+    r = np.hypot(yy - centre, xx - centre) / r_fit
+
+    lo, hi = TEX_OFFLIMB_INNER
+    t = np.clip((r - lo) / (hi - lo), 0.0, 1.0)
+    keep = (t * t * (3.0 - 2.0 * t))[..., None]        # smoothstep
+    out = np.clip(crop * keep, 0.0, 255.0).astype(np.uint8)
+
+    img = Image.fromarray(out).resize(
+        (TEX_OFFLIMB_SIZE, TEX_OFFLIMB_SIZE), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=TEX_OFFLIMB_QUALITY, optimize=True)
+    return buf.getvalue(), half / r_fit
+
+
 def build_texture(now: datetime, regions: Optional[List[dict]] = None,
                   verbose: bool = False, code: str = None
-                  ) -> Tuple[bytes, dict, dict]:
+                  ) -> Tuple[bytes, dict, dict, bytes]:
     """Fetch, reproject, composite, encode.  Returns (jpeg, doc, info)."""
     import astropy.units as u
     from astropy.time import Time
@@ -621,6 +673,10 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
             "visible, south {2:.0%}); the output latitude axis is flipped"
             .format(b0, n_cap, s_cap))
 
+    # Off-limb crop, from the SAME fitted limb the reprojection trusts, so the
+    # billboard and the sphere cannot disagree about where the edge is.
+    offlimb, offlimb_half_rsun = build_offlimb(src, cx, cy, r_fit)
+
     img, w, base = compose(near, valid, dist, lon, lat, channel["farside"])
     blob = encode_jpeg(img)
 
@@ -653,6 +709,20 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
         # "quiet" adds farside_modulation's invented mottling; "flat" is a
         # plain fill with no fabricated structure. HMIB must never be "quiet" --
         # see TEX_CHANNELS.
+        # The off-limb band, drawn as a camera-facing billboard. half_width_rsun
+        # is how far the crop reaches from Sun centre; it is NOT constant
+        # across channels (AIA ~1.28 R_sun, HMI ~1.09) because it falls out of
+        # each instrument's plate scale.
+        "off_limb": {
+            "url": offlimb_name(channel["code"]),
+            "bytes": len(offlimb),
+            "size": TEX_OFFLIMB_SIZE,
+            "half_width_rsun": round(offlimb_half_rsun, 5),
+            "note": ("Square crop centred on the fitted disk centre with the "
+                     "disk blacked out. Additively blended, so black is "
+                     "transparent. Only valid from the sub-earth viewpoint: it "
+                     "is a 2D projection of structure whose depth is unknown."),
+        },
         "far_side": channel["farside"],
         "far_side_max_age_hours": None,
         "source": ("SDO/{0} {1} JPEG from sdo.gsfc.nasa.gov ({2} px, "
@@ -696,7 +766,7 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
             "max": int(img.max()),
         },
     }
-    return blob, doc, info
+    return blob, doc, info, offlimb
 
 
 def log_texture(info: dict, blob_len: int, verbose: bool = False) -> None:

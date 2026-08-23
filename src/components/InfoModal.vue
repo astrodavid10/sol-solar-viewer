@@ -239,7 +239,10 @@ export default defineComponent({
 
 .im-title {
   margin: 0 2.5rem 0.7rem 0;
-  color: var(--sol-accent);
+  // Headings were gold throughout this panel. The Overpass display face and the
+  // size step already say "heading"; a hue on top of that was decoration, and
+  // gold-on-deep is the pairing the palette note in sol.less warns about.
+  color: var(--sol-text);
   font-family: "Overpass", system-ui, sans-serif;
   font-weight: 600;
   font-size: 1.4rem;
@@ -248,7 +251,7 @@ export default defineComponent({
 
 .im-subtitle {
   margin: 1.1rem 0 0.4rem;
-  color: var(--sol-accent);
+  color: var(--sol-text);
   font-size: 0.95rem;
   font-weight: 700;
 }
@@ -296,7 +299,7 @@ export default defineComponent({
   gap: 0.5rem;
   margin-top: 1.1rem;
   padding-top: 0.9rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid var(--sol-hairline);
 }
 
 .im-logo {
@@ -310,7 +313,7 @@ export default defineComponent({
   border-radius: 4px;
 
   &:focus-visible {
-    outline: 2px solid var(--sol-accent);
+    outline: 2px solid var(--sol-select);
     outline-offset: 2px;
   }
 }

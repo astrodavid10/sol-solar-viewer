@@ -125,7 +125,7 @@ export default defineComponent({
   transition: border-color 160ms ease, background 160ms ease;
 
   &.is-selected {
-    border-color: var(--sol-accent);
+    border-color: var(--sol-select);
     background: rgba(40, 31, 63, 0.92);
   }
 }

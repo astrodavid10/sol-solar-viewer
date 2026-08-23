@@ -36,7 +36,20 @@
     </button>
 
     <div class="lp-group" role="radiogroup" aria-label="Surface">
-      <span class="lp-group-label">Surface</span>
+      <!-- A SECTION HEADER, not another row label.
+           It used to be `font-size: 0.85rem; font-weight: 600` -- byte for byte
+           the same as `.lp-label` on the switch rows -- while sitting 43.6 px to
+           their LEFT, because a row's label starts after the 34 px switch and
+           its 0.6 rem gap (0.5rem + 34px + 0.6rem = 51.6 px) and this one
+           started at the bare 0.5 rem = 8 px. Identical styling at a different
+           indent is the worst of both readings: it looks like a peer of the
+           rows and lines up with nothing.
+           `.sol-section-head` is the global class (src/assets/sol.less) that
+           carries the brand kit's own convention for this -- letterspaced caps
+           over a thin rule -- so it now reads unmistakably as a heading, and it
+           matches every other section heading in the app rather than being
+           this component's private invention. -->
+      <span class="sol-section-head">Surface</span>
       <div class="lp-segments">
         <button
           v-for="option in surfaces"
@@ -206,7 +219,14 @@ export default defineComponent({
   -webkit-tap-highlight-color: transparent;
 
   &:active {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--sol-hover);
+  }
+
+  // Keyboard focus was invisible here: the rows have `border: none` and no
+  // outline rule, so tabbing through the panel gave no indication of position.
+  &:focus-visible {
+    outline: 2px solid var(--sol-select);
+    outline-offset: -2px;
   }
 }
 
@@ -216,11 +236,25 @@ export default defineComponent({
   width: 34px;
   height: 20px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
+  // Off, but VISIBLE: at --sol-hairline's 0.16 the track measured 1.24:1
+  // against the panel, i.e. very nearly invisible -- a switch you cannot see
+  // until you turn it on. 0.28 brings it to 1.56:1, which reads as a track.
+  background: rgba(148, 155, 175, 0.28);
   transition: background 160ms ease;
 
+  // "On" is a brand NEUTRAL, not gold. A gold switch sat inches from gold
+  // closed-field lines meaning something entirely different -- and gold on a
+  // deep ground is the exact pairing that read as LSU. See the palette note in
+  // src/assets/sol.less.
+  //
+  // 0.55, not the 0.42 first tried: measured, 0.42 gave only a 2.88:1 change
+  // between on and off, under the 3.0 a state change needs to be unmistakable.
+  // 0.55 gives 3.45:1. Higher would be clearer still, but the track then
+  // approaches the white knob and the knob is what says WHICH way the switch
+  // is thrown -- at 0.55 the knob still holds 3.29:1 against the lit track, and
+  // its dark ring below covers the rest.
   &.is-on {
-    background: rgba(var(--sol-accent-rgb), 0.55);
+    background: rgba(var(--sol-select-rgb), 0.55);
   }
 }
 
@@ -231,7 +265,12 @@ export default defineComponent({
   width: 16px;
   height: 16px;
   border-radius: 50%;
+  // The knob rides ON the track, so a fill contrast of 3.29:1 against the lit
+  // track is doing only half the work -- the dark ring is the other half, and
+  // it measures 5.59:1 against that same track. Belt and braces, because the
+  // knob's POSITION is the only thing that says which way the switch is thrown.
   background: var(--sol-text);
+  box-shadow: 0 0 0 1px var(--sol-casing), 0 1px 2px rgba(0, 0, 0, 0.5);
   transition: transform 160ms ease;
 
   .is-on & {
@@ -256,22 +295,18 @@ export default defineComponent({
   line-height: 1.25;
 }
 
+// Same 0.5rem horizontal padding as `.lp-row`, so the group's left edge and
+// the rows' left edges are the same line. The vertical padding used to be
+// 0.35/0.4rem against the rows' 0.3rem -- three different numbers for one
+// rhythm. One number now.
 .lp-group {
-  padding: 0.35rem 0.5rem 0.4rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.09);
-  margin-top: 0.2rem;
-}
-
-.lp-group-label {
-  display: block;
-  margin-bottom: 0.3rem;
-  font-size: 0.85rem;
-  font-weight: 600;
+  padding: 0.3rem 0.5rem;
+  margin-top: 0.45rem;
 }
 
 .lp-segments {
   display: flex;
-  gap: 0.25rem;
+  gap: 0.3rem;
 }
 
 // 44 px tall, as everywhere else in this panel: a one-handed guest gets the
@@ -280,7 +315,7 @@ export default defineComponent({
   flex: 1 1 0;
   min-height: 44px;
   padding: 0 0.2rem;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--sol-hairline);
   border-radius: 9px;
   background: transparent;
   color: var(--sol-text-dim);
@@ -289,9 +324,17 @@ export default defineComponent({
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 
+  &:focus-visible {
+    outline: 2px solid var(--sol-select);
+    outline-offset: -2px;
+  }
+
+  // Selected reads as "lit", not "gold": a brighter border, a faint neutral
+  // fill and full-strength text. Three signals rather than one hue, so it
+  // survives being seen by someone who cannot separate the hues at all.
   &.is-on {
-    border-color: var(--sol-accent);
-    background: rgba(var(--sol-accent-rgb), 0.16);
+    border-color: rgba(var(--sol-select-rgb), 0.75);
+    background: rgba(var(--sol-select-rgb), 0.14);
     color: var(--sol-text);
   }
 }

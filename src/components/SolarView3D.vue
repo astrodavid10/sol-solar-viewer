@@ -1927,7 +1927,7 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--sol-hairline);
   border-radius: 11px;
   background: rgba(9, 2, 24, 0.6);
   backdrop-filter: blur(6px);
@@ -1938,8 +1938,8 @@ export default defineComponent({
   -webkit-tap-highlight-color: transparent;
 
   &.is-active {
-    border-color: var(--sol-accent);
-    color: var(--sol-accent);
+    border-color: rgba(var(--sol-select-rgb), 0.75);
+    color: var(--sol-select);
   }
 }
 
@@ -2001,7 +2001,7 @@ export default defineComponent({
   width: 100%;
   max-width: 22rem;
   padding: 0.8rem 2.2rem 0.8rem 0.9rem;
-  border: 1px solid rgba(var(--sol-accent-rgb), 0.3);
+  border: var(--sol-panel-border);
   border-radius: 12px;
   background: var(--sol-surface);
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
@@ -2025,7 +2025,7 @@ export default defineComponent({
 
 .sv-card-title {
   margin: 0 0 0.25rem;
-  color: var(--sol-accent);
+  color: var(--sol-text);
   font-size: 1rem;
   font-weight: 700;
 }
@@ -2055,8 +2055,8 @@ export default defineComponent({
   margin: 0.45rem 0 0;
   padding: 0.35rem 0.45rem;
   border-radius: 8px;
-  background: rgba(var(--sol-accent-rgb), 0.12);
-  color: var(--sol-accent);
+  background: rgba(var(--sol-warn-rgb), 0.12);
+  color: var(--sol-warn);
   font-size: 0.76rem;
   line-height: 1.35;
 }
@@ -2213,7 +2213,7 @@ export default defineComponent({
 
 .sv-error-title {
   margin: 0 0 0.5rem;
-  color: var(--sol-accent);
+  color: var(--sol-warn);
   font-size: 1.05rem;
   font-weight: 700;
 }

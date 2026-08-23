@@ -84,7 +84,7 @@ export default defineComponent({
   }
 
   &:focus-visible {
-    outline: 2px solid var(--sol-accent);
+    outline: 2px solid var(--sol-select);
     outline-offset: 2px;
   }
 }

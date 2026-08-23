@@ -88,7 +88,7 @@ export default defineComponent({
   // bright limb, which is exactly where these labels tend to sit. More opaque
   // backing and a brighter edge, so the chip reads against both the black sky
   // and the Sun.
-  border: 1px solid rgba(255, 255, 255, 0.38);
+  border: 1px solid rgba(var(--sol-select-rgb), 0.34);
   border-radius: 999px;
   /* Alpha raised from 0.82 with the blur removed: it is what actually makes the
      text legible, and it costs nothing per frame.
@@ -111,7 +111,7 @@ export default defineComponent({
   transition: border-color 160ms ease, background 160ms ease;
 
   &.is-selected {
-    border-color: var(--sol-accent);
+    border-color: var(--sol-select);
     background: rgba(40, 31, 63, 0.92);
   }
 }

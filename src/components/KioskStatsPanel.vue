@@ -194,17 +194,17 @@ export default defineComponent({
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 .ks-header h1 { margin: 0; color: var(--sol-text); font-size: 1.6rem; }
-.ks-sub { margin: 0.3rem 0 1rem; color: rgba(255, 255, 255, 0.6); font-size: 0.9rem; }
+.ks-sub { margin: 0.3rem 0 1rem; color: var(--sol-text-dim); font-size: 0.9rem; }
 .ks-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
 .ks-btn {
   padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer;
   background: var(--sol-surface); border: var(--sol-panel-border); color: var(--sol-text);
   font-size: 0.9rem; font-weight: 600;
 }
-.ks-btn:hover { box-shadow: 0 0 0 1px var(--sol-accent); }
+.ks-btn:hover { box-shadow: 0 0 0 1px var(--sol-select); }
 .ks-btn-danger { border-color: var(--sol-ember); color: var(--sol-ember); }
 .ks-btn-danger:hover { box-shadow: 0 0 0 1px var(--sol-ember); }
-.ks-empty { color: rgba(255, 255, 255, 0.6); font-size: 1rem; }
+.ks-empty { color: var(--sol-text-dim); font-size: 1rem; }
 
 .ks-tiles { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
 .ks-tile {
@@ -214,7 +214,7 @@ export default defineComponent({
 }
 .ks-tile-num { font-size: 1.5rem; font-weight: 700; color: var(--sol-text);
   font-variant-numeric: tabular-nums; }
-.ks-tile-lbl { font-size: 0.75rem; color: rgba(255, 255, 255, 0.65); margin-top: 0.2rem; }
+.ks-tile-lbl { font-size: 0.75rem; color: var(--sol-text-dim); margin-top: 0.2rem; }
 
 .ks-section { margin-bottom: 2rem; }
 .ks-section h2 { font-size: 1rem; color: var(--sol-text-dim); margin: 0 0 0.7rem; font-weight: 600; }
@@ -222,19 +222,19 @@ export default defineComponent({
 .ks-hours { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
 .ks-hour { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
 .ks-hour-bar { width: 70%; min-height: 2px; background: var(--sol-accent2); border-radius: 2px 2px 0 0; }
-.ks-hour-lbl { font-size: 0.6rem; color: rgba(255, 255, 255, 0.5); margin-top: 0.25rem; height: 0.9rem; }
+.ks-hour-lbl { font-size: 0.6rem; color: var(--sol-text-quiet); margin-top: 0.25rem; height: 0.9rem; }
 
 .ks-table-wrap { overflow-x: auto; }
 .ks-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
-.ks-table th, .ks-table td { padding: 0.4rem 0.7rem; text-align: right; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.ks-table th, .ks-table td { padding: 0.4rem 0.7rem; text-align: right; border-bottom: 1px solid var(--sol-hairline); }
 .ks-table th:first-child, .ks-table td:first-child { text-align: left; }
-.ks-table th { color: rgba(255, 255, 255, 0.7); font-weight: 600; }
+.ks-table th { color: var(--sol-text-dim); font-weight: 600; }
 
 .ks-cols { display: flex; gap: 2rem; flex-wrap: wrap; }
 .ks-col { flex: 1; min-width: 16rem; }
 .ks-list { margin: 0; padding-left: 1.2rem; }
-.ks-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+.ks-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-bottom: 1px solid var(--sol-hairline); }
 .ks-list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ks-list-count { color: var(--sol-text); font-weight: 600; flex: 0 0 auto; }
-.ks-none { color: rgba(255, 255, 255, 0.4); list-style: none; }
+.ks-none { color: var(--sol-text-quiet); list-style: none; }
 </style>

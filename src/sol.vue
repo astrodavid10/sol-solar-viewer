@@ -398,7 +398,10 @@ export default defineComponent({
   font-weight: 600;
   font-size: 1.05rem;
   line-height: 1.1;
-  color: var(--sol-accent);
+  // Was gold. This is the single most prominent piece of chrome in the app --
+  // a gold wordmark on a deep ground -- and it is most of why the palette read
+  // as LSU. The display face carries the title; it does not need a hue.
+  color: var(--sol-text);
 }
 
 .sol-title-sub {
@@ -442,10 +445,10 @@ export default defineComponent({
   // Thumb-sized: this is the one control every guest is invited to press.
   min-height: 48px;
   padding: 0.5rem 1.15rem;
-  border: 1px solid rgba(var(--sol-accent-rgb), 0.55);
+  border: 1px solid rgba(243, 73, 130, 0.55);
   border-radius: 999px;
   background: var(--sol-surface);
-  color: var(--sol-accent);
+  color: var(--sol-ember);
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
@@ -468,7 +471,7 @@ export default defineComponent({
     z-index: 30;
     margin: 0;
     padding: 0.7rem 1.2rem;
-    border: 1px solid rgba(var(--sol-accent-rgb), 0.35);
+    border: 1px solid var(--sol-hairline);
     border-radius: 999px;
     background: var(--sol-surface);
     color: var(--sol-text);

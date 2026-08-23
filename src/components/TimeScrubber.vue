@@ -368,7 +368,9 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  color: var(--sol-accent);
+  // A staleness warning: amber is the right signal, but through the semantic
+  // token, so it is not the same string as "closed magnetic field".
+  color: var(--sol-warn);
   font-size: 0.7rem;
   line-height: 1.2;
 }
@@ -386,10 +388,10 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(var(--sol-accent-rgb), 0.5);
+  border: 1px solid rgba(var(--sol-select-rgb), 0.5);
   border-radius: 50%;
-  background: rgba(var(--sol-accent-rgb), 0.12);
-  color: var(--sol-accent);
+  background: rgba(var(--sol-select-rgb), 0.12);
+  color: var(--sol-select);
   font-size: 0.95rem;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -397,7 +399,7 @@ export default defineComponent({
   &:disabled {
     opacity: 0.35;
     cursor: default;
-    border-color: rgba(255, 255, 255, 0.2);
+    border-color: var(--sol-hairline);
     color: var(--sol-text-dim);
     background: transparent;
   }
@@ -409,8 +411,8 @@ export default defineComponent({
 }
 
 @keyframes ts-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--sol-accent-rgb), 0.35); }
-  50% { box-shadow: 0 0 0 8px rgba(var(--sol-accent-rgb), 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--sol-select-rgb), 0.35); }
+  50% { box-shadow: 0 0 0 8px rgba(var(--sol-select-rgb), 0); }
 }
 
 .ts-track {
@@ -494,11 +496,12 @@ export default defineComponent({
   height: 4px;
   margin-left: -1px;
   border-radius: 1px;
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--sol-hairline);
   transition: background 200ms ease;
 
+  // Which frames have downloaded: UI state, not data. Neutral.
   &.is-loaded {
-    background: rgba(var(--sol-accent-rgb), 0.75);
+    background: rgba(var(--sol-select-rgb), 0.75);
   }
 }
 
@@ -522,13 +525,13 @@ export default defineComponent({
   &::-webkit-slider-runnable-track {
     height: 4px;
     border-radius: 2px;
-    background: rgba(255, 255, 255, 0.14);
+    background: var(--sol-hairline);
   }
 
   &::-moz-range-track {
     height: 4px;
     border-radius: 2px;
-    background: rgba(255, 255, 255, 0.14);
+    background: var(--sol-hairline);
   }
 
   // 20 px thumb inside a 44 px-tall row: the visual is small, the target isn't.
@@ -540,7 +543,10 @@ export default defineComponent({
     margin-top: -8px;
     border: 2px solid rgba(0, 0, 0, 0.6);
     border-radius: 50%;
-    background: var(--sol-accent);
+    // The playhead handle: UI, so neutral. It also has to out-contrast the
+    // gold C-flare diamonds sitting on the very same track -- when both were
+    // gold, the thing you drag and the thing you tap looked identical.
+    background: var(--sol-select);
   }
 
   &::-moz-range-thumb {
@@ -548,7 +554,10 @@ export default defineComponent({
     height: 20px;
     border: 2px solid rgba(0, 0, 0, 0.6);
     border-radius: 50%;
-    background: var(--sol-accent);
+    // The playhead handle: UI, so neutral. It also has to out-contrast the
+    // gold C-flare diamonds sitting on the very same track -- when both were
+    // gold, the thing you drag and the thing you tap looked identical.
+    background: var(--sol-select);
   }
 }
 

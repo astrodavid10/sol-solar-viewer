@@ -19,12 +19,40 @@
 // break that parity for the sake of a palette. The apparent lift comes entirely
 // from taking gold OUT of the chrome, which raises the field lines' perceived
 // saturation without touching a single data value.
+//
+// ── WHY THE SURFACES ARE NAVY AND NOT VIOLET ────────────────────────────────
+// A first pass took Spaceberry literally and used a violet surface while
+// keeping gold as the UI's "on" state. Reported, correctly, as reading like
+// LSU. It is not a matter of taste — it is measurable:
+//
+//   LSU purple  #461D7C  hue 265.9        LSU gold  #FDD023  hue 47.6
+//   that surface #0E0526 hue 256.4         that accent      hue 41.1
+//                        ^^^ 9.5 deg apart                  ^^^ 6.5 deg apart
+//
+// Two colours that close to a famous pair, used in the same relationship
+// (dark ground + bright accent), read as that pair. Two changes fix it, and
+// both are independently defensible:
+//
+//   1. The surface moves to hue ~230 -- navy, 36 deg from LSU purple, and much
+//      closer to Spacebubble (238) than to Spaceberry (263). "Deep space" was
+//      always the brief; navy says it and grape does not. Contrast IMPROVES:
+//      14.73:1 for body text over a bright disk, against 14.05:1 before.
+//   2. Gold stops being the UI's "on" state. It now appears ONLY where it
+//      carries data meaning -- the closed-field lines, a C-class flare mark,
+//      the active-region ring. Selection is a brand NEUTRAL instead
+//      (--sol-select, Nova White), which measures 16.37:1 on the panel against
+//      gold's 12.66:1 and cannot be confused with any physics colour.
+//
+// That second change is also the honest reading of the original brief: "away
+// from the yellow on brown grey". Keeping gold for selection kept the
+// yellow-on-dark relationship the brief was asking to leave.
 
 :root {
   // ── Data-adjacent accents (unchanged; see the note above) ────────────────
-  // Gold is now narrowed to ONE job in the chrome: it is the app's word for
-  // "on" (a selected layer, a chosen channel, the loaded ticks). It is not a
-  // surface color, not a border color, and not text on a light ground.
+  // Gold is DATA, not chrome. It means "closed magnetic field loop" in the dome
+  // show, and by extension a C-class flare mark and the ring around an active
+  // region. It is no longer the UI's "on" state -- see --sol-select and the
+  // LSU note above. Do not reach for it to indicate selection.
   --sol-accent: #ffc850;        // warm solar gold (matches dome closed-line color)
   // The gold triplet was retyped as a literal `rgba(255, 200, 80, a)` at 19
   // sites across 7 files, so changing the accent needed a find/replace on the
@@ -39,17 +67,17 @@
   // sky exactly or a seam appears at the canvas edge, and WWT owns the sky
   // color on a shared canvas.
   --sol-bg: #000;
-  // Spaceberry, lifted just enough to read as a surface over black. Composites
-  // to #0E0526 over the sky and #281F3F over the bright photosphere -- 17.9:1
-  // and 14.1:1 against --sol-text respectively (WCAG 2.1 relative luminance,
-  // computed).
-  --sol-surface: rgba(16, 6, 42, 0.90);
+  // Deep-space navy: hue 230, between Spacebubble (238) and the kit's darkest
+  // ground, and 36 deg clear of LSU purple. Composites to #070B1F over the sky
+  // and #1C1F34 over the bright photosphere -- 17.7:1 and 14.7:1 against
+  // --sol-text (WCAG 2.1 relative luminance, computed, not estimated).
+  --sol-surface: rgba(8, 12, 34, 0.92);
   // A Spacebubble veil for anything that sits ON a surface.
   --sol-surface-raised: rgba(32, 34, 103, 0.34);
   // The dark half of every dual-contrast mark: a contour that wins over the
   // bright disk, where no single color survives (gold text on the photosphere
-  // measures 1.54:1).
-  --sol-casing: #05010f;
+  // measures 1.54:1). Navy-black, matching the surfaces.
+  --sol-casing: #04060f;
 
   // ── Type ──────────────────────────────────────────────────────────────────
   --sol-text: #f5f4f0;          // Light Speed White, verbatim from the kit
@@ -96,9 +124,31 @@
   // Horizontal breathing room the rail applies to every child alike.
   --sol-rail-gutter: 0.75rem;
 
-  // Label plates over the canvas. Composites to #080215 over sky and #241E33
-  // over the bright disk.
-  --sol-label-bg: rgba(9, 2, 24, 0.86);
+  // Label plates over the canvas, same hue family as the panels.
+  --sol-label-bg: rgba(7, 11, 31, 0.90);
+
+  // ── The UI's own vocabulary ────────────────────────────────────────────────
+  // "On" / "selected", replacing gold. A brand neutral rather than a hue, so it
+  // can never be mistaken for one of the four physics colours -- which is a
+  // problem gold genuinely had: a gold-bordered switch sat next to gold closed
+  // field lines meaning something completely different.
+  --sol-select: #eaebef;        // Nova White, verbatim from the kit
+  --sol-select-rgb: 234, 235, 239;
+
+  // The ONE place amber survives in the chrome. "Caution" is what amber means
+  // almost universally, and warnings here are rare, short-lived and never sit
+  // next to a field line -- so the confusion that got gold banished from
+  // selection does not arise. A separate token rather than reusing
+  // --sol-accent, so that "this is a warning" and "this is closed magnetic
+  // field" can be re-tuned independently instead of being the same string.
+  --sol-warn: #ffc24d;
+  --sol-warn-rgb: 255, 194, 77;
+
+  // The two greys this UI kept re-inventing as bare `rgba(255,255,255,x)`.
+  // Pure white on a navy ground reads slightly cold and dirty; the kit's
+  // Spaceship Gray is the same job done on-palette.
+  --sol-hairline: rgba(148, 155, 175, 0.16);   // dividers, unselected borders
+  --sol-hover: rgba(148, 155, 175, 0.10);      // pressed / hovered fill
 
   // KioskQrModal.vue is shared verbatim between data stories and paints with
   // the skeleton's generic accent tokens. Aliasing them here is how Sol dresses

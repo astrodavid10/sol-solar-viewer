@@ -69,9 +69,9 @@ export default defineComponent({
   gap: 0.1rem;
   min-height: 56px;
   padding: 0.4rem 0.6rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--sol-hairline);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.035);
+  background: rgba(var(--sol-select-rgb), 0.035);
   color: var(--sol-text);
   text-align: left;
   cursor: pointer;
@@ -79,7 +79,7 @@ export default defineComponent({
   transition: border-color 150ms ease, opacity 200ms ease;
 
   &.is-active {
-    border-color: var(--sol-accent);
+    border-color: var(--sol-select);
   }
 
   // Stale values stay visible but stop shouting — they are last-known, not now.

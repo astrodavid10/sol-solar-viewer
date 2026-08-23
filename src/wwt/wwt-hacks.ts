@@ -63,10 +63,51 @@ proto.move = function (this: PatchableControl, x: number, y: number) {
   origMove.call(this, x, y);
 };
 
-// --- Disable two-finger roll --------------------------------------------------
-// A rotating horizon is disorienting for guests; keep "up" fixed.
+// --- Touch and pointer input belong to src/wwt/gestures.ts -------------------
+// ALL of these must be patched HERE, at import time, for the same reason
+// onGesture* must (footgun 10): WWTControl.setup binds them with
+// `ss.bind('onTouchStart', this)` (engine index.js ~68648-68663), which
+// captures the method reference — a patch applied after initControl would never
+// be seen. `move` is different and can be patched any time, because the engine
+// looks it up on `this` at call time.
+//
+// WHY these are no-ops rather than fixed in place: the engine ships TWO
+// independent two-finger implementations bound to the same canvas — the touch
+// family and the pointer family — and both call `zoom()`. On every modern touch
+// browser both fire for the same physical motion, so the applied zoom was
+// roughly the SQUARE of the intended ratio; and because the two have different
+// gates (the pointer path zooms from the first move, the touch path waits for
+// `_twoTouchEvents > 10`) the gain also CHANGED mid-gesture. On top of that,
+// `_rotating` and `_dragging` latch for the rest of a gesture, and two-finger
+// mode is decided from `targetTouches`, which excludes any finger that landed
+// on an overlay element. Four separate faults, each sufficient on its own.
+// src/wwt/gestures.ts explains each with engine line numbers.
+//
+// One-finger drag is NOT lost by no-opping onTouchMove: gestures.ts handles it,
+// and it routes to the same sunStage.orbitByPixels that `move` above does.
+// Desktop mouse drag still goes through the engine's mousedown/mousemove, which
+// calls `move`.
+const NOOP_INPUT = [
+  "onTouchStart", "onTouchMove", "onTouchEnd",
+  "onPointerDown", "onPointerMove", "onPointerUp",
+] as const;
+NOOP_INPUT.forEach((name) => {
+  if (typeof (proto as unknown as Record<string, unknown>)[name] === "function") {
+    (proto as unknown as Record<string, unknown>)[name] = function () {
+      /* no-op: src/wwt/gestures.ts owns touch input */
+    };
+  }
+});
+
+// --- Roll ---------------------------------------------------------------------
+// The engine's own roll() is left disabled: it was reached only from the
+// two-finger path above, which is gone, and it wrote `targetCamera.rotation`
+// directly — which orbitByPixels recomputes from scratch on every drag step to
+// keep solar north up, so a roll written there survived only until the guest's
+// next pan. Two-finger twist now goes through sunStage.addUserRoll(), which is
+// separate state that the framing is added to rather than overwriting.
 if (typeof proto.roll === "function") {
-  proto.roll = function () { /* no-op: keep horizon level for guests */ };
+  proto.roll = function () { /* no-op: see sunStage.addUserRoll */ };
 }
 
 // --- HiDPI canvas ------------------------------------------------------------

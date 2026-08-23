@@ -347,6 +347,28 @@ function latLngFor(u: Vec3): { latDeg: number; lngDeg: number } {
   };
 }
 
+/**
+ * The Sun's rotation axis in ecliptic coordinates, cached for a minute.
+ *
+ * It moves by about 0.00001 degrees a minute (the axis is fixed in inertial
+ * space; only the Earth-based frame it is expressed in drifts), so recomputing
+ * it per call was pure waste — and it WAS per call: `orbitByPixels` runs once
+ * per pointer event, which a high-report-rate touchscreen fires several times
+ * per rendered frame, and `clampCameraLat` runs every frame for both cameras.
+ */
+let axisCache: Vec3 | null = null;
+let axisCacheAtMs = 0;
+const AXIS_CACHE_MS = 60_000;
+
+function solarAxis(): Vec3 {
+  const now = performance.now();
+  if (!axisCache || now - axisCacheAtMs > AXIS_CACHE_MS) {
+    axisCache = norm3(sunPoleEcliptic(julianDateNow()) as Vec3);
+    axisCacheAtMs = now;
+  }
+  return axisCache;
+}
+
 /** The `rotation` that puts a world-space up vector on screen-up at lat/lng. */
 function rollFor(latDeg: number, lngDeg: number, up: Vec3): number {
   const lat = (latDeg * Math.PI) / 180;
@@ -360,6 +382,64 @@ function rollFor(latDeg: number, lngDeg: number, up: Vec3): number {
   const onE1 = up[0] * e1[0] + up[1] * e1[1] + up[2] * e1[2];
   const onE2 = up[0] * e2[0] + up[1] * e2[1] + up[2] * e2[2];
   return -Math.atan2(onE1, onE2);
+}
+
+/**
+ * The guest's own roll, in radians, on top of the solar-north-up framing.
+ *
+ * Two-finger twist writes this. It has to be SEPARATE state rather than just
+ * `targetCamera.rotation`, because `orbitByPixels` recomputes `rotation` from
+ * scratch on every drag step to keep solar north up — so a roll written
+ * directly into the camera survives exactly until the guest's next pan. The
+ * framing and the guest's twist are two different things and both have to be
+ * remembered.
+ */
+let userRollRad = 0;
+
+/** Add to the guest's roll (two-finger twist). */
+export function addUserRoll(deltaRad: number): void {
+  if (!Number.isFinite(deltaRad)) { return; }
+  userRollRad += deltaRad;
+  // Keep it bounded so a guest who spins the same way for a minute does not
+  // accumulate a number that loses precision.
+  const twoPi = Math.PI * 2;
+  userRollRad = ((userRollRad % twoPi) + twoPi) % twoPi;
+}
+
+/** The guest's roll, for callers that need to reproduce the framing. */
+export function userRoll(): number {
+  return userRollRad;
+}
+
+/** Back to solar-north-up. Recenter does this; nothing else should. */
+export function resetUserRoll(): void {
+  userRollRad = 0;
+}
+
+/**
+ * Multiply the zoom, as a pinch does.
+ *
+ * Writes `targetCamera` only, so the engine's own easing (footgun 14) turns a
+ * pinch into smooth motion for free. `viewCamera` is deliberately NOT written:
+ * that is what makes a pinch feel like it has weight instead of snapping.
+ */
+export function zoomBy(factor: number): void {
+  const rc = renderContext();
+  if (!rc || !Number.isFinite(factor) || factor <= 0) { return; }
+  rc.targetCamera.zoom = clampZoom(rc.targetCamera.zoom * factor);
+}
+
+/** Absolute zoom, for a pinch that tracks a baseline rather than accumulating. */
+export function zoomTo(zoom: number): void {
+  const rc = renderContext();
+  if (!rc || !Number.isFinite(zoom)) { return; }
+  rc.targetCamera.zoom = clampZoom(zoom);
+}
+
+/** Current target zoom, so a gesture can take a baseline at its start. */
+export function currentZoom(): number {
+  const rc = renderContext();
+  return rc ? rc.targetCamera.zoom : MIN_ZOOM;
 }
 
 /**
@@ -387,7 +467,7 @@ export function orbitByPixels(dxPx: number, dyPx: number): void {
   if (!rc) { return; }
 
   const cam = rc.targetCamera.copy();
-  const axis = norm3(sunPoleEcliptic(julianDateNow()) as Vec3);
+  const axis = solarAxis();
   let u = directionFor(cam.lat, cam.lng);
 
   // Azimuth about the solar axis — see AZIMUTH_SIGN.
@@ -419,13 +499,22 @@ export function orbitByPixels(dxPx: number, dyPx: number): void {
 
   cam.lat = latDeg;
   cam.lng = lngDeg;
-  cam.rotation = rollFor(latDeg, lngDeg, up);
+  // Solar north up, PLUS whatever the guest has twisted to. Adding the two is
+  // what lets a twist survive the next pan instead of being recomputed away.
+  cam.rotation = rollFor(latDeg, lngDeg, up) + userRollRad;
   cam.angle = 0;
   pinToSunCenter(cam);
-  // Both cameras: the engine eases viewCamera toward targetCamera, and a drag
-  // should track the finger rather than lag it.
+  // Both lat/lng cameras: the engine eases viewCamera toward targetCamera, and
+  // a drag should track the finger rather than lag it.
+  //
+  // But NOT zoom. Copying targetCamera wholesale used to drag viewCamera.zoom
+  // along with it, so a pinch followed immediately by a pan snapped to the
+  // pinch's target instead of easing into it — a visible jump attributable to
+  // the pinch, which is one of the things that made zoom feel unreliable.
+  const keepViewZoom = rc.viewCamera.zoom;
   rc.targetCamera = cam;
   const view = cam.copy();
+  view.zoom = keepViewZoom;
   pinToSunCenter(view);
   rc.viewCamera = view;
 }
@@ -447,6 +536,10 @@ export function homeCamera(instant = false): void {
   pinToSunCenter(target);
   target.lat = framing.latDeg;
   target.lng = framing.lngDeg;
+  // Recenter is the one place that clears the guest's twist: it means "put it
+  // back the way it started", and leaving a roll behind would make the button
+  // look broken.
+  userRollRad = 0;
   target.rotation = framing.rotationRad;
   target.angle = 0;
   target.zoom = clampZoom(zoomHome());
@@ -482,7 +575,7 @@ export function homeCamera(instant = false): void {
 export function clampCameraLat(maxSolarLatDeg = MAX_SOLAR_LAT_DEG): void {
   const rc = renderContext();
   if (!rc) { return; }
-  const axis = norm3(sunPoleEcliptic(julianDateNow()) as Vec3);
+  const axis = solarAxis();
 
   for (const cam of [rc.targetCamera, rc.viewCamera]) {
     const u = directionFor(cam.lat, cam.lng);

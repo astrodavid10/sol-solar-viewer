@@ -38,3 +38,7 @@ pipeline/.cache/
 # ── Secrets ───────────────────────────────────────────────────────────────
 .env
 *.env
+
+# Scratch tree used by scripts/publish_gh_pages.sh
+/.ghp/
+/.ghp-seed/

@@ -19,10 +19,20 @@ set -euo pipefail
 SRC="$1"; DEST="${2:-}"
 BR=gh-pages
 
-git config user.name  "${GIT_AUTHOR_NAME:-sol-bot}"
-git config user.email "${GIT_AUTHOR_EMAIL:-sol-bot@users.noreply.github.com}"
+# Identity via the ENVIRONMENT, not `git config`. The commit below is made in a
+# throwaway repo created by `git init` in .ghp, which inherits nothing from this
+# one -- an earlier version configured the identity here and then failed every
+# publish with "Author identity unknown", because Actions runners have no global
+# git identity and the config had been written to the wrong repository.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-sol-bot}"
+export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-sol-bot@users.noreply.github.com}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
 
-git fetch --depth=1 origin "$BR" || true
+# First publish into a fresh repo has no gh-pages yet; that is the bootstrap
+# case, not an error. Swallow the expected "couldn't find remote ref" so the log
+# does not read like a failure when it is the normal first run.
+git fetch --depth=1 origin "$BR" 2>/dev/null || echo "no $BR yet — bootstrapping it"
 rm -rf .ghp && mkdir .ghp
 if git rev-parse --verify -q "origin/$BR" >/dev/null; then
   # Materialise the existing published tree so the half we do NOT own survives.

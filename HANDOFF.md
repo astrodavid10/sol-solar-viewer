@@ -181,6 +181,16 @@ null/null before, 78.1 / 4 after. The fix also exposed that the chip was about t
 Lesson worth keeping: the reader's long list of tolerated alias keys created false confidence
 — it looked thoroughly defensive while missing the one name the publisher actually uses.
 
+**First real CI run found a publish bug that had never fired.** `data.yml -f dry_run=true`
+passed on the first attempt (build + validate + artifact green). But the *publish* step is
+skipped in a dry run, so pushing then exercised `app-deploy.yml` for real — and
+`publish_gh_pages.sh` failed with "Author identity unknown". The script did set
+`git config user.name/user.email`, but on the OUTER repo; it then runs `git init` in `.ghp`,
+creating a throwaway repo that inherits none of it, and Actions runners have no global git
+identity. Identity now comes from `GIT_AUTHOR_*` / `GIT_COMMITTER_*` environment variables,
+which apply regardless of which repo the commit lands in. This would have failed every
+scheduled `data.yml` publish too — same script.
+
 ---
 
 ## 4. Verification ledger

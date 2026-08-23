@@ -266,7 +266,19 @@ const MODE_TIMEOUT_MS = 10000;
  *  animation (user-reported); a 30 Hz single-input re-render is negligible. */
 const PUBLISH_MS = 33;
 
-/** DOM label refresh — 20 Hz reads as continuous without 60 Hz of re-renders. */
+/**
+ * DOM label refresh while the camera is STILL. 20 Hz is plenty for labels that
+ * are only tracking the Sun's own rotation and the spacecraft crawling along
+ * their orbits.
+ *
+ * While the camera is MOVING it is not plenty: the scene renders at 60 fps and
+ * the labels stepped at 20, so they visibly lagged and stuttered behind the
+ * features they name (user-reported). Motion is the case where the eye is most
+ * sensitive to it, so the tick below projects every frame whenever the camera
+ * has actually changed and falls back to this rate the moment it settles.
+ * Projecting a handful of points and writing their transforms is cheap; it is
+ * doing it 60 times a second for nothing that is worth avoiding.
+ */
 const PROJECT_MS = 50;
 
 /** Kiosk attract loop: prograde camera drift, in degrees per second. */
@@ -433,6 +445,8 @@ function makeRuntime(): Runtime {
     lastTickMs: 0,
     lastPublishMs: 0,
     lastProjectMs: 0,
+    /** Last camera state the labels were projected for — see PROJECT_MS. */
+    lastCam: { lat: NaN, lng: NaN, zoom: NaN, rotation: NaN },
     dragging: false,
     destroyed: false,
     published: -1,
@@ -844,7 +858,22 @@ export default defineComponent({
 
       this.updateSun(dt);
 
-      if (now - rt.lastProjectMs > PROJECT_MS) {
+      // Camera motion, cheaply: lat/lng/zoom/rotation is the whole of WWT's
+      // camera state, and the engine eases viewCamera toward targetCamera for
+      // a while after a drag ends, so this keeps up through the settle too.
+      const cam = cameraInfo();
+      const moved = Math.abs(cam.latDeg - rt.lastCam.lat) > 1e-4
+        || Math.abs(cam.lngDeg - rt.lastCam.lng) > 1e-4
+        || Math.abs(cam.zoom - rt.lastCam.zoom) > 1e-9
+        || Math.abs(cam.rotation - rt.lastCam.rotation) > 1e-5;
+      if (moved) {
+        rt.lastCam.lat = cam.latDeg;
+        rt.lastCam.lng = cam.lngDeg;
+        rt.lastCam.zoom = cam.zoom;
+        rt.lastCam.rotation = cam.rotation;
+      }
+
+      if (moved || now - rt.lastProjectMs > PROJECT_MS) {
         rt.lastProjectMs = now;
         this.updateSpacecraft();
         this.updateSurfaceMarkers();

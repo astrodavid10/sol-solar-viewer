@@ -179,10 +179,13 @@ export default defineComponent({
   overflow: hidden;
 
   .im-panel {
+    // Fill the rail column: `width: min(100%, 32rem)` is a modal constraint,
+    // and in a 35% column it made this panel narrower than its neighbours.
+    width: 100%;
+    max-width: none;
     max-height: 100%;
     margin: 0;
     overflow-y: auto;
-    border-radius: 12px;
     // -webkit-overflow-scrolling for momentum on touch laptops/tablets that
     // land in the wide layout.
     -webkit-overflow-scrolling: touch;
@@ -193,12 +196,12 @@ export default defineComponent({
   position: relative;
   width: min(100%, 32rem);
   margin: auto;
-  padding: 1.4rem 1.2rem 1.2rem;
-  border: 1px solid rgba(255, 200, 80, 0.35);
-  border-radius: 14px;
+  padding: var(--sol-panel-pad);
+  border: var(--sol-panel-border);
+  border-radius: var(--sol-panel-radius);
   background: var(--sol-surface);
   color: var(--sol-text);
-  box-shadow: 0 0 30px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--sol-panel-shadow);
 }
 
 .im-close {

@@ -10,6 +10,17 @@
   --sol-text-dim: #b8b0a0;
   --app-content-height: 100dvh;
 
+  // One panel treatment, so the desktop rail reads as a single column of
+  // surfaces rather than three components that each invented their own border,
+  // radius and padding. Components use these instead of hardcoding, which is
+  // what let them drift apart in the first place.
+  --sol-panel-border: 1px solid rgba(255, 200, 80, 0.3);
+  --sol-panel-radius: 12px;
+  --sol-panel-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
+  --sol-panel-pad: 0.85rem;
+  // Horizontal breathing room the rail applies to every child alike.
+  --sol-rail-gutter: 0.75rem;
+
   // KioskQrModal.vue is shared verbatim between data stories and paints with
   // the skeleton's generic accent tokens. Aliasing them here is how Sol dresses
   // it in solar gold without editing the copied component.

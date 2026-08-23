@@ -176,11 +176,11 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   min-width: 15rem;
-  padding: 0.3rem;
-  border: 1px solid rgba(255, 200, 80, 0.28);
-  border-radius: 12px;
+  padding: var(--sol-panel-pad);
+  border: var(--sol-panel-border);
+  border-radius: var(--sol-panel-radius);
   background: var(--sol-surface);
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--sol-panel-shadow);
 }
 
 .lp-row {

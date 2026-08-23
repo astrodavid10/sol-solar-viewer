@@ -416,22 +416,40 @@ export default defineComponent({
     min-width: 0;
   }
 
+  // One gutter, one width, one rhythm. Each of these components can also
+  // appear as a phone overlay, where they size themselves — so the rail sets
+  // the geometry here rather than any of them assuming it.
+  .sol-area-info,
+  .sol-area-layers,
+  .sol-area-stats {
+    padding-right: var(--sol-rail-gutter);
+    padding-left: var(--sol-rail-gutter);
+  }
+
   .sol-area-info {
     grid-area: info;
     min-height: 0;
-    padding: 0.6rem 0.6rem 0;
+    padding-top: var(--sol-rail-gutter);
   }
 
   .sol-area-layers {
     grid-area: layers;
     align-self: start;
-    margin: 0.6rem 0.6rem 0;
+    padding-top: var(--sol-rail-gutter);
   }
 
   .sol-area-stats {
     grid-area: stats;
     align-self: end;
-    padding-bottom: 0.6rem;
+    padding-top: var(--sol-rail-gutter);
+    padding-bottom: var(--sol-rail-gutter);
+
+    // SunStats carries its own gutter for the phone layout; the rail owns it
+    // here, so the two must not add up to a wider inset than its neighbours.
+    :deep(.sun-stats) {
+      padding-right: 0;
+      padding-left: 0;
+    }
   }
 }
 </style>

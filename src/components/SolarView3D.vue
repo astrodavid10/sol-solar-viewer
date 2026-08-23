@@ -157,7 +157,7 @@ import "../wwt/wwt-hacks";
 import { EngineSetting, WWTControl } from "@wwtelescope/engine";
 import { WWTAwareComponent, WWTComponent, wwtPinia } from "@wwtelescope/engine-pinia";
 import { defineComponent, markRaw } from "vue";
-import { Vector3 } from "three";
+import { TextureLoader, Vector3 } from "three";
 
 import LayerPanel from "./LayerPanel.vue";
 import RegionLabel from "./RegionLabel.vue";
@@ -205,6 +205,7 @@ import { ProjectTarget, Projected, cameraPosition, projectTargets } from "../thr
 import { SolarWind, createSolarWind } from "../three/solarWind";
 import { SpacecraftTrails, TrailInput, createSpacecraftTrails } from "../three/spacecraftTrails";
 import { SunGlow, createSunGlow } from "../three/sunGlow";
+import { OffLimbLayer, createOffLimb } from "../three/offLimb";
 import { SunSurface, createSunSurface } from "../three/sunSurface";
 import { ThreeStage, createThreeStage } from "../three/stage";
 import { installHiDpiCanvas } from "../wwt/wwt-hacks";
@@ -385,6 +386,11 @@ interface Runtime {
   stage: ThreeStage | null;
   fieldLines: FieldLines | null;
   surface: SunSurface | null;
+  offLimb: OffLimbLayer | null;
+  /** Off-limb crop URL currently loaded, so a re-check does not reload it. */
+  offLimbUrl: string;
+  offLimbDir: Vector3;
+  offLimbUp: Vector3;
   wind: SolarWind | null;
   glow: SunGlow | null;
   trails: SpacecraftTrails | null;
@@ -434,6 +440,10 @@ function makeRuntime(): Runtime {
     stage: null,
     fieldLines: null,
     surface: null,
+    offLimb: null,
+    offLimbUrl: "",
+    offLimbDir: new Vector3(),
+    offLimbUp: new Vector3(),
     wind: null,
     glow: null,
     trails: null,
@@ -754,6 +764,7 @@ export default defineComponent({
 
     rt.fieldLines?.dispose();
     rt.surface?.dispose();
+    rt.offLimb?.dispose();
     rt.wind?.dispose();
     rt.glow?.dispose();
     rt.trails?.dispose();
@@ -802,6 +813,12 @@ export default defineComponent({
         debug: boolParam("debug"),
       }));
       rt.stage.scene.add(rt.surface.object3d);
+
+      // The part of the image that is NOT on the sphere. Created next to the
+      // surface because it is the same picture, and it takes its texture from
+      // whatever channel the surface settles on.
+      rt.offLimb = markRaw(createOffLimb({ rSunAu: R_SUN_AU }));
+      rt.stage.scene.add(rt.offLimb.object3d);
 
       // Wind paths arrive with the first frame (see tick()); the layer is
       // created here so its buffers exist before anything can ask for them.
@@ -1170,6 +1187,42 @@ export default defineComponent({
       // Same cadence as the chips rather than per frame: this drives a piece of
       // DOM, and 20 Hz is already far more than a fading hint needs.
       this.unobserved = this.rt.surface?.unobservedFraction() ?? 0;
+      this.updateOffLimb();
+    },
+
+    /**
+     * Aim the off-limb billboard and keep its texture in step with the surface.
+     *
+     * The crop is pulled from the surface's OWN manifest choice rather than
+     * fetched independently: a run may not publish every channel, and the crop
+     * has to match the channel the surface actually got, not the one the guest
+     * asked for.
+     */
+    updateOffLimb(): void {
+      const rt = this.rt;
+      const offLimb = rt.offLimb;
+      const surface = rt.surface;
+      if (!offLimb || !surface) { return; }
+
+      const info = surface.textureInfo();
+      if (info && info.offLimbUrl && info.offLimbUrl !== rt.offLimbUrl) {
+        const wanted = info.offLimbUrl;
+        const halfWidth = info.offLimbHalfWidthRSun;
+        rt.offLimbUrl = wanted;
+        new TextureLoader().load(wanted, (texture) => {
+          if (rt.destroyed || rt.offLimbUrl !== wanted) {
+            texture.dispose();
+            return;
+          }
+          offLimb.setTexture(texture, halfWidth);
+        }, undefined, () => {
+          // Optional product: an absent crop just means no off-limb layer.
+          if (rt.offLimbUrl === wanted) { rt.offLimbUrl = ""; }
+        });
+      }
+
+      if (!surface.subEarthFrame(rt.offLimbDir, rt.offLimbUp)) { return; }
+      offLimb.update(rt.cameraWorld, rt.offLimbDir, rt.offLimbUp);
     },
 
     /** "97 R☉ · 0.45 AU" — solar radii first, because that's the story. */

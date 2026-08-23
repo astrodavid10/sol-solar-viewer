@@ -302,13 +302,19 @@ export default defineComponent({
   display: flex;
 }
 
-// Bottom-left of the stage: the top-right is the info button, the bottom-right
-// is the kiosk take-home pill, and the scrubber owns the bottom-centre.
-// Above the safe-area inset so it clears a phone's home indicator.
+// TOP-left of the stage. It started bottom-left and was invisible: the 3D
+// view is `position: relative` with `z-index: auto`, so it creates NO stacking
+// context and its descendants compete directly with this sibling — the time
+// scrubber (z-index 5) and its play button simply painted over the top of a
+// z-index 3 mark sitting in the same corner.
+//
+// Top-left is genuinely free (the reset button owns top-right, the scrubber the
+// whole bottom edge), and the z-index clears everything the 3D view uses except
+// the card slot at 20, which is a deliberate modal-ish overlay.
 .sol-brand {
+  top: 0.75rem;
   left: 0.75rem;
-  bottom: calc(0.75rem + env(safe-area-inset-bottom));
-  z-index: 3;
+  z-index: 6;
 }
 
 .sol-area-stage > * {

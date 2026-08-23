@@ -101,6 +101,10 @@ export interface SunTextureInfo {
   subEarthCarrLonDeg: number;
   /** Heliographic latitude of the sub-Earth point (B0) when the map was made. */
   subEarthLatDeg: number;
+  /** Absolute URL of this channel's off-limb crop, or "" when absent. */
+  offLimbUrl: string;
+  /** How far the crop reaches from Sun centre, in R_sun. */
+  offLimbHalfWidthRSun: number;
   /** How the pipeline filled the hemisphere Earth cannot see ("quiet"). */
   farSide: string;
   generatedUnix: number;
@@ -128,6 +132,13 @@ export interface SunSurface {
   setSpots: (spots: SunSpot[]) => void;
   /** Null until the SDO texture has loaded. */
   textureInfo: () => SunTextureInfo | null;
+  /**
+   * Sub-Earth direction and projected solar north, in WORLD space, for the
+   * off-limb billboard. Both are carried through this group's own Carrington
+   * quaternion, so the billboard cannot drift out of step with the sphere it
+   * sits around. False when no texture has loaded.
+   */
+  subEarthFrame: (dir: Vector3, up: Vector3) => boolean;
   /**
    * How much of what the guest is looking at was never observed: 0 facing the
    * Earth-lit hemisphere, 1 facing the far side, feathered across the same band
@@ -364,10 +375,16 @@ void main() {
 // ---------------------------------------------------------------------
 
 /* eslint-disable @typescript-eslint/naming-convention -- pipeline JSON keys */
+interface RawOffLimb {
+  url?: string;
+  half_width_rsun?: number;
+}
+
 interface RawLayer {
   channel?: string;
   label?: string;
   sub_earth_lat_deg?: number;
+  off_limb?: RawOffLimb;
   wavelength_angstrom?: number | null;
   far_side?: string;
   url?: string;
@@ -394,6 +411,7 @@ interface RawTexture {
   channel?: string;
   label?: string;
   sub_earth_lat_deg?: number;
+  off_limb?: RawOffLimb;
 }
 
 interface RawRegion {
@@ -493,6 +511,7 @@ async function fetchTextureInfo(
       obs_iso: raw.obs_iso,
       sub_earth_carr_lon_deg: raw.sub_earth_carr_lon_deg,
       sub_earth_lat_deg: raw.sub_earth_lat_deg,
+      off_limb: raw.off_limb,
     }];
   /* eslint-enable @typescript-eslint/naming-convention */
   const available = published
@@ -505,10 +524,15 @@ async function fetchTextureInfo(
   const chosen = published.find((layer) => layer.channel === channel) ?? published[0];
   if (!chosen || typeof chosen.url !== "string" || chosen.url === "") { return null; }
 
-  const imageUrl = new URL(chosen.url, manifestUrl);
-  // Cache-bust on the pipeline's own generation stamp: the file name is stable
+  // Cache-bust on the pipeline's own generation stamp: file names are stable
   // across runs, so without this a phone would keep showing yesterday's Sun.
-  if (generatedUnix) { imageUrl.searchParams.set("v", String(generatedUnix)); }
+  // Applied to the off-limb crop too — it is regenerated on the same cadence.
+  const withStamp = (u: URL): URL => {
+    if (generatedUnix) { u.searchParams.set("v", String(generatedUnix)); }
+    return u;
+  };
+
+  const imageUrl = withStamp(new URL(chosen.url, manifestUrl));
 
   return {
     url: imageUrl.href,
@@ -518,6 +542,12 @@ async function fetchTextureInfo(
       : Number.NaN,
     subEarthLatDeg: typeof chosen.sub_earth_lat_deg === "number"
       ? chosen.sub_earth_lat_deg
+      : 0,
+    offLimbUrl: typeof chosen.off_limb?.url === "string" && chosen.off_limb.url
+      ? withStamp(new URL(chosen.off_limb.url, manifestUrl)).href
+      : "",
+    offLimbHalfWidthRSun: typeof chosen.off_limb?.half_width_rsun === "number"
+      ? chosen.off_limb.half_width_rsun
       : 0,
     farSide: typeof raw.far_side === "string" ? raw.far_side : (raw.far_side ? "present" : ""),
     generatedUnix,
@@ -830,6 +860,22 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     setSpots: applySpots,
 
     textureInfo: () => info,
+
+    subEarthFrame(dir: Vector3, up: Vector3): boolean {
+      if (!info) { return false; }
+      const l0 = (info.subEarthCarrLonDeg * Math.PI) / 180;
+      const b0 = (info.subEarthLatDeg * Math.PI) / 180;
+      dir.set(Math.cos(b0) * Math.cos(l0), Math.cos(b0) * Math.sin(l0), Math.sin(b0))
+        .applyQuaternion(group.quaternion);
+      // Solar north in the same frame is simply +Z of the Carrington basis.
+      up.set(0, 0, 1).applyQuaternion(group.quaternion);
+      // Project out the along-view part so "up" is what up means for a picture.
+      const along = up.dot(dir);
+      up.addScaledVector(dir, -along);
+      if (up.lengthSq() < 1e-12) { return false; }
+      up.normalize();
+      return true;
+    },
 
     unobservedFraction(): number | null {
       if (effective() !== "sdo" || !info) { return null; }

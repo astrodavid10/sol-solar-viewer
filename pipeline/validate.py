@@ -41,7 +41,8 @@ from .config import (CME_MIN_SPEED_KMS, EVENTS_MAX_BYTES,
                      EVENTS_WINDOW_SLACK_HOURS, LIM_RSUN, SCHEMA_AR,
                      SCHEMA_EPHEM, SCHEMA_EVENTS, SCHEMA_INDEX, SCHEMA_PFSS,
                      SCHEMA_STATS, SCHEMA_TEXTURE, TEX_MAX_BYTES,
-                     TEX_MAX_OBS_AGE_HOURS, TEX_OUT_H, TEX_OUT_W,
+                     TEX_MAX_OBS_AGE_HOURS, TEX_OFFLIMB_MAX_BYTES,
+                     TEX_OUT_H, TEX_OUT_W,
                      WINDOW_HOURS)
 from .io_utils import age_hours, http_get, parse_iso_z
 from .pfss.export import (MAX_DEQUANT_ERR, dequantize, frame_bytes_expected,
@@ -658,10 +659,73 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
                 rep.check(False, "texture layer is an object")
                 continue
             _check_texture_jpeg(rep, get, doc, lay.get("url"), lay)
+            _check_offlimb(rep, get, lay)
     else:
         rep.check(False, "texture.json has a non-empty layers array",
                   "got {0!r}".format(layers))
         _check_texture_jpeg(rep, get, doc, doc.get("url"), doc)
+
+
+def _check_offlimb(rep: Report, get, layer: dict) -> None:
+    """One channel's off-limb crop.
+
+    The rule that matters is `half_width_rsun`: the app scales the billboard by
+    it so the crop's blacked-out hole lands on the sphere's silhouette. A wrong
+    value does not fail anywhere — it just draws the corona at the wrong size
+    around the Sun, which is exactly the kind of thing nobody notices until a
+    guest asks why the prominences float.
+    """
+    off = layer.get("off_limb")
+    channel = layer.get("channel")
+    if not isinstance(off, dict):
+        rep.check(False, "{0} has an off_limb block".format(channel))
+        return
+
+    name = off.get("url")
+    if not rep.check(isinstance(name, str) and name.endswith(".jpg")
+                     and "/" not in name,
+                     "{0} off-limb url is a sibling .jpg".format(channel),
+                     "got {0!r}".format(name)):
+        return
+
+    half = off.get("half_width_rsun")
+    # AIA reaches ~1.28 R_sun and HMI ~1.09; anything outside this band means
+    # the limb fit or the crop geometry has moved.
+    rep.check(isinstance(half, (int, float)) and 1.02 < float(half) < 1.60,
+              "{0} off-limb half_width_rsun is plausible".format(channel),
+              "got {0!r}".format(half))
+
+    blob = get("texture/" + name)
+    if not rep.check(blob is not None, "{0} fetched".format(name)):
+        return
+    rep.check(len(blob) < TEX_OFFLIMB_MAX_BYTES,
+              "{0} under {1} bytes".format(name, TEX_OFFLIMB_MAX_BYTES),
+              "{0} bytes".format(len(blob)))
+    if "bytes" in off:
+        rep.check(len(blob) == int(off["bytes"]),
+                  "{0} size matches texture.json".format(name),
+                  "{0} vs {1}".format(len(blob), off["bytes"]))
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(blob))
+        img.load()
+    except Exception as exc:                                   # noqa: BLE001
+        rep.check(False, "{0} decodes".format(name), str(exc))
+        return
+    rep.check(img.size[0] == img.size[1], "{0} is square".format(name),
+              "got {0}x{1}".format(*img.size))
+
+    # The disk MUST be blacked out: the billboard is additively blended, so a
+    # bright centre would paint a second Sun over the sphere.
+    import numpy as np
+    arr = np.asarray(img.convert("L"), dtype=float)
+    n = arr.shape[0]
+    c = n // 2
+    q = n // 8
+    core = arr[c - q:c + q, c - q:c + q]
+    rep.check(float(core.mean()) < 4.0,
+              "{0} disk centre is blacked out".format(name),
+              "centre mean {0:.1f}".format(float(core.mean())))
 
 
 def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict) -> None:

@@ -1,0 +1,194 @@
+@font-face {
+  font-family: "Highway Gothic Narrow";
+  src: url("./HighwayGothicNarrow.ttf");
+}
+
+.no-select {
+  -webkit-user-select: none; /* Safari */
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+.pointer-events {
+  pointer-events: auto;
+}
+
+:root {
+  --default-font-size: clamp(0.7rem, min(1.7vh, 1.7vw), 1.1rem);
+  --default-line-height: clamp(1rem, min(2.2vh, 2.2vw), 1.6rem);
+}
+
+/* Overall page styling */
+html {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #000;
+
+  overflow: hidden;
+  -ms-overflow-style: none;
+
+  /* We don't want a scrollbar for the overall canvas */
+  scrollbar-width: none;
+  ::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+body {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+a {
+  text-decoration: none;
+  color: #aec2fd;
+  pointer-events: auto;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+/*
+  The main content of the app.
+  The --app-content-height allows the app to shrink when a sheet is open.
+ */
+#main-content {
+  position: fixed;
+  width: 100%;
+  height: var(--app-content-height, 100dvh);
+  overflow: hidden;
+
+  transition: height 0.1s ease-in-out;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-size: 11pt;
+
+  .wwtelescope-component {
+    position: absolute;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    border-style: none;
+    border-width: 0;
+    margin: 0;
+    padding: 0;
+    transition: height .25s ease;
+    canvas {
+      background-color: black;
+    }
+  }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s;
+}
+.fade-enter,
+.fade-leave-to {
+  opacity: 0;
+}
+
+
+/* The modal loading window */
+.modal {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  width: 100%;
+  height: 100%;
+  z-index: 100;
+  color: #fff;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#modal-loading {
+  background-color: #000;
+  .container {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    .spinner {
+      width: 3rem;
+      height: 3rem;
+      border-radius: 50%;
+      border: 4px solid rgba(255, 200, 80, 0.25);
+      border-top-color: #ffc850;
+      animation: sol-spin 1s linear infinite;
+    }
+    p {
+      margin: 0 0 0 1rem;
+      padding: 0;
+      font-size: 150%;
+    }
+  }
+}
+
+@keyframes sol-spin {
+  to { transform: rotate(360deg); }
+}
+
+.bottom-sheet {
+  .v-overlay__content {
+    align-self: flex-end;
+    padding: 0;
+    margin: 0;
+    max-width: 100%;
+    height: 34%;
+  }
+}
+
+/* Miscellaneous class styling */
+.close-icon {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 15;
+
+  &:hover {
+    cursor: pointer;
+  }
+
+  &:focus {
+    color: white;
+    border: 2px solid white;
+  }
+}
+
+.pointer {
+  cursor: pointer;
+}
+
+.control-icon {
+  pointer-events: auto;
+
+  &:hover {
+    cursor: pointer;
+  }
+}
+
+.scrollable {
+  overflow-y: auto;
+}
+
+/* Kiosk mode (museum touchscreen). Class toggled by src/kiosk/kiosk.ts. */
+body.kiosk-mode {
+  overscroll-behavior: none;     /* kill pull-to-refresh / rubber-band */
+  -webkit-touch-callout: none;   /* kill long-press callout */
+}

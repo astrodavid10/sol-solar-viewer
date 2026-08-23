@@ -1,0 +1,212 @@
+# Sol — the Sun Right Now
+
+Mobile-first solar data explorer for planetarium guests ("Data to Dome, Dome to Phone").
+Guests scan a QR code and see current solar conditions: live SDO imagery ("Sun Now" disk view),
+the Sun's magnetic field in 3D over the last 48 hours (PFSS field lines from our own pipeline,
+same model + colors as the dome show), Parker Solar Probe / Solar Orbiter positions, and live
+NOAA space-weather numbers.
+
+**Start here: `HANDOFF.md`** — living status doc (what is done, partial, unstarted, and what
+has never been verified in a browser). Update it at the end of any session that changes state.
+Full implementation plan: `the implementation plan (local, not in this repo)`.
+Skeleton provenance: adapted from `DataStories\exo-sonification` (that repo is READ-ONLY reference).
+
+## Commands
+
+```bash
+yarn install          # yarn 4 (packageManager pin); empty yarn.lock was needed once because
+                      # a stray package.json in the user home dir confuses project detection
+yarn serve            # dev server (allowedHosts: all — test on a phone via LAN IP)
+yarn lint             # eslint, no fix
+yarn typecheck        # tsc --noEmit — does NOT check .vue script blocks; only yarn build does
+yarn build            # production build to dist/
+```
+
+Pipeline (Python, conda env `sdo`):
+
+```powershell
+conda run -n sdo python -m pipeline all --out public\data -v    # dev data for yarn serve
+conda run -n sdo python -m pipeline pfss --from-cache --out public\data  # fast re-export (~2 s)
+conda run -n sdo python -m pipeline validate --root public\data --strict
+# fallback if conda run misbehaves:
+& "$env:USERPROFILE\anaconda3\envs\sdo\python.exe" -m pipeline all --out public\data -v
+```
+
+## Architecture
+
+- **Two tracks, one contract.** `src/` is the Vue app; `pipeline/` is the Python data pipeline
+  that GitHub Actions runs every 4 h (`.github/workflows/data.yml`), publishing binary PFSS
+  frames + JSON products to the `data/` subtree of `gh-pages`. The app fetches them same-origin.
+  The contract (binary formats, manifest fields) is specified in the plan file — change it in
+  BOTH places or not at all.
+- **Entry chunk must stay engine-free.** `src/main.ts` must NOT import `@wwtelescope/engine-pinia`
+  (or `three`); `SolarView3D.vue` is an async component whose loader installs `wwtPinia`
+  post-mount. The disk view + stats work with no WWT at all.
+- **gh-pages is a single forced orphan commit** (see `scripts/publish_gh_pages.sh`), shared by
+  `app-deploy.yml` (excludes `data/`) and `data.yml` (writes only `data/`), serialized by the
+  `gh-pages-publish` concurrency group. No history there by design; workflow artifacts are the
+  audit trail. `keepalive.yml` commits monthly to main — REQUIRED, or the cron schedule
+  auto-disables after 60 days without default-branch commits.
+
+## Footguns (hard-won; do not "fix" these)
+
+1. **Never `setTrackedObject(sun)`** in solar-system mode — the engine adds a lat/lng-dependent
+   surface offset that slides the world origin ~1 R_sun as the user orbits, detaching the
+   three.js overlay. Always `camera.target = 20` (custom) + `viewTarget = (0,0,0)`.
+2. **`R_SUN_AU = 0.004645784`** (the engine's adjusted Sun radius), NOT the physical 695,700 km,
+   and `solarSystemScale` must stay 1 — else field-line footpoints float off the sphere by 0.15%+.
+3. **Engine must be ≥ 7.36** for `WWTControl.addFrameCallback` (three-wwt hook). If it's
+   undefined, the yarn `resolutions` block didn't take: `yarn why @wwtelescope/engine`.
+4. Shared-canvas three rendering (`target:"wwt"`) gives correct depth occlusion (Sun hides
+   far-side lines). If WWT artifacts appear, `?three=overlay` is the escape hatch (loses occlusion).
+5. **3D mode needs worldwidetelescope.org up** (imageset catalog fetched at init). Never set
+   freestanding mode. Disk view + stats must stay fully independent of WWT.
+6. **No CORS on sdo.gsfc.nasa.gov**: `<img>`/`<video>` only. No `fetch()`, no canvas readback,
+   no WebGL textures, and NEVER set `crossorigin` on those tags (it breaks loading). This also
+   means no `Last-Modified` — the disk view intentionally shows "new image about every 15 min"
+   instead of a frame timestamp. Don't "fix" it with a fetch; it will CORS-fail.
+7. **SDO URL quirks:** PFSS overlay stills have NO underscore (`latest_2048_0171pfss.jpg`);
+   pfss variants exist at 512/1024/2048/4096 only, and not for HMIIC/HMII/HMID/4500. 48 h movies
+   exist only at 1024 and only for AIA channels + 4500 (0171 is ~32 MB — never preload, always
+   show the size). Daily movies (incl. HMI) live under `dailymov/YYYY/MM/DD/`.
+   **Movie sizes vary wildly by channel** — measured 2026-08 with HEAD requests, 48 h / 24 h:
+   0193 16/6, 0211 17/7, 0171 32/13, 0304 52/21, **0094 100/41**, HMIB —/18, HMIIC —/8 MB.
+   They live in `src/data/sdoCatalog.ts` (`approxMovieMb`, `approxDailyMovieMb`) and are shown
+   on the play button before a single byte loads. Do not replace them with one average.
+8. **`.gitignore` uses `/public/data/`** — a bare `data/` would also swallow `src/data/`.
+9. **PFSS dead-seed padding repeats the last valid vertex** (opacity 0 via valid=0). Zero-padding
+   instead draws rays to the Sun's center.
+10. **`onGesture*` engine patches must run at import time** (`src/wwt/wwt-hacks.ts` — the engine
+    binds handlers at initControl and captures the method reference). `move` can be patched
+    anytime. These patches replace exo's `modify_index.py` node_modules hack.
+11. **WWT's FOV is fixed π/4 VERTICAL.** Portrait framing needs `tfAspectPad()`
+    (≈ innerHeight/innerWidth) or every view is ~2.2x too tight on a phone.
+12. Keep `src/three/fieldLines.ts`, `spacecraftTrails.ts`, `sunGlow.ts`, `project.ts` free of
+    WWT imports — they take scene/camera from `stage.ts`, so a pure-three.js stage could replace
+    WWT if 3D proves too heavy on phones.
+13. **Quantized coords don't gzip** (measured 1.13x) — the raw `.bin` sizes are the real budget.
+    Ship raw binaries; GitHub Pages gzips transparently (and pre-gzipped `.gz` files would NOT
+    get Content-Encoding on Pages — they'd arrive as garbage).
+14. Camera zoom semantics in solar-system mode: `distance_AU = 4·zoom/9 + 1e-6`. The engine
+    eases `viewCamera` toward `targetCamera` every frame — write `targetCamera` for smooth
+    motion; no slew machinery needed.
+15. The vendored `src/three/three-wwt/` is patched (drawing-buffer-driven sizing, webgl1
+    fallback, direct addFrameCallback). Do NOT replace it with the `@cosmicds/three-wwt` npm
+    package — 0.0.3 bundles a duplicate WWT engine (1.7 MB) and has a broken CJS entry.
+16. **three's `resetState()` clobbers the GL viewport from the shimmed `gl.canvas.width`**
+    (CSS px on DPR>1 screens) and leaves its own viewport cache stale, so `setViewport()`
+    afterwards no-ops. The vendored setupThreeWWT restores the viewport with a RAW
+    `gl.viewport(0,0,drawingBufferWidth,drawingBufferHeight)` call before every shared-canvas
+    render. Symptom when regressed: overlay renders offset into the bottom-left quadrant on
+    every phone, correct on desktop.
+17. **Never unmount `<WorldWideTelescope>`** once created — the engine's global texture/tile
+    caches hold handles into the destroyed GL context and a remounted Sun renders black.
+    sol.vue mounts SolarView3D once and hides it with v-show; SolarView3D pauses its three
+    work via `stage.setEnabled(view === "3d")`.
+18. **WWT's depth buffer is not trustworthy for overlay depth-testing.** Its TileShader never
+    sets depthMask (inherits whatever the last GL user left) and its planet passes write
+    engine-internal values — depth-testing our sun sphere against them let WWT's own Sun
+    texture occlude the sphere completely. The shared-canvas pass therefore CLEARS the depth
+    buffer at the start of every three render (setupThreeWWT.ts) and the sun-surface mesh is
+    the authoritative occluder; in "Plain" surface mode it renders depth-only
+    (colorWrite=false). Do not remove the clear or the depth-only mode: far-side field-line
+    occlusion depends on both. (Fix applied but NOT yet human-verified in a browser.)
+19. **WWT's camera REVERSES triangle winding — every solid material needs `side` flipped.**
+    The engine builds its matrices with `Matrix3d.lookAtLH` + `Matrix3d.perspectiveFovLH`
+    (D3D, left-handed, clip w = +z_view, depth [0,1]); three assumes GL's right-handed
+    convention. `wwtMatrixToTHREE` passes them through verbatim (that is what keeps our
+    geometry registered with WWT), so the world→clip transform three draws with is
+    orientation-REVERSING: `det(P_wwt) = +1.166e-3` vs `det(P_three) = -2.332e-3` at
+    fov π/4 / aspect 0.5 / zn 1e-4 (det(V) = +1 in both). three cannot compensate — it picks
+    winding from `object.matrixWorld.determinantAffine() < 0`, the OBJECT only, never the
+    camera. So with three's defaults every solid mesh has its FRONT faces culled.
+    Symptoms, all one cause: the Sun's SDO/artist texture visible "through" the sphere (you
+    were seeing the inside of the far hemisphere); that surface ~21% brightness (sunSurface's
+    `mu = max(dot(normalize(vWorld), view), 0.08)` is negative on a back face → clamps to
+    0.08 → `pow(0.08,0.6)`); and the sun glow + spacecraft marker dots GONE, because three's
+    Sprite quad is wound CCW and SpriteMaterial defaults to FrontSide. `src/three/winding.ts`
+    owns this: `SOLID_SIDE` (BackSide) for meshes, `FLAT_SIDE` (DoubleSide) for sprites, and
+    `assertWinding()` re-derives the sign from the live camera each session so a convention
+    change in the engine warns instead of silently rendering inside-out.
+20. **View-space z is POSITIVE in front of the camera** (same lookAtLH cause as 19). Anything
+    ported from a three.js example that says `-mvPosition.z` is wrong here and will silently
+    take the other branch of a `max()`. This pinned every solar-wind particle to the 6 px
+    `gl_PointSize` ceiling at every zoom — 3000 max-size additive dots in the Sun's few
+    hundred pixels, i.e. the "wind is a white blob" report. Use `abs(mv.z)`.
+    `src/three/project.ts` also assumes GL's [-1,1] NDC depth (`z > -1`); under D3D's [0,1]
+    that bound is merely loose, not wrong (behind-camera still rejects via `z < 1`).
+21. **SDO browse stills: `latest_*_HMIBpfss.jpg` is framed differently from `latest_*_HMIB.jpg`.**
+    GSFC renders the PFSS overlay onto a COMMON frame, so the pfss magnetogram is already at
+    AIA's plate scale while the plain one is at HMI's. Measured limb diameter as a fraction of
+    frame (identical across 1024/2048/4096): HMIB 0.9184, HMIBpfss 0.7676, 0171 0.7824,
+    0171pfss 0.7893. Applying `diskScale` to the overlay rendered the Magnetic Map ~18% small.
+    `diskScaleFor(id, res, pfss)` mirrors `stillUrl`'s variant choice exactly — change them
+    together. The plain-HMI 0.8395 is CORRECT and measurement-backed: AIA 4500 (white light,
+    same photospheric limb HMI sees) is 0.7711 vs HMI 0.9168 = 0.8411, within 0.2% of the
+    0.5044/0.6009 plate-scale ratio. The EUV channels' limb really is ~1.5% larger — emission
+    above the photosphere, not a framing error. Do not "correct" it away.
+22. **The 3D sphere texture is MULTI-CHANNEL** (`sol.texture/2`). `TEX_WAVELENGTHS =
+    (171, 304, 193)` in `pipeline/config.py`; `run_texture` loops them and writes one
+    `aia{wwww}_carrington_2048x1024.jpg` each (~110-180 KB, 432 KB total, ~38 s) plus a
+    `layers` array in `texture.json`. The top-level fields still describe the FIRST channel,
+    so a schema-1 reader stays correct. A non-default channel that fails is SKIPPED, not
+    fatal; the default failing still propagates. The app holds ONE channel texture resident
+    (2048x1024 RGBA ≈ 8 MB of GPU memory each) and re-decodes from the HTTP cache on switch.
+    All three are AIA, so they share `TEX_SRC_SCALE_ARCSEC` — adding an HMI product would
+    need a second plate scale (0.5044"/px, disk fills 0.9184 of frame vs AIA's 0.782) AND a
+    different far-side model, since a "quiet sun" fill is meaningless for a magnetogram.
+23. **DONKI numbers active regions 10000 higher than NOAA SRS does.** DONKI says `14513`,
+    `srs.txt` and `ar/regions.json` say `4513` (verified against both feeds simultaneously
+    2026-08-23). `events/export.py` joins with `activeRegionNum - 10000`; a naive join
+    silently matches ZERO regions and anchors every eruption nowhere. `run_events` prints
+    the match rate every run so a regression is visible in the log, and the validator
+    range-checks `ar_index` against `ar/regions.json`. An `ar_index` of -1 is NORMAL, not a
+    failure: DONKI keeps reporting a region for days after it has left the SRS.
+24. **`kauai.ccmc.gsfc.nasa.gov` (DONKI) has a black-holed AAAA record, and urllib has no
+    Happy Eyeballs.** getaddrinfo returns the v6 address FIRST; connecting to it times out
+    after 21.06 s, then urllib falls back to v4 (0.03 s). curl races the families (RFC 8305)
+    and never notices — which is why a curl probe says 0.87 s and the pipeline said 21.8 s
+    for the identical URL. Two fetches per run was 42 s of a ~4 min CI budget. Fixed with
+    `io_utils._ipv4_only()`, a scoped `getaddrinfo` filter that `http_get_full(...,
+    prefer_ipv4=True)` enters; the events stage went 47.3 s → 5.4 s. Subclassing
+    HTTPSConnection to force the family does NOT work (urllib builds the handler and then
+    never calls the override) — don't "clean it up" that way. It is OPT-IN on purpose:
+    services.swpc.noaa.gov and sdo.gsfc.nasa.gov also resolve v6-first and are fine
+    (0.1-0.4 s), so nothing else should pay for CCMC's DNS.
+25. **A CME must NOT carry the Carrington quaternion the field lines use.** Field lines,
+    solar wind and the sun surface all live in the rotating Carrington frame; a CME
+    propagates along a fixed INERTIAL direction. Carrington rotation is 14.18 deg/day, so
+    over the 72 h window a Carrington-parented CME would swing 42.5 deg — looks fine on one
+    frame, wildly wrong at the other end of the scrubber. `events.json` therefore ships
+    `dir_ecl`, a unit vector already in ecliptic J2000 (the app's world frame), and the app
+    must apply NO rotation to it. Surface-anchored parts of an eruption (flash, arcade) DO
+    stay Carrington-local and should mirror the quaternion the way `solarWind.ts` does.
+
+## Data sources (verified live 2026-08)
+
+- SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).
+- NOAA SWPC (CORS *): tiny endpoints only in the browser (`xray-flares-latest`,
+  `products/summary/*`, `noaa-planetary-k-index`, `noaa-scales`); the BIG files
+  (`xrays-1-day.json` 654 KB, `rtsw_wind_1m.json` 2.9 MB, `solar-cycle/sunspots.json`) are
+  digested server-side into `data/stats/summary.json`.
+- Spacecraft: baked `data/ephem/spacecraft.json` (Horizons: PSP=-96, SolO=-144, Earth='399');
+  live now-dot from `swhv.oma.be/position` (CORS *, ONE utc per call — no ranges).
+- PFSS: our pipeline (GONG mrzqs + sunkit-magex, nrho=35, rss=2.5). Fallback (phase 2):
+  LMSAL `fieldlines-YYYYMMDD-000400.json` (CORS *, single daily frame).
+- PUNCH & Proba-3 have NO Horizons ids — both orbit Earth; heliocentrically they ARE Earth.
+- **CCMC DONKI** (`kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/`): flare + CME catalogue, no API
+  key, `ACAO: *`. The ONLY source that gives a flare/CME a place and a direction — NOAA's
+  `xray-flares-latest.json` has class and timing but no source location at all. Digested
+  server-side into `data/events/events.json` (~4 KB). Ask for SHORT windows: 3 days is
+  0.74 s / 23 KB, a year is 32 s. It 403s on HEAD and 200s on GET, so probe with a GET.
+  Not real-time — measured lag to publication is a median 1.9 h for flares, 7.5 h for CMEs
+  (p90 16 h / 103 h) — and records are back-filled and revised via `versionId`, so every
+  run re-fetches the whole window and dedupes rather than appending. Do NOT use the
+  `api.nasa.gov/DONKI` mirror (needs a key, rate-limits at 10, returned 503 when checked).
+  DONKI's own terms call it "prototyping quality... research context"; that disclaimer
+  ships in the product and must reach the guest-facing copy.
+- **Coronagraphs WITH CORS** (unlike SDO, footgun 6): NOAA SWPC re-serves LASCO C2/C3 and
+  CCOR-1/CCOR-2 at `services.swpc.noaa.gov/images/animations/<inst>/latest.jpg`, `ACAO: *`
+  and a real `Last-Modified`. These CAN be fetched, canvas-read and used as WebGL textures.
+  SWPC also publishes its operational WSA-ENLIL run as CORS-clean JPEGs — real MHD of the
+  real CME, ~93 KB/frame, for free. (Not yet used by the app.)

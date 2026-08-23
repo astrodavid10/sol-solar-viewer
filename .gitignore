@@ -1,0 +1,40 @@
+# ── Build output ──────────────────────────────────────────────────────────
+**/dist/*
+dist-data/
+tsconfig.tsbuildinfo
+
+# ── Dependencies ──────────────────────────────────────────────────────────
+node_modules/
+
+**/.yarn/*
+!**/.yarn/releases
+!**/.yarn/patches
+!**/.yarn/plugins
+!**/.yarn/sdks
+!**/.yarn/versions
+
+.pnp.*
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+pipeline/.cache/
+
+# ── Pipeline dev output (regenerable; served by yarn serve in dev) ────────
+# NOTE: deliberately anchored — a bare `data/` would also swallow src/data/.
+/public/data/
+
+# ── Editor / OS ───────────────────────────────────────────────────────────
+/.vs/
+.vscode/settings.json
+.claude/
+.DS_Store
+*/.DS_Store
+*.log
+
+# ── Secrets ───────────────────────────────────────────────────────────────
+.env
+*.env

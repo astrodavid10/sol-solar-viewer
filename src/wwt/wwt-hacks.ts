@@ -1,0 +1,114 @@
+// Runtime patches to the WWT engine for a Sun-centric, mobile-first app.
+//
+// IMPORT-TIME REQUIREMENT: the onGesture* no-ops below MUST be applied before
+// the WWT component mounts. The engine attaches its input listeners with
+// `ss.bind(name, obj)`, which captures the method AT BIND TIME (initControl) —
+// a patch applied later never runs. `move` is called via dynamic dispatch
+// (`this.move(...)`), so wrapping it works at any time; it is patched here
+// anyway for one obvious home. This module is imported by the 3D async chunk
+// only, before <WorldWideTelescope> is created.
+
+import { WWTControl } from "@wwtelescope/engine";
+
+// Minimal view of the engine internals we patch; the official .d.ts does not
+// expose these members.
+interface PatchableControl {
+  onGestureStart?: (e: unknown) => void;
+  onGestureChange?: (e: unknown) => void;
+  onGestureEnd?: (e: unknown) => void;
+  move: (x: number, y: number) => void;
+  roll?: (angle: number) => void;
+  // eslint-disable-next-line @typescript-eslint/naming-convention -- engine API name
+  get_solarSystemMode: () => boolean;
+}
+
+interface PatchableRenderContext {
+  width: number;
+  height: number;
+}
+
+const proto = WWTControl.prototype as unknown as PatchableControl;
+
+// --- iOS Safari pinch fix ---------------------------------------------------
+// On iOS, Safari fires proprietary gesture* events IN ADDITION to touch
+// events. WWT's onGestureChange sets zoom absolutely from the gesture scale
+// while its two-finger onTouchMove path ALSO applies an incremental zoom —
+// both fire, they fight, and pinch zoom runs away. exo-sonification fixed
+// this by deleting the engine line via modify_index.py (node_modules patch);
+// no-opping the handlers here achieves the same with no build-step hack.
+proto.onGestureStart = function () { /* no-op: iOS double-applies zoom */ };
+proto.onGestureChange = function () { /* no-op: see modify_index.py rationale */ };
+proto.onGestureEnd = function () { /* no-op */ };
+
+// --- Swipe sensitivity in solar-system mode ----------------------------------
+// The engine's solar-system move() works out to ~0.378°/px — a full-width
+// phone swipe would spin the Sun ~147°. Scale it down for touch comfort.
+export const SOLAR_MOVE_SCALE = 0.3; // ~0.11°/px ⇒ full-width swipe ≈ 45°
+
+const origMove = proto.move;
+proto.move = function (this: PatchableControl, x: number, y: number) {
+  const k = this.get_solarSystemMode() ? SOLAR_MOVE_SCALE : 1;
+  origMove.call(this, x * k, y * k);
+};
+
+// --- Disable two-finger roll --------------------------------------------------
+// A rotating horizon is disorienting for guests; keep "up" fixed.
+if (typeof proto.roll === "function") {
+  proto.roll = function () { /* no-op: keep horizon level for guests */ };
+}
+
+// --- HiDPI canvas ------------------------------------------------------------
+// Copied from exo-sonification src/wwt-hacks.ts (lines 237-285), parameterized
+// with a DPR cap: 1-px field lines read as intended on 2-3x phone screens, but
+// full 3x rendering costs too much fill rate, so cap at 2.
+export function installHiDpiCanvas(maxDpr = 2): void {
+  const dpr = Math.min(window.devicePixelRatio ?? 1, maxDpr);
+  if (dpr <= 1) return;
+
+  const ctl = WWTControl.singleton;
+  // `canvas` is real but absent from the official .d.ts
+  const canvas = (ctl as unknown as { canvas: HTMLCanvasElement }).canvas;
+  const rc = ctl.renderContext as unknown as PatchableRenderContext;
+
+  // Canvas property shim: the engine reads/writes CSS-pixel sizes; the real
+  // backing store is scaled by dpr behind its back.
+  const canvasProto = HTMLCanvasElement.prototype;
+  const origW = Object.getOwnPropertyDescriptor(canvasProto, "width");
+  const origH = Object.getOwnPropertyDescriptor(canvasProto, "height");
+  if (!origW?.get || !origW.set || !origH?.get || !origH.set) return;
+
+  Object.defineProperty(canvas, "width", {
+    get(): number { return Math.round(origW.get?.call(this) / dpr); },
+    set(cssW: number) {
+      origW.set?.call(this, Math.round(cssW * dpr));
+      (this as HTMLCanvasElement).style.width = cssW + "px";
+    },
+    configurable: true,
+  });
+  Object.defineProperty(canvas, "height", {
+    get(): number { return Math.round(origH.get?.call(this) / dpr); },
+    set(cssH: number) {
+      origH.set?.call(this, Math.round(cssH * dpr));
+      (this as HTMLCanvasElement).style.height = cssH + "px";
+    },
+    configurable: true,
+  });
+
+  // renderContext property shim
+  let rcW = Math.round((rc.width || canvas.clientWidth) * dpr);
+  let rcH = Math.round((rc.height || canvas.clientHeight) * dpr);
+  Object.defineProperty(rc, "width", {
+    get(): number { return rcW; },
+    set(cssW: number) { rcW = Math.round(cssW * dpr); },
+    configurable: true,
+  });
+  Object.defineProperty(rc, "height", {
+    get(): number { return rcH; },
+    set(cssH: number) { rcH = Math.round(cssH * dpr); },
+    configurable: true,
+  });
+
+  // Force initial physical sizing
+  canvas.width = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
+}

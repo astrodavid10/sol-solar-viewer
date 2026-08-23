@@ -1,0 +1,92 @@
+name: data
+
+# Every 4 hours, matching the 4 h frame spacing: one skipped run still lands
+# exactly on the 8 h staleness threshold instead of past it.  Minute 7 avoids
+# the top-of-hour GitHub Actions queue crush.
+on:
+  schedule:
+    - cron: "7 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Ignore traced-frame caches and retrace every frame"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Build + validate but do not publish to gh-pages"
+        type: boolean
+        default: false
+      max_frames:
+        description: "Only the N newest slots (blank = all 13)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+# Serialised with app-deploy.yml: both force-push a single orphan commit to
+# gh-pages, so they must never interleave their checkouts.
+concurrency:
+  group: gh-pages-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r pipeline/requirements.txt
+
+      # Rolling cache of GONG FITS + traced-frame npz (~10 MB/day).  The
+      # run_id key always misses so the cache is always re-saved; restore-keys
+      # pull the newest previous copy.  With it, 12 of 13 frames hit.
+      - name: Restore pipeline cache
+        uses: actions/cache@v4
+        with:
+          path: pipeline/.cache
+          key: sol-cache-${{ github.run_id }}
+          restore-keys: |
+            sol-cache-
+
+      - name: Build data products
+        run: |
+          # --with-texture is ON here and off by default locally: it costs a
+          # 700 KB download plus ~10 s of reprojection, and a failure is soft
+          # (never changes the exit code, so it cannot block the publish).
+          ARGS="all --out dist-data -v --with-texture"
+          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          if [ -n "${{ inputs.max_frames }}" ]; then
+            ARGS="$ARGS --max-frames ${{ inputs.max_frames }}"
+          fi
+          python -m pipeline $ARGS
+
+      - name: Validate
+        run: python -m pipeline validate --root dist-data --strict
+
+      - name: Publish to gh-pages
+        if: ${{ inputs.dry_run != true }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: bash scripts/publish_gh_pages.sh dist-data data
+
+      # The 7-day artifact IS the audit trail: gh-pages keeps no history.
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-data
+          path: dist-data
+          retention-days: 7

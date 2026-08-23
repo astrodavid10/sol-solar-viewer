@@ -1,0 +1,322 @@
+// =====================================================================
+// NOAA SWPC — endpoints, tolerant parsers, friendly formatters
+// =====================================================================
+// services.swpc.noaa.gov sends `Access-Control-Allow-Origin: *`, so these are
+// the only space-weather numbers the browser can fetch directly. Only the TINY
+// endpoints are used here — the big ones (xrays-1-day.json 654 KB,
+// rtsw_wind_1m.json 2.9 MB, solar-cycle/sunspots.json) are digested
+// server-side into data/stats/summary.json by the pipeline.
+//
+// The parsers are deliberately shape-tolerant. SWPC's "products/summary/*"
+// files have changed between bare objects and single-element arrays before,
+// the planetary-K product has shipped both as an array-of-arrays table with a
+// header row and as an array of objects, and numeric fields arrive sometimes
+// as numbers and sometimes as strings. Nothing here throws on a surprise: a
+// field that can't be read comes back null and its chip shows "—".
+//
+// Field names are read through string keys rather than declared interfaces
+// because the wire format is snake_case / PascalCase and the repo's
+// naming-convention lint rule requires camelCase type properties.
+
+export const XRAY_FLARES_URL = "https://services.swpc.noaa.gov/json/goes/primary/xray-flares-latest.json";
+export const WIND_SPEED_URL = "https://services.swpc.noaa.gov/products/summary/solar-wind-speed.json";
+export const MAG_FIELD_URL = "https://services.swpc.noaa.gov/products/summary/solar-wind-mag-field.json";
+export const KP_URL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json";
+export const SCALES_URL = "https://services.swpc.noaa.gov/products/noaa-scales.json";
+
+// --- shape helpers --------------------------------------------------------
+
+type Dict = Record<string, unknown>;
+
+function isDict(value: unknown): value is Dict {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Unwrap the `[{...}]` single-element-array form the summary products use. */
+function firstRecord(json: unknown): Dict | null {
+  if (Array.isArray(json)) {
+    const first = json.find(isDict);
+    return first ?? null;
+  }
+  return isDict(json) ? json : null;
+}
+
+/** First present key, read as a finite number (accepts numeric strings). */
+function numField(row: Dict, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const raw = row[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) { return raw; }
+    if (typeof raw === "string" && raw.trim() !== "") {
+      const n = Number(raw);
+      if (Number.isFinite(n)) { return n; }
+    }
+  }
+  return null;
+}
+
+/** First present key, read as a non-empty string. */
+function strField(row: Dict, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const raw = row[key];
+    if (typeof raw === "string" && raw.trim() !== "") { return raw; }
+    if (typeof raw === "number" && Number.isFinite(raw)) { return String(raw); }
+  }
+  return null;
+}
+
+/**
+ * SWPC time tags are ISO-ish but frequently lack a zone ("2026-08-23T00:00:00")
+ * while always meaning UTC. Normalise so Date.parse doesn't read them as local.
+ */
+export function parseTimeTag(timeTag: string | null): number | null {
+  if (!timeTag) { return null; }
+  const normalized = /(z|[+-]\d{2}:?\d{2})$/i.test(timeTag)
+    ? timeTag.replace(" ", "T")
+    : `${timeTag.replace(" ", "T")}Z`;
+  const ms = Date.parse(normalized);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Every parser returns this: the value plus the observation time SWPC reports. */
+export interface Parsed<T> {
+  value: T;
+  timeTag: string | null;
+}
+
+// --- flares ---------------------------------------------------------------
+
+export interface FlareInfo {
+  /** GOES X-ray class right now, e.g. "B7.2". */
+  currentClass: string | null;
+  /** Largest class since the current event began, e.g. "B9.3". */
+  maxClass: string | null;
+  maxTime: string | null;
+}
+
+export function parseFlares(json: unknown): Parsed<FlareInfo> | null {
+  const row = firstRecord(json);
+  if (!row) { return null; }
+  const currentClass = strField(row, "current_class", "currentClass");
+  const maxClass = strField(row, "max_class", "maxClass");
+  if (currentClass === null && maxClass === null) { return null; }
+  return {
+    value: {
+      currentClass,
+      maxClass,
+      maxTime: strField(row, "max_time", "maxTime"),
+    },
+    timeTag: strField(row, "time_tag", "timeTag"),
+  };
+}
+
+// --- solar wind -----------------------------------------------------------
+
+export function parseWindSpeed(json: unknown): Parsed<number> | null {
+  const row = firstRecord(json);
+  if (!row) { return null; }
+  const speed = numField(row, "proton_speed", "protonSpeed", "speed");
+  if (speed === null) { return null; }
+  return { value: speed, timeTag: strField(row, "time_tag", "timeTag") };
+}
+
+export interface MagInfo {
+  /** Total field strength, nT. */
+  bt: number | null;
+  /** North-south component, nT. Negative Bz is what lights up aurora. */
+  bz: number | null;
+}
+
+export function parseMagField(json: unknown): Parsed<MagInfo> | null {
+  const row = firstRecord(json);
+  if (!row) { return null; }
+  const bt = numField(row, "bt");
+  // The live product ships "bz_gsm"; "bz" is kept as a fallback because older
+  // copies of this file used it.
+  const bz = numField(row, "bz_gsm", "bz", "bz_gse");
+  if (bt === null && bz === null) { return null; }
+  return { value: { bt, bz }, timeTag: strField(row, "time_tag", "timeTag") };
+}
+
+// --- planetary K index ----------------------------------------------------
+
+/**
+ * Two shapes seen in the wild:
+ *   array-of-arrays with a header row: [["time_tag","kp",...], ["...", "2.33", ...]]
+ *   array-of-objects:                  [{time_tag: "...", Kp: 1.33, ...}]
+ * Either way we want the LAST row.
+ */
+export function parseKp(json: unknown): Parsed<number> | null {
+  if (!Array.isArray(json) || json.length === 0) { return null; }
+
+  const last = json[json.length - 1];
+
+  if (Array.isArray(last)) {
+    const header = json[0];
+    let kpCol = 1;
+    let timeCol = 0;
+    if (Array.isArray(header)) {
+      const names = header.map((h) => String(h).toLowerCase());
+      const foundKp = names.indexOf("kp");
+      const foundTime = names.indexOf("time_tag");
+      if (foundKp >= 0) { kpCol = foundKp; }
+      if (foundTime >= 0) { timeCol = foundTime; }
+      // A header row is not data — bail out if that's all there is.
+      if (json.length < 2) { return null; }
+    }
+    const kp = Number(last[kpCol]);
+    if (!Number.isFinite(kp)) { return null; }
+    const tag = last[timeCol];
+    return { value: kp, timeTag: typeof tag === "string" ? tag : null };
+  }
+
+  if (isDict(last)) {
+    const kp = numField(last, "Kp", "kp", "kp_index", "estimated_kp");
+    if (kp === null) { return null; }
+    return { value: kp, timeTag: strField(last, "time_tag", "timeTag") };
+  }
+
+  return null;
+}
+
+// --- NOAA scales (R/S/G) --------------------------------------------------
+
+export interface ScaleInfo {
+  /** Radio blackouts (flares). */
+  rScale: number | null;
+  rText: string | null;
+  /** Solar radiation storms. */
+  sScale: number | null;
+  sText: string | null;
+  /** Geomagnetic storms. */
+  gScale: number | null;
+  gText: string | null;
+}
+
+function scalePair(row: Dict, key: string): { scale: number | null; text: string | null } {
+  const entry = row[key];
+  if (!isDict(entry)) { return { scale: null, text: null }; }
+  return {
+    scale: numField(entry, "Scale", "scale"),
+    text: strField(entry, "Text", "text"),
+  };
+}
+
+export function parseScales(json: unknown): Parsed<ScaleInfo> | null {
+  if (!isDict(json)) { return null; }
+  // "0" is today; "1".."3" are the forecast days, "-1" is yesterday.
+  const today = json["0"];
+  if (!isDict(today)) { return null; }
+
+  const r = scalePair(today, "R");
+  const s = scalePair(today, "S");
+  const g = scalePair(today, "G");
+
+  const dateStamp = strField(today, "DateStamp");
+  const timeStamp = strField(today, "TimeStamp");
+  const timeTag = dateStamp ? `${dateStamp}T${timeStamp ?? "00:00:00"}` : null;
+
+  return {
+    value: {
+      rScale: r.scale,
+      rText: r.text,
+      sScale: s.scale,
+      sText: s.text,
+      gScale: g.scale,
+      gText: g.text,
+    },
+    timeTag,
+  };
+}
+
+// =====================================================================
+// Friendly formatters
+// =====================================================================
+// Every chip shows a HEADLINE a ten-year-old can read and a DETAIL for the
+// grown-up who wants the actual number. Never the raw jargon alone.
+
+export interface FriendlyValue {
+  headline: string;
+  detail: string;
+}
+
+export const NO_DATA: FriendlyValue = { headline: "—", detail: "no data right now" };
+
+/**
+ * GOES X-ray class → plain language. A and B are the quiet background; C is a
+ * small flare; M is a real one; X makes the news.
+ */
+// A Map rather than an object literal: single-letter keys can't be camelCase,
+// which the repo's naming-convention rule requires of object properties.
+const FLARE_HEADLINES = new Map<string, string>([
+  ["X", "Big flare!"],
+  ["M", "Medium flare"],
+  ["C", "Small flare"],
+  ["B", "Quiet"],
+  ["A", "Quiet"],
+]);
+
+export function flareLabel(xrayClass: string | null): FriendlyValue {
+  if (!xrayClass) { return NO_DATA; }
+  const detail = xrayClass.trim().toUpperCase();
+  const letter = detail.charAt(0);
+  return { headline: FLARE_HEADLINES.get(letter) ?? "Quiet", detail };
+}
+
+/** km/s → mph is ×2,237 (1 km/s = 2,236.94 mph). */
+const MPH_PER_KM_S = 2237;
+
+export function windLabel(speedKmS: number | null): FriendlyValue {
+  if (speedKmS === null) { return NO_DATA; }
+  const mph = Math.round(speedKmS * MPH_PER_KM_S);
+  return {
+    headline: `${Math.round(speedKmS)} km/s`,
+    detail: `about ${mph.toLocaleString()} mph`,
+  };
+}
+
+export function kpLabel(kp: number | null): FriendlyValue {
+  if (kp === null) { return NO_DATA; }
+  // Round to 2 dp, then drop trailing zeros: 1.33 → "1.33", 2.00 → "2".
+  const detail = `Kp ${Number(kp.toFixed(2))}`;
+  if (kp >= 5) { return { headline: "Storm — aurora possible!", detail }; }
+  if (kp >= 4) { return { headline: "Active", detail }; }
+  return { headline: "Calm", detail };
+}
+
+export function sunspotLabel(count: number | null): FriendlyValue {
+  if (count === null) { return NO_DATA; }
+  return { headline: String(count), detail: "sunspot number" };
+}
+
+// --- freshness ------------------------------------------------------------
+
+export type FreshnessTier = "fresh" | "recent" | "old";
+
+const FRESH_MS = 15 * 60 * 1000;
+const RECENT_MS = 60 * 60 * 1000;
+
+export function freshnessTier(observedMs: number | null): FreshnessTier {
+  if (observedMs === null) { return "old"; }
+  const age = Date.now() - observedMs;
+  if (age < FRESH_MS) { return "fresh"; }
+  if (age < RECENT_MS) { return "recent"; }
+  return "old";
+}
+
+/** "3:20 AM" in the guest's own locale and timezone. */
+export function clockLabel(ms: number | null): string {
+  if (ms === null) { return "unknown"; }
+  return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/** "just now" / "12 min ago" / "3 hours ago" / "2 days ago". */
+export function agoLabel(ms: number | null): string {
+  if (ms === null) { return "time unknown"; }
+  const minutes = Math.round((Date.now() - ms) / 60000);
+  if (minutes < 2) { return "just now"; }
+  if (minutes < 60) { return `${minutes} min ago`; }
+  const hours = Math.round(minutes / 60);
+  if (hours < 36) { return hours === 1 ? "1 hour ago" : `${hours} hours ago`; }
+  const days = Math.round(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}

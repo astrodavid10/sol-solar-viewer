@@ -1,0 +1,65 @@
+// Sol-specific global styling. Component-scoped styles live in the SFCs;
+// only cross-component tokens and page-level rules belong here.
+
+:root {
+  --sol-accent: #ffc850;        // warm solar gold (matches dome closed-line color)
+  --sol-accent2: #5fb8ff;       // open-field blue
+  --sol-bg: #000;
+  --sol-surface: rgba(20, 16, 8, 0.92);
+  --sol-text: #f5efe2;
+  --sol-text-dim: #b8b0a0;
+  --app-content-height: 100dvh;
+
+  // KioskQrModal.vue is shared verbatim between data stories and paints with
+  // the skeleton's generic accent tokens. Aliasing them here is how Sol dresses
+  // it in solar gold without editing the copied component.
+  --accent-color: var(--sol-accent);
+  --accent-color2: var(--sol-accent2);
+}
+
+@supports not (height: 100dvh) {
+  :root {
+    --app-content-height: 100vh;
+  }
+}
+
+.sol-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+// Placeholder shown while the async 3D chunk downloads (and if it fails).
+// Global rather than scoped to sol.vue because sol.vue renders it from a render
+// function, which gets no scoped-style attribute. SolarView3D.vue has its own
+// cover for the slower phase — waiting on WWT itself.
+.sol-3d-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.2rem;
+  text-align: center;
+}
+
+.sol-spinner {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 200, 80, 0.25);
+  border-top-color: var(--sol-accent);
+  animation: sol-spin 1s linear infinite;
+}
+
+.sol-3d-text {
+  margin: 0;
+  color: var(--sol-text-dim);
+  font-size: 0.95rem;
+}
+
+// Chrome elements share this look
+.sol-chrome {
+  color: var(--sol-text);
+  background-color: var(--sol-surface);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}

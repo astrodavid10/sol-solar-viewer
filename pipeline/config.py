@@ -1,0 +1,243 @@
+"""Tunable constants for the Sol pipeline.
+
+Numbers here are *measured*, not guessed: NRHO/RSS come from the dome
+pipeline (1.8 s/solve; a coarser grid buys nothing visible), the seed grid is
+the dome's 40x80 dome grid reduced to a mobile budget, and VERT_BUCKETS was
+sized so a 13-frame 48 h window lands near 1.7 MB total on the wire.
+"""
+
+from __future__ import annotations
+
+from typing import Dict, Tuple
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Identity
+# ─────────────────────────────────────────────────────────────────────────────
+
+PIPELINE_VERSION = "1.0.0"
+USER_AGENT = "sol-pipeline/{0} (+https://github.com/cosmicds/sol)".format(
+    PIPELINE_VERSION)
+HEADERS = {"User-Agent": USER_AGENT}
+
+# Schema identifiers written into every product (the app pins on these).
+SCHEMA_INDEX = "sol.index/1"
+SCHEMA_PFSS = "sol.pfss/1"
+SCHEMA_EPHEM = "sol.ephem/1"
+SCHEMA_AR = "sol.ar/1"
+SCHEMA_STATS = "sol.stats/1"
+SCHEMA_TEXTURE = "sol.texture/2"
+SCHEMA_EVENTS = "sol.events/1"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PFSS model
+# ─────────────────────────────────────────────────────────────────────────────
+
+NRHO = 35                 # radial grid points between 1 R_sun and RSS
+RSS = 2.5                 # source-surface radius (R_sun)
+MAX_TRACE_STEPS = "auto"  # measured: better lines than the dome's 3000 cap
+SOLVER_NAME = "sunkit-magex 1.1.0"
+
+# Quantization half-range.  Traced vertices live in [-RSS, RSS]; 2.6 leaves a
+# little headroom so a vertex landing exactly on the source surface (or a hair
+# outside from the tracer's final step) never clips.
+LIM_RSUN = 2.6
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Seeds
+# ─────────────────────────────────────────────────────────────────────────────
+
+BG_NLAT, BG_NLON = 24, 48        # background grid (dome uses 40x80)
+BG_LAT_LIMIT_DEG = 75.0
+BG_HEIGHT_RS = 1.01
+REGION_MIN_SEEDS, REGION_MAX_SEEDS = 12, 45
+REGION_HEIGHTS: Tuple[float, ...] = (1.005, 1.010, 1.020)
+SEED_HARD_CAP = 2000
+SEED_RNG_SEED = 20260523         # same constant as the dome pipeline
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Adaptive vertex counts
+# ─────────────────────────────────────────────────────────────────────────────
+# (max arc length in R_sun, vertices).  A line's bucket is chosen from its
+# LONGEST arc length across the whole window, so its vertex count is identical
+# in every frame -- that constancy is what makes GPU morphing legal.
+VERT_BUCKETS: Tuple[Tuple[float, int], ...] = (
+    (0.25, 6), (0.6, 10), (1.5, 16), (4.0, 28), (1e9, 48),
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Render hints (shipped in the manifest; the app owns the shader)
+# ─────────────────────────────────────────────────────────────────────────────
+
+COLORS: Dict[str, Tuple[float, float, float]] = {
+    "closed": (1.0, 0.85, 0.2),
+    "open_pos": (0.3, 0.55, 1.0),
+    "open_neg": (1.0, 0.4, 0.1),
+}
+CLOSED_FLOOR = 0.25
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Timeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+WINDOW_HOURS = 72                # user request 2026-08-23 (was 48)
+FRAME_SPACING_HOURS = 4          # 72/4 + 1 == 19 frames (~2.2 MB total)
+GONG_TOLERANCE_HOURS = 3.0       # real GONG gaps of 5-6 h have been observed
+STALE_HOURS = 8.0                # index.json "stale" threshold
+MIN_FRAMES_TO_PUBLISH = 6        # fewer than this -> don't publish pfss/ at all
+MAX_FRAME_BYTES = 200_000        # hard fail; target is 110-160 KB
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sources
+# ─────────────────────────────────────────────────────────────────────────────
+
+GONG_BASE = "https://gong2.nso.edu/oQR/zqs"
+SRS_URL = "https://services.swpc.noaa.gov/text/srs.txt"
+SRS_JSON_URL = "https://services.swpc.noaa.gov/json/solar_regions.json"
+SUNSPOTS_URL = "https://services.swpc.noaa.gov/json/solar-cycle/sunspots.json"
+XRAY_FLARES_URL = (
+    "https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json")
+F107_URL = "https://services.swpc.noaa.gov/products/summary/10cm-flux.json"
+
+# CCMC DONKI -- flare and CME event catalogue.  No API key, and it answers with
+# Access-Control-Allow-Origin: * (verified 2026-08-23), but we digest it
+# server-side anyway: it sends Cache-Control: no-store, so every browser hit
+# would go to origin, and CLAUDE.md's rule is "tiny endpoints only in the
+# browser".
+#
+# Do NOT use the api.nasa.gov/DONKI mirror: it needs a key, rate-limits at 10
+# requests, and returned 503 when checked on 2026-08-23.
+#
+# Do NOT probe these with a HEAD request -- DONKI answers HEAD with 403 and GET
+# with 200 (measured).  probe-sources therefore does a real GET.
+DONKI_BASE = "https://kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/"
+
+# Ask for the display window plus slack, never more.  Measured 2026-08-23: a
+# 3-day CME window answers in 0.74 s / 23 KB, a 235-day window takes 32.4 s.
+# The slack exists because DONKI back-fills: median CME submission lag is 7.5 h
+# and p90 is 103 h, so a record for an event already inside the window can
+# appear days later.  Every run re-fetches the whole window and dedupes rather
+# than appending, for the same reason.
+EVENTS_WINDOW_SLACK_HOURS = 24
+
+# Below this a CME is not worth drawing (and mostly is not real).
+CME_MIN_SPEED_KMS = 250.0
+
+# Hard fail, in the spirit of MAX_FRAME_BYTES.  A 72 h window measured ~5 KB;
+# this only trips if DONKI starts returning something structurally different.
+EVENTS_MAX_BYTES = 60_000
+
+# DONKI's own words, carried through to the guest-facing copy.  This app does
+# not present research-grade data as an official forecast.
+DONKI_DISCLAIMER = (
+    "Space weather information in DONKI should be considered prototyping "
+    "quality and used in a research context. For official forecasts see "
+    "NOAA SWPC.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SDO AIA texture (see pipeline/texture/export.py for the derivations)
+# ─────────────────────────────────────────────────────────────────────────────
+
+TEX_WAVELENGTH = 171                      # Angstrom; the app's default channel
+
+# Every channel published as a 3D sphere texture, default FIRST.  All of these
+# are AIA, so they share one plate scale (TEX_SRC_SCALE_ARCSEC) and one browse
+# framing -- measured 2026-08: the solar disk occupies 0.7824 / 0.7843 / 0.7804
+# of the frame in 0171 / 0193 / 0304 at every offered resolution, i.e. the same
+# to 0.3%.  Adding an HMI product here would NOT be free: HMI's browse stills
+# are at 0.5044"/px and its disk fills 0.9184 of the frame, and the "quiet sun"
+# far-side fill is meaningless for a magnetogram.
+TEX_WAVELENGTHS = (171, 304, 193)
+TEX_OUT_W, TEX_OUT_H = 2048, 1024         # plate carree, 0.1758 deg/px
+TEX_JPEG_QUALITY = 82
+TEX_MAX_BYTES = 800_000                   # validator ceiling; measured ~150 KB
+TEX_MAX_OBS_AGE_HOURS = 24.0              # older than this -> status degraded
+
+# Source browse JPGs.  2048 px frames are the 4096 native downsampled by 2, so
+# the level-1.5 plate scale of 0.6"/px becomes 1.2"/px.  MEASURED against the
+# limb (see measure_limb): ring radius 788.9 px vs 790.5 px predicted from
+# sunpy's angular_radius, i.e. agreement to 0.2%.
+SDO_BROWSE_BASE = "https://sdo.gsfc.nasa.gov/assets/img/browse"
+SDO_LATEST_BASE = "https://sdo.gsfc.nasa.gov/assets/img/latest"
+TEX_SRC_RES = 2048
+TEX_SRC_SCALE_ARCSEC = 0.6 * (4096 // TEX_SRC_RES)
+TEX_LIMB_RADIUS_TOL = 0.03                # warn if the fitted limb is >3% off
+TEX_LIMB_CENTRE_TOL_PX = 25.0             # warn if the disk is not centred
+
+# SDO has two eclipse seasons a year (mid-Feb to mid-Mar, mid-Aug to mid-Sep)
+# with a daily blackout of up to ~72 min, so near-black browse frames are
+# NORMAL and must be walked past rather than reprojected into a black Sun.
+# A healthy frame's central-half mean is ~70 of 255; an eclipsed one is ~0.
+TEX_MIN_DISK_MEAN = 20.0
+TEX_MAX_SOURCE_TRIES = 10                 # 10 min cadence -> covers ~100 min
+
+# Near-side -> far-side blend.  Beyond ~75 deg from the sub-earth point the
+# reprojection is so foreshortened that one output pixel spans many degrees of
+# real Sun (and the 171 limb-brightening ring lives at 88-90 deg), so the last
+# 15 deg is cross-faded into the quiet-sun base with a raised cosine.  The same
+# distance test handles the stretched polar caps for free: with |B0| ~ 7 deg one
+# pole sits at 83 deg and the other is not visible at all.
+TEX_FEATHER_DEG = (75.0, 90.0)
+
+# The near side is ALSO tapered in LATITUDE, which the distance test cannot do
+# for us: at latitude 85 the closest a pixel ever gets to the sub-earth point
+# is 78 deg, so the distance feather leaves those rows at 90% weight.  But the
+# polar surface is seen at >70 deg from normal there, so one input pixel smears
+# over many degrees of latitude and the 171 limb brightening turns the top and
+# bottom rows into a bright horizontal streak.  ARs live inside +/-40 deg, so
+# nothing the app cares about is lost.
+TEX_LAT_FADE_DEG = (72.0, 88.0)
+
+# Quiet-sun base colour: median of the near side between these angular
+# distances, below this percentile (excludes limb brightening and AR cores).
+TEX_QUIET_ANNULUS_DEG = (20.0, 60.0)
+TEX_QUIET_PERCENTILE = 80.0
+
+# Far-side texture: a band-limited analytic field (periodic in longitude, so no
+# seam at lon 0) times a polar darkening ramp.  The seed is FIXED so the far
+# side does not flicker between runs.
+TEX_FARSIDE_SEED = 20260823
+TEX_FARSIDE_NOISE_AMP = 0.12
+TEX_FARSIDE_NOISE_TERMS = 12
+TEX_POLE_FADE_DEG = (55.0, 90.0)
+TEX_POLE_FLOOR = 0.55
+
+# AR registration guard: the catalogued regions must show up as bright pixels
+# near their Carrington coordinates.  Measured 2026-08-23 with 4 regions:
+# 2.7-3.6 deg for the two well-placed ones, which is the floor set by SRS's
+# 1 deg rounding + its 00:00 UT epoch + coronal loops being offset from spots.
+TEX_AR_MAX_SUBEARTH_DEG = 60.0            # only well-placed regions count
+TEX_AR_OFFSET_WARN_DEG = 5.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Caching / output
+# ─────────────────────────────────────────────────────────────────────────────
+
+CACHE_DIR = "pipeline/.cache"    # gong/, frames/<seed_set_id>/, seeds/, srs/
+DEFAULT_OUT = "dist-data"
+KEEP_FRAME_CACHE_SETS = 2        # prune older seed-set frame caches
+
+# Spacecraft baked from JPL Horizons.  'Earth' is ambiguous in Horizons (it
+# matches several records), so the barycentre-free planet id '399' is used.
+EPHEM_BODIES = (
+    # (horizons target, app id, display name, horizons id (informational), color)
+    ("Parker Solar Probe", "psp", "Parker Solar Probe", -96, "#ff8a3d"),
+    ("Solar Orbiter", "solo", "Solar Orbiter", -144, "#5fb8ff"),
+    ("STEREO-A", "stereoa", "STEREO-A", -234, "#c77dff"),
+    ("399", "earth", "Earth", 399, "#7de08a"),
+)
+EPHEM_SPAN_DAYS = 30             # +/- this many days around now
+EPHEM_STEPS = 240                # 240 intervals -> 241 samples -> 6 h cadence
+
+# Missions whose heliocentric position IS Earth's (both are Earth-orbiting, so
+# Horizons has no heliocentric record for them).
+EPHEM_AT_EARTH = (
+    {"id": "punch", "name": "PUNCH",
+     "note": "Sun-synchronous LEO (~600 km); heliocentric position is Earth's"},
+    {"id": "proba3", "name": "Proba-3/ASPIICS",
+     "note": "Earth HEO 600 x 60,500 km; heliocentric position is Earth's"},
+)
+
+# Solar rotation axis in ecliptic J2000 (IAU values; shipped as constants so the
+# app can sanity-check its own basis maths).
+SOLAR_AXIS_TILT_DEG = 7.25173
+SOLAR_AXIS_NODE_DEG = 75.76576

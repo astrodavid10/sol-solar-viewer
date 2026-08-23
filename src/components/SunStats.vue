@@ -58,7 +58,7 @@ const EXPLAINERS: Record<string, string> = {
   flare: "Flares are magnetic explosions on the Sun — NASA labels them A, B, C, M, X, and each letter is ten times stronger than the one before.",
   wind: "The Sun blows a constant stream of charged particles past Earth; at these speeds it makes the trip in about four days.",
   kp: "Kp measures how hard the solar wind is shaking Earth's magnetic field — at 5 and above the northern lights push south.",
-  sunspots: "Sunspots are dark, cooler islands of intense magnetism; the more of them there are, the busier the Sun is.",
+  sunspots: "Sunspot groups NOAA is tracking on the Sun today. Each is an island of intense magnetism, and the more there are, the busier the Sun is.",
 };
 
 export default defineComponent({
@@ -102,9 +102,7 @@ export default defineComponent({
       const flareText = flareLabel(flare.value ? flare.value.currentClass : null);
       const windText = windLabel(wind.value);
       const kpText = kpLabel(kp.value);
-      const spotText = sunspotLabel(
-        snapshot.value ? snapshot.value.sunspotNumber : null,
-        snapshot.value ? snapshot.value.sunspotMonth : "");
+      const spotText = sunspotLabel(snapshot.value ? snapshot.value.activeRegions : null);
 
       return [
         {
@@ -137,7 +135,7 @@ export default defineComponent({
           value: spotText.headline,
           // The snapshot comes from the daily pipeline run, which may simply
           // not exist yet — that is a "—", not an error.
-          detail: snapshot.value ? spotText.detail : "monthly average",
+          detail: snapshot.value ? spotText.detail : "daily count",
           observedMs: snapshot.observedMs,
           stale: false,
         },

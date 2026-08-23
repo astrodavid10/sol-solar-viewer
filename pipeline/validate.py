@@ -632,10 +632,27 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
             "top-level {0!r} not among {1}".format(
                 doc.get("url"),
                 [lay.get("url") for lay in layers if isinstance(lay, dict)]))
-        waves = [lay.get("wavelength_angstrom") for lay in layers
-                 if isinstance(lay, dict)]
-        rep.check(len(set(waves)) == len(waves),
-                  "texture layer wavelengths are unique", "got {0}".format(waves))
+        # Identity is the SDO product code, not the wavelength: HMIB and HMIIC
+        # have no wavelength (a magnetogram and a colourised continuum image),
+        # so wavelength_angstrom is null for both and cannot tell them apart.
+        codes = [lay.get("channel") for lay in layers if isinstance(lay, dict)]
+        rep.check(all(isinstance(c, str) and c for c in codes),
+                  "every texture layer names its channel", "got {0}".format(codes))
+        rep.check(len(set(codes)) == len(codes),
+                  "texture layer channels are unique", "got {0}".format(codes))
+
+        # An honesty invariant, not a formatting one. farside_modulation
+        # invents band-limited mottling for the hemisphere Earth cannot see.
+        # That is a defensible stylisation in EUV; on a magnetogram it is
+        # fabricated magnetic field, and on a continuum image the polar ramp
+        # encodes coronal holes that image does not show.
+        bad_fill = [lay.get("channel") for lay in layers
+                    if isinstance(lay, dict)
+                    and str(lay.get("channel", "")).startswith("HMI")
+                    and lay.get("far_side") != "flat"]
+        rep.check(not bad_fill,
+                  "HMI layers use a flat far side (no invented structure)",
+                  "got quiet fill on {0}".format(bad_fill))
         for lay in layers:
             if not isinstance(lay, dict):
                 rep.check(False, "texture layer is an object")

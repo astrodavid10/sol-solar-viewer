@@ -86,9 +86,9 @@ export interface SunSurfaceOptions {
   dataBaseUrl: string;
   /** Requested mode; the effective mode falls back to "synthetic" with no texture. */
   mode?: SunSurfaceMode;
-  /** AIA channel to paint, in angstrom. Falls back to whatever the manifest's
-   *  top-level (default) layer is when this one is not published. */
-  wavelengthAngstrom?: number;
+  /** SDO product code to paint ("0171", "HMIB", ...). Falls back to whatever
+   *  the manifest's top-level (default) layer is when this one is absent. */
+  channel?: string;
   /** Paint the Carrington longitude markers (`?debug=1`). */
   debug?: boolean;
 }
@@ -102,18 +102,20 @@ export interface SunTextureInfo {
   /** How the pipeline filled the hemisphere Earth cannot see ("quiet"). */
   farSide: string;
   generatedUnix: number;
-  /** The AIA channel this image actually is. */
-  wavelengthAngstrom: number;
+  /** The SDO product code this image actually is. */
+  channel: string;
+  /** Human label the pipeline published for it ("Magnetic Map"). */
+  label: string;
   /** Every channel texture.json publishes, in manifest order (default first). */
-  available: number[];
+  available: string[];
 }
 
 export interface SunSurface {
   /** Add to the stage's scene. Carries the Carrington orientation. */
   object3d: Group;
   setMode: (mode: SunSurfaceMode) => void;
-  /** Paint a different AIA channel. No-op if it is already the active one. */
-  setChannel: (wavelengthAngstrom: number) => void;
+  /** Paint a different SDO channel. No-op if it is already the active one. */
+  setChannel: (channel: string) => void;
   /** What we are actually drawing (never "sdo" until a texture has loaded). */
   effectiveMode: () => SunSurfaceMode;
   /** The SAME slerped Carrington->ecliptic quaternion the field lines use. */
@@ -179,8 +181,8 @@ const DRIFT_AMP_A = 0.35;
 const DRIFT_AMP_B = 0.5;
 
 /** Channel painted when nothing asks for another one — the pipeline's own
- *  default layer (config.TEX_WAVELENGTHS[0]). */
-const DEFAULT_WAVELENGTH = 171;
+ *  default layer (config.TEX_CHANNELS[0]). */
+const DEFAULT_CHANNEL = "0171";
 
 /** How often `texture.json` is re-checked while the 3D view is mounted. */
 const TEXTURE_POLL_MS = 30 * 60 * 1000;
@@ -332,7 +334,10 @@ void main() {
 
 /* eslint-disable @typescript-eslint/naming-convention -- pipeline JSON keys */
 interface RawLayer {
-  wavelength_angstrom?: number;
+  channel?: string;
+  label?: string;
+  wavelength_angstrom?: number | null;
+  far_side?: string;
   url?: string;
   obs_iso?: string;
   sub_earth_carr_lon_deg?: number;
@@ -353,7 +358,9 @@ interface RawTexture {
   lon_at_u0_deg?: number;
   north_up?: boolean;
   generated_unix?: number;
-  wavelength_angstrom?: number;
+  wavelength_angstrom?: number | null;
+  channel?: string;
+  label?: string;
 }
 
 interface RawRegion {
@@ -411,7 +418,7 @@ async function fetchSpots(baseUrl: string, signal?: AbortSignal): Promise<SunSpo
  */
 async function fetchTextureInfo(
   baseUrl: string,
-  wavelengthAngstrom: number,
+  channel: string,
   signal?: AbortSignal,
 ): Promise<SunTextureInfo | null> {
   const manifestUrl = new URL("texture/texture.json", baseUrl).href;
@@ -447,23 +454,21 @@ async function fetchTextureInfo(
   const published: RawLayer[] = Array.isArray(raw.layers) && raw.layers.length
     ? raw.layers.filter((layer) => typeof layer?.url === "string" && layer.url !== "")
     : [{
-      wavelength_angstrom: typeof raw.wavelength_angstrom === "number"
-        ? raw.wavelength_angstrom
-        : 0,
+      channel: typeof raw.channel === "string" ? raw.channel : "",
+      label: typeof raw.label === "string" ? raw.label : "",
       url: raw.url,
       obs_iso: raw.obs_iso,
       sub_earth_carr_lon_deg: raw.sub_earth_carr_lon_deg,
     }];
   /* eslint-enable @typescript-eslint/naming-convention */
   const available = published
-    .map((layer) => layer.wavelength_angstrom)
-    .filter((w): w is number => typeof w === "number" && w > 0);
+    .map((layer) => layer.channel)
+    .filter((c): c is string => typeof c === "string" && c !== "");
 
   // Asking for a channel this run did not publish is NORMAL — one AIA channel
   // can fail while the others succeed (cli.run_texture skips it) — so fall back
   // to the default rather than showing nothing.
-  const chosen = published.find(
-    (layer) => layer.wavelength_angstrom === wavelengthAngstrom) ?? published[0];
+  const chosen = published.find((layer) => layer.channel === channel) ?? published[0];
   if (!chosen || typeof chosen.url !== "string" || chosen.url === "") { return null; }
 
   const imageUrl = new URL(chosen.url, manifestUrl);
@@ -479,9 +484,8 @@ async function fetchTextureInfo(
       : Number.NaN,
     farSide: typeof raw.far_side === "string" ? raw.far_side : (raw.far_side ? "present" : ""),
     generatedUnix,
-    wavelengthAngstrom: typeof chosen.wavelength_angstrom === "number"
-      ? chosen.wavelength_angstrom
-      : 0,
+    channel: typeof chosen.channel === "string" ? chosen.channel : "",
+    label: typeof chosen.label === "string" ? chosen.label : "",
     available,
   };
 }
@@ -543,8 +547,8 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
   group.add(mesh);
 
   let requested: SunSurfaceMode = options.mode ?? "sdo";
-  /** AIA channel the guest has asked for; the manifest decides what we get. */
-  let wavelength = options.wavelengthAngstrom ?? DEFAULT_WAVELENGTH;
+  /** Channel the guest has asked for; the manifest decides what we get. */
+  let channel = options.channel ?? DEFAULT_CHANNEL;
   /** Seconds into the granulation cycle (wraps at DRIFT_CYCLE, seamlessly). */
   let clock = 0;
   let texture: Texture | null = null;
@@ -616,7 +620,7 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
   }
 
   async function checkTexture(): Promise<void> {
-    const next = await fetchTextureInfo(options.dataBaseUrl, wavelength, abort.signal);
+    const next = await fetchTextureInfo(options.dataBaseUrl, channel, abort.signal);
     if (destroyed || !next) { return; }
     if (info && next.generatedUnix === info.generatedUnix && next.url === info.url) { return; }
     loadTexture(next);
@@ -706,9 +710,9 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       applyMode();
     },
 
-    setChannel(next: number): void {
-      if (!Number.isFinite(next) || next <= 0 || next === wavelength) { return; }
-      wavelength = next;
+    setChannel(next: string): void {
+      if (!next || next === channel) { return; }
+      channel = next;
       // Only ONE channel texture is ever resident: at 2048x1024 RGBA each costs
       // ~8 MB of GPU memory before mipmaps, and holding all three would be ~32 MB
       // on a phone for the sake of an instant switch. The JPEG stays in the

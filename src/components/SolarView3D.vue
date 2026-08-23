@@ -768,7 +768,7 @@ export default defineComponent({
         rSunAu: R_SUN_AU,
         dataBaseUrl: dataBaseUrl(),
         mode: this.surfaceMode,
-        wavelengthAngstrom: this.textureChannel,
+        channel: this.textureChannel,
         debug: boolParam("debug"),
       }));
       rt.stage.scene.add(rt.surface.object3d);

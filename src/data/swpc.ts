@@ -270,7 +270,7 @@ export function windLabel(speedKmS: number | null): FriendlyValue {
   const mph = Math.round(speedKmS * MPH_PER_KM_S);
   return {
     headline: `${Math.round(speedKmS)} km/s`,
-    detail: `about ${mph.toLocaleString()} mph`,
+    detail: `${mph.toLocaleString()} mph`,
   };
 }
 
@@ -283,23 +283,25 @@ export function kpLabel(kp: number | null): FriendlyValue {
   return { headline: "Calm", detail };
 }
 
-const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"];
-
 /**
- * The international sunspot number is a MONTHLY mean published by SILSO, not a
- * count of spots visible today, and it lands about a month in arrears. Saying
- * only "sunspot number" next to it in an app called "the Sun Right Now" invites
- * a guest to read a July average as this morning's Sun, so the month is named
- * whenever the pipeline tells us which one it is.
+ * How many active regions NOAA is currently numbering.
+ *
+ * This replaced the international sunspot number, which reads as the obvious
+ * choice and is the wrong one for this app: SSN is a MONTHLY mean published
+ * about a month in arrears, so "the Sun Right Now" was quoting a July average
+ * in late August. A region count is what is on the disk today, comes from the
+ * same daily digest, and is the number a guest can actually go and count.
+ *
+ * A "region" is a sunspot GROUP, not a single spot, and the detail line says so
+ * rather than letting the headline imply a spot count.
  */
-export function sunspotLabel(count: number | null, month = ""): FriendlyValue {
-  if (count === null) { return NO_DATA; }
-  const headline = String(count);
-  const parts = /^(\d{4})-(\d{2})$/.exec(month);
-  if (!parts) { return { headline, detail: "monthly average" }; }
-  const name = MONTH_NAMES[Number(parts[2]) - 1] ?? "";
-  return { headline, detail: name ? `${name} average` : "monthly average" };
+export function sunspotLabel(regions: number | null): FriendlyValue {
+  if (regions === null) { return NO_DATA; }
+  if (regions === 0) { return { headline: "0", detail: "no active regions" }; }
+  return {
+    headline: String(regions),
+    detail: regions === 1 ? "active region" : "active regions",
+  };
 }
 
 // --- freshness ------------------------------------------------------------

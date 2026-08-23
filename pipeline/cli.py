@@ -51,7 +51,7 @@ from .config import (CACHE_DIR, DEFAULT_OUT, FRAME_SPACING_HOURS,
                      GONG_TOLERANCE_HOURS, KEEP_FRAME_CACHE_SETS,
                      MIN_FRAMES_TO_PUBLISH, PIPELINE_VERSION, SCHEMA_INDEX,
                      EVENTS_MAX_BYTES, EVENTS_WINDOW_SLACK_HOURS,
-                     STALE_HOURS, TEX_WAVELENGTHS, WINDOW_HOURS)
+                     STALE_HOURS, TEX_CHANNELS, WINDOW_HOURS)
 from .io_utils import (PipelineError, Staging, age_hours, human_bytes, iso_z,
                        json_dumps, parse_iso_z, prune_dirs, read_json, unix_s,
                        utcnow, write_json)
@@ -503,7 +503,7 @@ def _regions_for_check(ctx: Ctx) -> List[dict]:
 
 
 def run_texture(ctx: Ctx) -> ProductResult:
-    """Publish one Carrington map per TEX_WAVELENGTHS channel.
+    """Publish one Carrington map per TEX_CHANNELS entry.
 
     The document keeps its original top-level shape, describing the FIRST
     channel (TEX_WAVELENGTH, the app's default), and adds a `layers` array with
@@ -526,20 +526,24 @@ def run_texture(ctx: Ctx) -> ProductResult:
     primary_info: Optional[dict] = None
     total_bytes = 0
 
-    for wavelength in TEX_WAVELENGTHS:
+    for channel in TEX_CHANNELS:
+        code = channel["code"]
         try:
             blob, doc, info = texture_export.build_texture(
-                ctx.now, regions, verbose=ctx.verbose, wavelength=wavelength)
+                ctx.now, regions, verbose=ctx.verbose, code=code)
         except Exception as exc:                       # noqa: BLE001
-            if wavelength == TEX_WAVELENGTHS[0]:
+            if code == TEX_CHANNELS[0]["code"]:
                 raise
-            print("  {0} A skipped: {1}".format(wavelength, exc))
+            print("  {0} skipped: {1}".format(code, exc))
             continue
         ctx.staging.write_bytes("texture/" + doc["url"], blob)
         texture_export.log_texture(info, len(blob), verbose=ctx.verbose)
         total_bytes += len(blob)
         layers.append({
+            "channel": doc["channel"],
+            "label": doc["label"],
             "wavelength_angstrom": doc["wavelength_angstrom"],
+            "far_side": doc["far_side"],
             "url": doc["url"],
             "bytes": doc["bytes"],
             "obs_iso": doc["obs_iso"],

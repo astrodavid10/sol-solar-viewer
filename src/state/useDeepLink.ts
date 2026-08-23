@@ -87,8 +87,10 @@ function readOnce(): void {
     surfaceMode.value = rawSurface;
   }
 
-  const rawTexChannel = Number(params.get("texch"));
-  if (rawTexChannel === 171 || rawTexChannel === 304 || rawTexChannel === 193) {
+  const rawTexChannel = params.get("texch");
+  if (rawTexChannel === "0171" || rawTexChannel === "0304"
+      || rawTexChannel === "0193" || rawTexChannel === "HMIIC"
+      || rawTexChannel === "HMIB") {
     textureChannel.value = rawTexChannel;
   }
 
@@ -113,7 +115,7 @@ function currentQuery(): string {
     params.set("fieldcolor", fieldColorMode.value);
   }
   if (textureChannel.value !== DEFAULT_TEXTURE_CHANNEL) {
-    params.set("texch", String(textureChannel.value));
+    params.set("texch", textureChannel.value);
   }
 
   return params.toString();

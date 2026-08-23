@@ -84,23 +84,31 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       TEX_MAX_SOURCE_TRIES, TEX_MIN_DISK_MEAN, TEX_OUT_H,
                       TEX_OUT_W, TEX_POLE_FADE_DEG, TEX_POLE_FLOOR,
                       TEX_QUIET_ANNULUS_DEG, TEX_QUIET_PERCENTILE,
-                      TEX_SRC_RES, TEX_SRC_SCALE_ARCSEC, TEX_WAVELENGTH)
+                      TEX_CHANNELS, TEX_SRC_RES, tex_src_scale)
 from ..io_utils import (PipelineError, age_hours, http_get_full, human_bytes,
                         iso_z, unix_s)
 
-def jpeg_name(wavelength: int) -> str:
-    """File name for one channel's Carrington map."""
-    return "aia{0:04d}_carrington_{1}x{2}.jpg".format(
-        wavelength, TEX_OUT_W, TEX_OUT_H)
+def jpeg_name(code: str) -> str:
+    """File name for one channel's Carrington map.
+
+    Keyed on the SDO product CODE rather than a wavelength, because HMIB and
+    HMIIC have no wavelength -- they are a magnetogram and a colourised
+    continuum image.
+    """
+    return "sdo{0}_carrington_{1}x{2}.jpg".format(code, TEX_OUT_W, TEX_OUT_H)
 
 
-def product_code(wavelength: int) -> str:
-    """SDO browse/latest product code, e.g. 171 -> "0171"."""
-    return "{0:04d}".format(wavelength)
+def channel_for(code: str) -> dict:
+    """The TEX_CHANNELS entry for a product code."""
+    for ch in TEX_CHANNELS:
+        if ch["code"] == code:
+            return ch
+    raise PipelineError("unknown texture channel {0!r}".format(code))
 
 
-JPEG_NAME = jpeg_name(TEX_WAVELENGTH)
-PRODUCT_CODE = product_code(TEX_WAVELENGTH)
+DEFAULT_CODE = TEX_CHANNELS[0]["code"]
+JPEG_NAME = jpeg_name(DEFAULT_CODE)
+PRODUCT_CODE = DEFAULT_CODE
 _BROWSE_RE_TMPL = r'href="(\d{{8}}_\d{{6}}_{res}_{prod}\.jpg)"'
 
 
@@ -127,7 +135,7 @@ def _browse_dir(day: datetime) -> str:
 
 
 def browse_candidates(now: datetime, days: int = 2,
-                      wavelength: int = TEX_WAVELENGTH
+                      code: str = None
                       ) -> List[Tuple[datetime, str]]:
     """(obstime, url) for every browse frame in the last ``days`` day dirs.
 
@@ -136,7 +144,7 @@ def browse_candidates(now: datetime, days: int = 2,
     us pick an image that does not exist yet.
     """
     pat = re.compile(_BROWSE_RE_TMPL.format(res=TEX_SRC_RES,
-                                           prod=product_code(wavelength)))
+                                           prod=code or DEFAULT_CODE))
     out: List[Tuple[datetime, str]] = []
     for d in range(days):
         base = _browse_dir(now - timedelta(days=d))
@@ -180,7 +188,7 @@ def disk_mean(rgb: np.ndarray) -> float:
 
 
 def fetch_source(now: datetime, verbose: bool = False,
-                 wavelength: int = TEX_WAVELENGTH) -> SourceImage:
+                 code: str = None) -> SourceImage:
     """Newest usable browse frame, else the ``latest_*.jpg`` fallback.
 
     The browse frame is strongly preferred because its FILENAME carries the
@@ -192,7 +200,8 @@ def fetch_source(now: datetime, verbose: bool = False,
     exposure are skipped and the next older one tried.
     """
     skipped: List[str] = []
-    candidates = browse_candidates(now, wavelength=wavelength)
+    code = code or DEFAULT_CODE
+    candidates = browse_candidates(now, code=code)
     for t, url in candidates[::-1][:TEX_MAX_SOURCE_TRIES]:
         name = url.rsplit("/", 1)[-1]
         try:
@@ -211,8 +220,7 @@ def fetch_source(now: datetime, verbose: bool = False,
                 len(skipped), "; ".join(skipped if verbose else skipped[:2])))
         return SourceImage(rgb, t, url, "browse", len(raw))
 
-    url = "{0}/latest_{1}_{2}.jpg".format(SDO_LATEST_BASE, TEX_SRC_RES,
-                                          product_code(wavelength))
+    url = "{0}/latest_{1}_{2}.jpg".format(SDO_LATEST_BASE, TEX_SRC_RES, code)
     print("  no usable browse frame ({0}); trying latest_*.jpg".format(
         "; ".join(skipped[:3]) or "empty listing"))
     raw, headers = http_get_full(url, timeout=60.0)
@@ -272,7 +280,7 @@ def measure_limb(lum: np.ndarray, r_pred: float
 
 
 def input_header(src: SourceImage, obstime, observer,
-                 wavelength: int = TEX_WAVELENGTH):
+                 channel: dict = None):
     """Synthesized level-1.5-style WCS for a browse JPG.
 
     Disk centre at the array centre, ``TEX_SRC_SCALE_ARCSEC``/px, and identity
@@ -284,15 +292,24 @@ def input_header(src: SourceImage, obstime, observer,
     from sunpy.coordinates import Helioprojective
     from sunpy.map.header_helper import make_fitswcs_header
 
+    channel = channel_for(DEFAULT_CODE) if channel is None else channel
+    scale = tex_src_scale(channel["scale"])
+    # HMI and AIA are different telescopes at different plate scales; saying
+    # "AIA" for a magnetogram would put a false instrument in the WCS that the
+    # reprojection then trusts.
+    detector = "HMI" if channel["code"].startswith("HMI") else "AIA"
+
     centre = SkyCoord(0.0 * u.arcsec, 0.0 * u.arcsec, obstime=obstime,
                       observer=observer, frame=Helioprojective)
-    return make_fitswcs_header(
+    header = make_fitswcs_header(
         (src.rgb.shape[0], src.rgb.shape[1]), centre,
-        scale=u.Quantity([TEX_SRC_SCALE_ARCSEC, TEX_SRC_SCALE_ARCSEC],
-                         u.arcsec / u.pix),
+        scale=u.Quantity([scale, scale], u.arcsec / u.pix),
         rotation_angle=0.0 * u.deg,
-        instrument="AIA", telescope="SDO", observatory="SDO", detector="AIA",
-        wavelength=wavelength * u.angstrom)
+        instrument=detector, telescope="SDO", observatory="SDO",
+        detector=detector,
+        **({"wavelength": channel["wavelength"] * u.angstrom}
+           if channel["wavelength"] else {}))
+    return header
 
 
 def output_header(obstime, observer):
@@ -409,14 +426,29 @@ def feather_weight(dist: np.ndarray, valid: np.ndarray, lat: np.ndarray
 
 
 def compose(near: np.ndarray, valid: np.ndarray, dist: np.ndarray,
-            lon: np.ndarray, lat: np.ndarray
+            lon: np.ndarray, lat: np.ndarray, farside: str = "quiet"
             ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Blend near side over the quiet base and flip to picture row order.
+
+    ``farside`` selects what fills the hemisphere Earth cannot see:
+
+      "quiet"  the measured quiet-Sun colour times farside_modulation's
+               band-limited mottling and polar darkening. A stylisation, and a
+               defensible one for EUV -- a flat EUV hemisphere looks wrong.
+      "flat"   the measured quiet-Sun colour and nothing else.
+
+    "flat" exists because the mottling is INVENTED. On a magnetogram it would
+    be fabricated magnetic field on the half of the Sun nobody can see, drawn
+    convincingly enough to be believed, and the polar ramp encodes coronal
+    holes that a continuum image does not show either.
 
     Returns (uint8 image with row 0 = +90 lat, feather weights, base RGB).
     """
     base = quiet_sun_rgb(near, valid, dist)
-    quiet = base[None, None, :] * farside_modulation(lon, lat)[..., None]
+    if farside == "flat":
+        quiet = np.broadcast_to(base[None, None, :], near.shape)
+    else:
+        quiet = base[None, None, :] * farside_modulation(lon, lat)[..., None]
     w = feather_weight(dist, valid, lat)[..., None]
     blend = w * np.nan_to_num(near, nan=0.0, posinf=0.0, neginf=0.0) \
         + (1.0 - w) * quiet
@@ -524,14 +556,15 @@ def ar_summary(offsets: List[dict]) -> Tuple[Optional[float], int]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_texture(now: datetime, regions: Optional[List[dict]] = None,
-                  verbose: bool = False, wavelength: int = TEX_WAVELENGTH
+                  verbose: bool = False, code: str = None
                   ) -> Tuple[bytes, dict, dict]:
     """Fetch, reproject, composite, encode.  Returns (jpeg, doc, info)."""
     import astropy.units as u
     from astropy.time import Time
     from sunpy.coordinates import get_earth, sun
 
-    src = fetch_source(now, verbose=verbose, wavelength=wavelength)
+    channel = channel_for(code or DEFAULT_CODE)
+    src = fetch_source(now, verbose=verbose, code=channel["code"])
     obs_age = age_hours(src.obstime, now)
     print("  source: {0} ({1}, {2}, obs {3}, age {4:.2f} h)".format(
         src.url.rsplit("/", 1)[-1], src.kind, human_bytes(src.nbytes),
@@ -548,7 +581,7 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
 
     # Sanity check the assumed geometry against the image's own limb.
     r_pred = float(sun.angular_radius(obstime).to_value(u.arcsec)
-                   ) / TEX_SRC_SCALE_ARCSEC
+                   ) / tex_src_scale(channel["scale"])
     cx, cy, r_fit, resid, n_rays = measure_limb(src.rgb.mean(axis=-1), r_pred)
     c_off = float(np.hypot(cx - (TEX_SRC_RES - 1) / 2.0,
                            cy - (TEX_SRC_RES - 1) / 2.0))
@@ -564,7 +597,7 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
             "no longer valid".format(r_fit, r_pred, r_fit / r_pred - 1.0,
                            TEX_LIMB_RADIUS_TOL, c_off, TEX_LIMB_CENTRE_TOL_PX))
 
-    in_hdr = input_header(src, obstime, observer, wavelength=wavelength)
+    in_hdr = input_header(src, obstime, observer, channel=channel)
     out_hdr = output_header(obstime, observer)
     near = reproject_rgb(src, in_hdr, out_hdr)
     lon, lat = grid(out_hdr)
@@ -588,10 +621,14 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
             "visible, south {2:.0%}); the output latitude axis is flipped"
             .format(b0, n_cap, s_cap))
 
-    img, w, base = compose(near, valid, dist, lon, lat)
+    img, w, base = compose(near, valid, dist, lon, lat, channel["farside"])
     blob = encode_jpeg(img)
 
-    offsets = ar_offsets(near, valid, lon, lat, regions or [], l0, b0)
+    # Only meaningful in EUV: the check scores by finding BRIGHT pixels near
+    # each region, and sunspots are dark in HMIIC while bright in HMIB just
+    # means positive polarity (see TEX_CHANNELS.ar_check).
+    offsets = (ar_offsets(near, valid, lon, lat, regions or [], l0, b0)
+               if channel["ar_check"] else [])
     med, n_good = ar_summary(offsets)
 
     doc = {
@@ -599,25 +636,30 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
         "pipeline_version": PIPELINE_VERSION,
         "generated_iso": iso_z(now),
         "generated_unix": unix_s(now),
-        "url": jpeg_name(wavelength),
+        "url": jpeg_name(channel["code"]),
         "width": TEX_OUT_W,
         "height": TEX_OUT_H,
         "bytes": len(blob),
         "projection": "plate carree (CAR), HeliographicCarrington",
         "lon_at_u0_deg": 0.0,
         "north_up": True,
-        "wavelength_angstrom": wavelength,
+        "channel": channel["code"],
+        "label": channel["label"],
+        "wavelength_angstrom": channel["wavelength"],
         "obs_iso": iso_z(src.obstime),
         "sub_earth_carr_lon_deg": l0,
         "sub_earth_lat_deg": b0,
         "near_side_half_angle_deg": 90.0,
-        "far_side": "quiet",
+        # "quiet" adds farside_modulation's invented mottling; "flat" is a
+        # plain fill with no fabricated structure. HMIB must never be "quiet" --
+        # see TEX_CHANNELS.
+        "far_side": channel["farside"],
         "far_side_max_age_hours": None,
-        "source": ("SDO/AIA {0} A {1} JPEG from sdo.gsfc.nasa.gov ({2} px, "
-                   "solar-north-up), synthesized WCS at {3}\"/px, reprojected "
-                   "with sunpy + reproject").format(
-                       wavelength, src.kind, TEX_SRC_RES,
-                       TEX_SRC_SCALE_ARCSEC),
+        "source": ("SDO/{0} {1} JPEG from sdo.gsfc.nasa.gov ({2} px, "
+                   "solar-north-up), synthesized WCS at {3:.4f}\"/px, "
+                   "reprojected with sunpy + reproject").format(
+                       channel["code"], src.kind, TEX_SRC_RES,
+                       tex_src_scale(channel["scale"])),
         "source_url": src.url,
         "note": ("lon_deg = (x + 0.5) * 360/{0}, x = 0..{1} left to right; "
                  "lat_deg = 90 - (y + 0.5) * 180/{2}, y = 0..{3} top to "
@@ -702,7 +744,7 @@ def texture_status(obs_age: float) -> str:
 
 __all__ = [
     "JPEG_NAME", "SourceImage", "browse_candidates", "disk_mean",
-    "jpeg_name", "product_code",
+    "jpeg_name", "channel_for", "DEFAULT_CODE",
     "fetch_source",
     "measure_limb", "input_header", "output_header", "grid",
     "sub_earth_distance", "reproject_rgb", "quiet_sun_rgb",

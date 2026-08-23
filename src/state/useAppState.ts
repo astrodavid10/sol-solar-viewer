@@ -67,13 +67,17 @@ export const DEFAULT_SURFACE: SurfaceMode = "sdo";
 export const surfaceMode = ref<SurfaceMode>(DEFAULT_SURFACE);
 
 /**
- * Which AIA channel the 3D sphere is painted with, in angstrom. Must be one the
- * pipeline publishes (config.TEX_WAVELENGTHS); sunSurface falls back to the
- * manifest's default layer if this run did not publish it.
+ * Which SDO product the 3D sphere is painted with, as the product CODE — the
+ * same identifiers `sdoCatalog` uses, so one table names them for both the
+ * chips and the sphere. Not a wavelength: HMIB is a magnetogram and HMIIC a
+ * colourised continuum image, and neither has one.
+ *
+ * Must be a channel the pipeline publishes (config.TEX_CHANNELS); sunSurface
+ * falls back to the manifest's default layer if this run did not publish it.
  */
-export type TextureChannel = 171 | 304 | 193;
+export type TextureChannel = "0171" | "0304" | "0193" | "HMIIC" | "HMIB";
 
-export const DEFAULT_TEXTURE_CHANNEL: TextureChannel = 171;
+export const DEFAULT_TEXTURE_CHANNEL: TextureChannel = "0171";
 
 export const textureChannel = ref<TextureChannel>(DEFAULT_TEXTURE_CHANNEL);
 

@@ -17,21 +17,23 @@
       </span>
     </button>
 
-    <div class="lp-group" role="radiogroup" aria-label="Field line colour">
-      <span class="lp-group-label">Field lines</span>
-      <div class="lp-segments">
-        <button
-          v-for="option in fieldColors"
-          :key="option.key"
-          type="button"
-          class="lp-segment"
-          :class="{ 'is-on': fieldColorMode === option.key }"
-          role="radio"
-          :aria-checked="fieldColorMode === option.key"
-          @click="pickFieldColor(option.key)"
-        >{{ option.label }}</button>
-      </div>
-    </div>
+    <!-- Same switch as the layer rows above, because it is the same kind of
+         question: on or off. Off is not "no colour" — it is one flat electric
+         blue, so the field still reads as a single structure. -->
+    <button
+      type="button"
+      class="lp-row"
+      :aria-pressed="polarityOn"
+      @click="togglePolarity"
+    >
+      <span class="lp-switch" :class="{ 'is-on': polarityOn }">
+        <span class="lp-knob"></span>
+      </span>
+      <span class="lp-text">
+        <span class="lp-label">Polarity</span>
+        <span class="lp-hint">Colour the field lines by magnetic direction</span>
+      </span>
+    </button>
 
     <div class="lp-group" role="radiogroup" aria-label="Surface">
       <span class="lp-group-label">Surface</span>
@@ -54,8 +56,8 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 
+import { product } from "../data/sdoCatalog";
 import {
-  FieldColorMode,
   LayerFlags,
   TextureChannel,
   fieldColorMode,
@@ -84,11 +86,6 @@ interface SurfaceOption {
   label: string;
 }
 
-interface FieldColorOption {
-  key: FieldColorMode;
-  label: string;
-}
-
 // Ordered by how much each one changes the picture, most first.
 const ROWS: Row[] = [
   { key: "fieldLines", label: "Magnetic field", hint: "The Sun's field lines, last 72 hours" },
@@ -106,19 +103,18 @@ const ROWS: Row[] = [
 // still exists in SurfaceMode because sunSurface uses it internally — in that
 // mode the sphere renders depth-only, and it is the authoritative occluder for
 // far-side field lines (CLAUDE.md footgun 18), so it must not be deleted.
-// "Polarity" first: it is the default and the one that carries information.
-const FIELD_COLORS: FieldColorOption[] = [
-  { key: "polarity", label: "Polarity" },
-  { key: "blue", label: "Electric blue" },
-];
+/**
+ * The five published channels, plus the synthetic surface.
+ *
+ * Labels come from `sdoCatalog` rather than being written again here: the
+ * texture channel codes ARE that catalogue's product ids, so one table names
+ * every SDO product in the app and the two can never drift apart.
+ */
+const TEXTURE_CHANNELS: TextureChannel[] = ["HMIIC", "0304", "0171", "0193", "HMIB"];
 
-// Labels match the Sun Now chips for the same channels, so a guest who learned
-// them on the disk view reads the same words here.
 const SURFACES: SurfaceOption[] = [
-  { key: 171, label: "Coronal Loops" },
-  { key: 304, label: "Chromosphere" },
-  { key: 193, label: "Hot Corona" },
-  { key: "artist", label: "Artist" },
+  ...TEXTURE_CHANNELS.map((key) => ({ key, label: product(key).label })),
+  { key: "artist" as const, label: "Artist" },
 ];
 
 /**
@@ -142,14 +138,16 @@ export default defineComponent({
       return SURFACES;
     },
 
+    /** The switch is on when the polarity palette is in use. */
+    polarityOn(): boolean {
+      return this.fieldColorMode === "polarity";
+    },
+
     /** Which segment reads as selected. "sdo" is shown as its channel. */
     surfaceKey(): SurfaceKey {
       return this.surfaceMode === "sdo" ? this.textureChannel : "artist";
     },
 
-    fieldColors(): FieldColorOption[] {
-      return FIELD_COLORS;
-    },
   },
 
   methods: {
@@ -166,8 +164,8 @@ export default defineComponent({
       this.surfaceMode = "sdo";
     },
 
-    pickFieldColor(key: FieldColorMode): void {
-      this.fieldColorMode = key;
+    togglePolarity(): void {
+      this.fieldColorMode = this.polarityOn ? "blue" : "polarity";
     },
   },
 });

@@ -141,19 +141,52 @@ DONKI_DISCLAIMER = (
 # SDO AIA texture (see pipeline/texture/export.py for the derivations)
 # ─────────────────────────────────────────────────────────────────────────────
 
-TEX_WAVELENGTH = 171                      # Angstrom; the app's default channel
+TEX_WAVELENGTH = 171                      # the app's default channel
 
-# Every channel published as a 3D sphere texture, default FIRST.  All of these
-# are AIA, so they share one plate scale (TEX_SRC_SCALE_ARCSEC) and one browse
-# framing -- measured 2026-08: the solar disk occupies 0.7824 / 0.7843 / 0.7804
-# of the frame in 0171 / 0193 / 0304 at every offered resolution, i.e. the same
-# to 0.3%.  Adding an HMI product here would NOT be free: HMI's browse stills
-# are at 0.5044"/px and its disk fills 0.9184 of the frame, and the "quiet sun"
-# far-side fill is meaningless for a magnetogram.
-TEX_WAVELENGTHS = (171, 304, 193)
-TEX_OUT_W, TEX_OUT_H = 2048, 1024         # plate carree, 0.1758 deg/px
+# Every channel published as a 3D sphere texture, DEFAULT FIRST.
+#
+# A channel is not just a wavelength: the two HMI products differ from AIA in
+# ways that would silently produce dishonest maps if they shared AIA's settings.
+#
+#   scale     arcsec/px of the 4096 browse still. AIA is ~0.6009, HMI ~0.5044 --
+#             measured 2026-08, the solar disk fills 0.7824 of an AIA frame and
+#             0.9184 of an HMI one, a ratio of 1.174. Getting this wrong by more
+#             than TEX_LIMB_RADIUS_TOL aborts the run rather than shipping a
+#             misregistered map, which is the behaviour we want.
+#   farside   how the hemisphere Earth cannot see is filled. "quiet" adds the
+#             band-limited mottling + polar darkening of farside_modulation,
+#             which is a defensible stylisation for EUV. "flat" is a plain
+#             quiet-Sun fill with NO invented structure -- mandatory for HMIB,
+#             where mottling would be fabricated magnetic field, and right for
+#             HMIIC, where the polar ramp (tuned to coronal holes) is wrong.
+#   ar_check  run the active-region registration check. It scores by locating
+#             BRIGHT pixels near each catalogued region, which only means
+#             anything in EUV: sunspots are DARK in HMIIC, and bright in HMIB
+#             just means positive polarity.
+TEX_CHANNELS = (
+    {"code": "0171",  "label": "Coronal Loops", "wavelength": 171,
+     "scale": 0.6009, "farside": "quiet", "ar_check": True},
+    {"code": "0304",  "label": "Chromosphere",  "wavelength": 304,
+     "scale": 0.6009, "farside": "quiet", "ar_check": True},
+    {"code": "0193",  "label": "Hot Corona",    "wavelength": 193,
+     "scale": 0.6009, "farside": "quiet", "ar_check": True},
+    {"code": "HMIIC", "label": "Visible Sun",   "wavelength": None,
+     "scale": 0.5044, "farside": "flat",  "ar_check": False},
+    {"code": "HMIB",  "label": "Magnetic Map",  "wavelength": None,
+     "scale": 0.5044, "farside": "flat",  "ar_check": False},
+)
+# Plate carree, 0.0879 deg/px. Raised from 2048x1024 when the app became a
+# single sphere view: the Earth-facing hemisphere is half the width, so this is
+# what the guest actually sees across the disk -- 2048 px here against the 3205
+# px of a 4096 disk still. Still coarser, but the still is no longer downloaded
+# at all (0171 at 4096 is 2.6 MB against ~600 KB here), so the consolidation
+# pays for the resolution and then some.
+#
+# Do not raise further without measuring phone GPU memory: 4096x2048 RGBA is
+# 32 MB resident per texture before mipmaps, and sunSurface keeps exactly one.
+TEX_OUT_W, TEX_OUT_H = 4096, 2048
 TEX_JPEG_QUALITY = 82
-TEX_MAX_BYTES = 800_000                   # validator ceiling; measured ~150 KB
+TEX_MAX_BYTES = 1_600_000                 # validator ceiling; ~600 KB at 4096x2048
 TEX_MAX_OBS_AGE_HOURS = 24.0              # older than this -> status degraded
 
 # Source browse JPGs.  2048 px frames are the 4096 native downsampled by 2, so
@@ -163,7 +196,12 @@ TEX_MAX_OBS_AGE_HOURS = 24.0              # older than this -> status degraded
 SDO_BROWSE_BASE = "https://sdo.gsfc.nasa.gov/assets/img/browse"
 SDO_LATEST_BASE = "https://sdo.gsfc.nasa.gov/assets/img/latest"
 TEX_SRC_RES = 2048
-TEX_SRC_SCALE_ARCSEC = 0.6 * (4096 // TEX_SRC_RES)
+def tex_src_scale(channel_scale: float) -> float:
+    """arcsec/px of the browse still we actually download, for one channel."""
+    return channel_scale * (4096 // TEX_SRC_RES)
+
+
+TEX_SRC_SCALE_ARCSEC = tex_src_scale(0.6)   # AIA default, kept for callers
 TEX_LIMB_RADIUS_TOL = 0.03                # warn if the fitted limb is >3% off
 TEX_LIMB_CENTRE_TOL_PX = 25.0             # warn if the disk is not centred
 

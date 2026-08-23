@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
       max_frames:
-        description: "Only the N newest slots (blank = all 13)"
+        description: "Only the N newest slots (blank = all 19)"
         type: string
         default: ""
 
@@ -50,7 +50,7 @@ jobs:
 
       # Rolling cache of GONG FITS + traced-frame npz (~10 MB/day).  The
       # run_id key always misses so the cache is always re-saved; restore-keys
-      # pull the newest previous copy.  With it, 12 of 13 frames hit.
+      # pull the newest previous copy.  With it, 18 of 19 frames hit.
       - name: Restore pipeline cache
         uses: actions/cache@v4
         with:

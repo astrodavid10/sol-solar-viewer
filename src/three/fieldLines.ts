@@ -1,7 +1,7 @@
 // =====================================================================
-// PFSS field lines — one geometry, 13 frames, morphed on the GPU
+// PFSS field lines — one geometry, 19 frames, morphed on the GPU
 // =====================================================================
-// The whole 48-hour animation is ONE indexed BufferGeometry. What changes per
+// The whole 72-hour animation is ONE indexed BufferGeometry. What changes per
 // frame is which BufferAttributes are bound to it:
 //
 //   position  → frame A vertex positions (normalized uint16, Carrington R_sun)
@@ -11,7 +11,7 @@
 //
 // Advancing a frame is therefore four setAttribute() calls and a uniform write —
 // no buffer uploads, no CPU vertex work. Each frame's attributes are built once
-// on arrival and cached; 13 frames × 19,328 verts × (6 + 4) bytes ≈ 2.5 MB of
+// on arrival and cached; 19 frames × 19,328 verts × (6 + 4) bytes ≈ 3.7 MB of
 // GPU buffers total.
 //
 // Why this is legal at all: the pipeline guarantees FIXED TOPOLOGY (seed i is
@@ -36,7 +36,7 @@ import {
 
 import type { PfssFrame, Rgb } from "../data/pfss";
 
-/** Animation speed: 13 frames ≈ 10 s for the whole 48 h loop. */
+/** Animation speed: 19 frames ≈ 10 s for the whole 72 h loop. */
 export const SECONDS_PER_FRAME = 0.8;
 
 export interface FieldLinesOptions {

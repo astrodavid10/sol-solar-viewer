@@ -5,7 +5,7 @@
 // exactly one job: look alive enough that a passing guest reaches out and
 // touches it. So after `?kioskIdle` seconds (90 s by default) the app takes
 // itself for a walk — one continuous 3D scene, camera drifting round the Sun,
-// field lines looping the 48 h animation, while the sphere's texture channel
+// field lines looping the 72 h animation, while the sphere's texture channel
 // cycles underneath it all:
 //
 //   HMIIC → 0171 → 0193 → 0304 → HMIB, 15 s each (~75 s per cycle), forever,
@@ -130,7 +130,7 @@ function selfWrite(apply: () => void): void {
 
 /**
  * One texture-channel dwell. `rehome` is true once per full cycle (the first
- * step) — re-homing every dwell would reset the 48 h field-line playhead to 0
+ * step) — re-homing every dwell would reset the 72 h field-line playhead to 0
  * every 15 s and the animation would never visibly progress, but never
  * re-homing at all would let the drifting camera wander somewhere useless
  * over an unattended run that can go for hours.

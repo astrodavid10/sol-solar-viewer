@@ -10,34 +10,9 @@
 
 import { App, computed, reactive, ref } from "vue";
 
-import { DEFAULT_CHANNEL, DiskRes, ProductId } from "../data/sdoCatalog";
 import { boolParam } from "../urlParams";
 
-export type ViewId = "disk" | "3d";
-export type DiskMode = "still" | "movie";
 export type SheetId = "info" | "layers";
-
-// --- defaults (also the "omit from the URL" values in useDeepLink) ---------
-export const DEFAULT_VIEW: ViewId = "disk";
-export const DEFAULT_PFSS = false;
-export const DEFAULT_DISK_MODE: DiskMode = "still";
-export const DEFAULT_DISK_RES: DiskRes = 2048;
-
-/** Which top-level view is showing: the flat "Sun Now" disk or the 3D scene. */
-export const view = ref<ViewId>(DEFAULT_VIEW);
-
-/** Selected SDO channel. */
-export const channel = ref<ProductId>(DEFAULT_CHANNEL);
-
-/** Bake GSFC's PFSS field-line overlay into the still (stills only). */
-export const pfssOverlay = ref(DEFAULT_PFSS);
-
-/** Still image or movie playback in the disk view. */
-export const diskMode = ref<DiskMode>(DEFAULT_DISK_MODE);
-
-/** Requested still resolution. The viewer may serve something smaller on a
- *  metered/slow connection, or larger when the guest zooms in. */
-export const diskRes = ref<DiskRes>(DEFAULT_DISK_RES);
 
 export interface LayerFlags {
   fieldLines: boolean;
@@ -121,7 +96,7 @@ export const DEFAULT_FIELD_COLOR: FieldColorMode = "blue";
 export const fieldColorMode = ref<FieldColorMode>(DEFAULT_FIELD_COLOR);
 
 /**
- * Playhead of the 48-hour field-line animation, in FRACTIONAL FRAME INDICES
+ * Playhead of the 72-hour field-line animation, in FRACTIONAL FRAME INDICES
  * (0 = oldest published frame, frameCount-1 = newest ≈ "now"). SolarView3D owns
  * it: the renderer writes the current value back ~10x/s so TimeScrubber can
  * follow, and an outside write (deep link, reset) is applied to the renderer.
@@ -183,13 +158,6 @@ export const attractDrift = ref(false);
  * its pinch-zoom transform, the 3D view will re-frame the camera.
  */
 export const resetToken = ref(0);
-
-/**
- * Timestamp of the last successful disk-image load. ChannelPicker watches it
- * to start prefetching neighboring channels only once the image the guest
- * actually asked for has settled.
- */
-export const diskSettledAt = ref(0);
 
 /** Reset the viewer to its resting state: no zoom, animation parked at "now". */
 export function resetView(): void {

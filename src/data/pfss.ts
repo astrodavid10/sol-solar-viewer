@@ -478,7 +478,7 @@ export async function loadPfss(baseUrl: string, opts: PfssLoadOptions = {}): Pro
   opts.onTopology?.(topology);
 
   // Newest first (manifest render_hints.load_order): the guest gets "now"
-  // immediately, and the 48-hour look-back fills in behind it.
+  // immediately, and the 72-hour look-back fills in behind it.
   const order = manifest.frames.slice().sort((a, b) => b.index - a.index);
   const expect = { nLines: topology.nLines, nVertsTotal: topology.nVertsTotal };
   let framesLoaded = 0;

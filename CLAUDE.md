@@ -2,7 +2,7 @@
 
 Mobile-first solar data explorer for planetarium guests ("Data to Dome, Dome to Phone").
 Guests scan a QR code and see current solar conditions: live SDO imagery ("Sun Now" disk view),
-the Sun's magnetic field in 3D over the last 48 hours (PFSS field lines from our own pipeline,
+the Sun's magnetic field in 3D over the last 72 hours (PFSS field lines from our own pipeline,
 same model + colors as the dome show), Parker Solar Probe / Solar Orbiter positions, and live
 NOAA space-weather numbers.
 
@@ -180,16 +180,26 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     bytes. `half_width_rsun` is DATA (AIA 1.28, HMI 1.09) because it falls out of plate scale.
     The validator asserts the disk center is black — additive blending would otherwise paint a
     second Sun over the sphere and nothing else would catch it.
-22. **The 3D sphere texture is MULTI-CHANNEL** (`sol.texture/2`). `TEX_WAVELENGTHS =
-    (171, 304, 193)` in `pipeline/config.py`; `run_texture` loops them and writes one
-    `aia{wwww}_carrington_2048x1024.jpg` each (~110-180 KB, 432 KB total, ~38 s) plus a
-    `layers` array in `texture.json`. The top-level fields still describe the FIRST channel,
-    so a schema-1 reader stays correct. A non-default channel that fails is SKIPPED, not
-    fatal; the default failing still propagates. The app holds ONE channel texture resident
-    (2048x1024 RGBA ≈ 8 MB of GPU memory each) and re-decodes from the HTTP cache on switch.
-    All three are AIA, so they share `TEX_SRC_SCALE_ARCSEC` — adding an HMI product would
-    need a second plate scale (0.5044"/px, disk fills 0.9184 of frame vs AIA's 0.782) AND a
-    different far-side model, since a "quiet sun" fill is meaningless for a magnetogram.
+22. **The 3D sphere texture is MULTI-CHANNEL and is not all AIA.** `sol.texture/2`,
+    `TEX_CHANNELS` in `pipeline/config.py` — FIVE products, default first:
+    0171 "Coronal Loops", 0304 "Chromosphere", 0193 "Hot Corona", HMIIC "Visible
+    Sun", HMIB "Magnetic Map". `run_texture` loops them and writes one
+    `sdo{CODE}_carrington_4096x2048.jpg` each (265-800 KB, ~2.4 MB total) plus a
+    `layers` array in `texture.json`. The top-level fields still describe the
+    FIRST channel, so a schema-1 reader stays correct. A non-default channel
+    that fails is SKIPPED, not fatal; the default failing still propagates.
+    A channel is NOT just a wavelength, and three per-channel fields exist
+    because getting them wrong ships a dishonest map rather than an error:
+    `scale` (AIA 0.6009"/px vs HMI 0.5044" — the disk fills 0.7824 of an AIA
+    frame and 0.9184 of an HMI one, footgun 21), `farside` ("quiet" adds
+    invented mottling, which is a defensible stylization for EUV and fabricated
+    magnetic field on a magnetogram — HMIB and HMIIC are "flat"), and `ar_check`
+    (the registration guard scores by finding BRIGHT pixels near a region, which
+    only means anything in EUV: spots are DARK in HMIIC and bright in HMIB just
+    means positive polarity).
+    The app holds ONE channel texture resident (4096x2048 RGBA ≈ 32 MB of GPU
+    memory) and re-decodes from the HTTP cache on switch. Do not raise
+    `TEX_OUT_W/H` further without measuring phone GPU memory.
 23. **DONKI numbers active regions 10000 higher than NOAA SRS does.** DONKI says `14513`,
     `srs.txt` and `ar/regions.json` say `4513` (verified against both feeds simultaneously
     2026-08-23). `events/export.py` joins with `activeRegionNum - 10000`; a naive join

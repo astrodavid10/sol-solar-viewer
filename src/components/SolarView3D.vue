@@ -235,7 +235,6 @@ import {
   sheet,
   surfaceMode,
   textureChannel,
-  view,
   wide,
 } from "../state/useAppState";
 import { boolParam, stringParam } from "../urlParams";
@@ -520,7 +519,7 @@ export default defineComponent({
     const { stats } = useSolarStats();
     return {
       frameT, frameTimes, sceneTime, layers, playing, resetToken, sheet,
-      surfaceMode, fieldColorMode, textureChannel, view, wide,
+      surfaceMode, fieldColorMode, textureChannel, wide,
       solarStats: stats,
     };
   },
@@ -650,14 +649,6 @@ export default defineComponent({
   },
 
   watch: {
-    // The component stays mounted for the life of the page (sol.vue hides it
-    // with v-show — remounting WWT leaves its texture caches on a dead GL
-    // context and the Sun comes back black). Pause three's per-frame work
-    // while the guest is in Sun Now; WWT's own loop keeps its state warm.
-    view(value: string) {
-      this.rt.stage?.setEnabled(value === "3d");
-    },
-
     resetToken() {
       this.recenter();
       // resetView() parks frameT at 0, which for a frame-index playhead is the
@@ -1160,7 +1151,7 @@ export default defineComponent({
 
       const unix = this.sceneUnix();
       // The live dot is only honest at the newest frame; anywhere else in the
-      // 48-hour window the baked ephemeris is the correct answer.
+      // 72-hour window the baked ephemeris is the correct answer.
       const atNewest = this.frameT >= this.frameCount - 1.001;
 
       ephemeris.bodies.forEach((body) => {

@@ -105,7 +105,7 @@ def gong_find(target_dt: datetime,
     """Closest magnetogram to ``target_dt``, or None if none within tolerance.
 
     ``candidates`` lets a caller reuse one scrape across several nearby slots
-    (13 slots over 48 h touch only ~4 day directories).
+    (19 slots over 72 h touch only ~4 day directories).
     """
     cand = candidates if candidates is not None else gong_list(target_dt)
     if not cand:

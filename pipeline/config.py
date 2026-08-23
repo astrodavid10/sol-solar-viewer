@@ -3,7 +3,7 @@
 Numbers here are *measured*, not guessed: NRHO/RSS come from the dome
 pipeline (1.8 s/solve; a coarser grid buys nothing visible), the seed grid is
 the dome's 40x80 dome grid reduced to a mobile budget, and VERT_BUCKETS was
-sized so a 13-frame 48 h window lands near 1.7 MB total on the wire.
+sized so a 19-frame 72 h window lands near 2.2 MB total on the wire.
 """
 
 from __future__ import annotations

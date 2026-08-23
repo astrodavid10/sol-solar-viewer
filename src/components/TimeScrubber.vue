@@ -87,7 +87,7 @@ interface Tick {
 }
 
 /**
- * The 48-hour time control.
+ * The 72-hour time control.
  *
  * A native `<input type="range">` on purpose: it is the only slider that gets
  * touch, keyboard and screen-reader behavior right on every phone for free.
@@ -113,7 +113,7 @@ export default defineComponent({
   name: "TimeScrubber",
 
   props: {
-    /** Frames the manifest promises (13 over 48 h). */
+    /** Frames the manifest promises (19 over 72 h; config.WINDOW_HOURS). */
     frameCount: {
       type: Number,
       default: 0,
@@ -283,7 +283,7 @@ export default defineComponent({
     /**
      * The newest frame reads "now". It is really ~1-2 h old (that is what a
      * GONG synoptic magnetogram is), and the stale banner says so when the lag
-     * grows — but at the right-hand end of a 48-hour scrubber, "now" is the
+     * grows — but at the right-hand end of a 72-hour scrubber, "now" is the
      * honest answer to what the guest is asking.
      */
     ageText(): string {

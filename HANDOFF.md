@@ -4,9 +4,11 @@
 so a fresh session (human or Claude) can pick the work up without re-deriving context.
 
 - **Last updated:** 2026-08-23
-- **Status summary:** feature-complete against the v1 plan and building clean, but **nothing
-  has ever been committed to git** and **almost none of the 3D work has been seen in a
-  browser**. Those two are the top risks, in that order.
+- **Repo:** `github.com/astrodavid10/sol-solar-viewer` (**private**; GitHub Actions currently
+  **disabled at the repo level** — see §5 step 4)
+- **Status summary:** feature-complete against the v1 plan, building clean, and now pushed to
+  GitHub. The remaining headline risk is that **almost none of the 3D work has been seen in a
+  browser** — see §4.
 
 ### Read these first, in this order
 
@@ -27,20 +29,18 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 | `yarn lint` / `yarn typecheck` / `yarn build` | all **PASS** |
 | `pipeline validate --root public/data --strict` | **0 failed, 0 warnings** |
 | Data products building | 6 of 6 (pfss, ar, ephem, stats, texture, events) |
-| Git commits | **0** |
+| Git commits | 2, pushed to `origin/main` |
 | Automated tests | none (the pipeline validator is the de-facto test suite; the app has none) |
 | CI workflows | 4 written, **0 ever run** |
 
 ### Top risks, highest first
 
-1. **Zero commits.** The entire project is untracked working-tree state — ~19,000 lines with
-   no history, no backup, no bisect. A stray `git clean` loses everything. *Fix this before
-   writing more code.* Nothing else on this list matters if the tree evaporates.
-2. **The 3D view has never been confirmed working in a browser.** Large amounts of geometry
+1. **The 3D view has never been confirmed working in a browser.** Large amounts of geometry
    were derived from engine source and verified numerically, not visually. See §4.
-3. **CI has never run.** `data.yml`, `app-deploy.yml`, `keepalive.yml`, `build.yml` are
-   written and unexercised. There is no remote and no gh-pages branch yet.
-4. **No app-side tests.** Regressions in the app are caught only by eye.
+2. **CI has never run**, and Actions are deliberately disabled on the repo so the first push
+   could not fire `app-deploy.yml` by accident. `data.yml`, `app-deploy.yml`, `keepalive.yml`
+   and `build.yml` are written and unexercised; there is no gh-pages branch yet.
+3. **No app-side tests.** Regressions in the app are caught only by eye.
 
 ---
 
@@ -189,18 +189,31 @@ Everything visual. In particular:
 
 Ordered by value, with the blocker first.
 
-1. **`git init`-and-commit the tree.** Then branch per feature. (~15 min, removes risk #1.)
-2. **Browser-verify the 3D view.** One session with the dev server open, working through §4's
+1. **Browser-verify the 3D view.** One session with the dev server open, working through §4's
    unverified list. Everything else is built on the assumption this works.
-3. **M-W8 — consume `events.json`.** The pipeline half is done and the app half needs no 3D
+2. **M-W8 — consume `events.json`.** The pipeline half is done and the app half needs no 3D
    work: `src/data/events.ts` (mirror `data/regions.ts`), CME/flare marks on `TimeScrubber`
    (it *already* takes an `events` prop), and an event card in the existing `selectedCard`
    slot. `stats/export.py` already emits `flaresWindow` and `SolarView3D` already renders
    flare marks, so this is partly built. **Note:** today's live window had 0 X-class flares
    and 3 of 5 CMEs with no matching current AR — a hand-written fixture will be needed to
    exercise the interesting cases.
-4. **M-P7 — run CI once.** Needs a remote. `data.yml` has a `dry_run` input for exactly this.
-5. **M-INT** — deploy, then the real-phone and Lighthouse passes.
+3. **Re-enable Actions, then M-P7 — run CI once.** Actions are off at the repo level; turn
+   them back on under Settings → Actions → General, or:
+
+   ```
+   gh api -X PUT repos/astrodavid10/sol-solar-viewer/actions/permissions -F enabled=true
+   ```
+
+   Then exercise the pipeline without publishing:
+
+   ```
+   gh workflow run data.yml -f dry_run=true
+   ```
+
+   Be aware that enabling Actions also arms `app-deploy.yml` (push to `main`) and the
+   `data.yml` / `keepalive.yml` schedules.
+4. **M-INT** — deploy, then the real-phone and Lighthouse passes.
 
 ---
 

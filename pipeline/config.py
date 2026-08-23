@@ -15,7 +15,11 @@ from typing import Dict, Tuple
 # ─────────────────────────────────────────────────────────────────────────────
 
 PIPELINE_VERSION = "1.0.0"
-USER_AGENT = "sol-pipeline/{0} (+https://github.com/cosmicds/sol)".format(
+# Sent to GONG, NOAA SWPC, SDO and CCMC on every request. Keep the URL
+# pointing at the real repo: it is how an upstream operator reaches us if
+# this pipeline ever misbehaves against their service.
+USER_AGENT = ("sol-pipeline/{0} "
+              "(+https://github.com/astrodavid10/sol-solar-viewer)").format(
     PIPELINE_VERSION)
 HEADERS = {"User-Agent": USER_AGENT}
 

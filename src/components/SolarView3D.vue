@@ -113,6 +113,7 @@
           @scrub="onScrub"
           @grab="onGrab"
           @release="onRelease"
+          @pick-event="pickEvent"
         />
       </div>
     </div>
@@ -164,6 +165,17 @@ import {
   loadRegions,
   regionVector,
 } from "../data/regions";
+import {
+  SolarEvent,
+  SolarEvents,
+  describeCmeAim,
+  describeCmeSpeed,
+  describeFlareClass,
+  earthArrivalUnix,
+  eventTitle,
+  loadEvents,
+  thinEvents,
+} from "../data/events";
 import { AU_KM, R_SUN_AU, R_SUN_KM, Vec3, b0DegApprox, julianDate } from "../data/solarFrames";
 import {
   LivePosition,
@@ -280,6 +292,20 @@ const SUB_EARTH_ID = "sub-earth";
 
 /** Active-region ids carry this so they can't collide with an ephemeris body. */
 const AR_PREFIX = "ar:";
+
+/** Card-slot prefix for a DONKI flare or CME. */
+const EVENT_PREFIX = "evt:";
+
+/** Marks a 72 h window can hold before the track reads as texture, not data. */
+const MAX_EVENT_MARKS = 12;
+
+/**
+ * Shown on every event card. CCMC's own words for DONKI are "prototyping
+ * quality and in research context", and this app's habit is to say what the
+ * data actually is rather than let a confident-looking card imply more (the
+ * disk view refuses to fake a frame timestamp for the same reason).
+ */
+const EVENT_DISCLAIMER = "Research data from NASA CCMC — not an official forecast.";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -479,6 +505,8 @@ export default defineComponent({
         visible: false,
       } as RegionChip,
       selectedId: "",
+      /** `events/events.json`, or null while it loads / when it is absent. */
+      solarEvents: null as SolarEvents | null,
 
       rt: markRaw(makeRuntime()),
     };
@@ -517,6 +545,7 @@ export default defineComponent({
         };
       }
       if (id.indexOf(AR_PREFIX) === 0) { return this.regionCard(id.slice(AR_PREFIX.length)); }
+      if (id.indexOf(EVENT_PREFIX) === 0) { return this.eventCard(); }
       return this.selectedBody;
     },
 
@@ -527,14 +556,51 @@ export default defineComponent({
      * has to do is thin the noise (29 events today, 25 of them C-class) and
      * write the label a guest reads on tap.
      */
-    flareMarks(): { unix: number; label: string; cls: string }[] {
-      const events = this.solarStats.flareHistory.value?.events;
-      if (!events || !events.length) { return []; }
-      return thinFlareEvents(events, MAX_FLARE_MARKS).map((event) => ({
-        unix: event.peakUnix,
-        label: `${event.cls ? `${event.cls} flare` : "Flare"} · ${flareStamp(event.peakUnix)}`,
-        cls: event.cls,
-      }));
+    flareMarks(): { unix: number; label: string; cls: string; kind?: string; id?: string }[] {
+      const donki = this.solarEvents?.events ?? [];
+
+      // DONKI wins where both feeds have the same flare. It is the richer
+      // record — it knows WHERE the flare was and what CME went with it — and
+      // a mark that opens a card beats one that only scrubs. NOAA's history is
+      // still the fallback: it is near-real-time (median DONKI lag is 1.9 h
+      // for flares, 7.5 h for CMEs), so it covers the newest events DONKI has
+      // not published yet.
+      const claimed = new Set<number>();
+      for (const event of donki) {
+        if (event.kind === "flare") { claimed.add(Math.round(event.unix / 60)); }
+      }
+
+      const marks: { unix: number; label: string; cls: string; kind?: string; id?: string }[] = [];
+      for (const event of thinEvents(donki, MAX_EVENT_MARKS)) {
+        marks.push({
+          unix: event.unix,
+          label: `${eventTitle(event)} · ${flareStamp(event.unix)}`,
+          cls: event.cls ?? "",
+          kind: event.kind,
+          id: `${EVENT_PREFIX}${event.id}`,
+        });
+      }
+
+      const history = this.solarStats.flareHistory.value?.events;
+      if (history && history.length) {
+        for (const event of thinFlareEvents(history, MAX_FLARE_MARKS)) {
+          if (claimed.has(Math.round(event.peakUnix / 60))) { continue; }
+          marks.push({
+            unix: event.peakUnix,
+            label: `${event.cls ? `${event.cls} flare` : "Flare"} · ${flareStamp(event.peakUnix)}`,
+            cls: event.cls,
+          });
+        }
+      }
+      return marks.sort((a, b) => a.unix - b.unix);
+    },
+
+    /** The DONKI event the card slot is showing, if that is what it holds. */
+    selectedEvent(): SolarEvent | null {
+      const id = this.selectedId;
+      if (id.indexOf(EVENT_PREFIX) !== 0) { return null; }
+      const wanted = id.slice(EVENT_PREFIX.length);
+      return this.solarEvents?.events.find((e) => e.id === wanted) ?? null;
     },
   },
 
@@ -643,6 +709,7 @@ export default defineComponent({
     void this.loadFieldLines();
     void this.loadSpacecraftLayer();
     void this.loadRegionLayer();
+    void this.loadEventLayer();
   },
 
   beforeUnmount() {
@@ -1070,7 +1137,8 @@ export default defineComponent({
 
     /** True for the ids that belong to the Sun's surface, not to a body. */
     isSurfaceId(id: string): boolean {
-      return id === SUB_EARTH_ID || id.indexOf(AR_PREFIX) === 0;
+      return id === SUB_EARTH_ID || id.indexOf(AR_PREFIX) === 0
+        || id.indexOf(EVENT_PREFIX) === 0;
     },
 
     /**
@@ -1085,6 +1153,17 @@ export default defineComponent({
      * and it is the one that carries the fields a guest-facing card talks about
      * (number, mag class, spot count, seed count) which the shader never needed.
      */
+    /**
+     * Flare + CME catalogue. Optional product: absent or empty simply means no
+     * marks, which on a quiet Sun is the honest answer rather than an error.
+     */
+    async loadEventLayer(): Promise<void> {
+      const rt = this.rt;
+      const loaded = await loadEvents(dataBaseUrl(), rt.abort?.signal);
+      if (rt.destroyed || !loaded) { return; }
+      this.solarEvents = markRaw(loaded);
+    },
+
     async loadRegionLayer(): Promise<void> {
       const rt = this.rt;
       const regions = await loadRegions(dataBaseUrl(), rt.abort?.signal);
@@ -1191,6 +1270,56 @@ export default defineComponent({
      * big it is against the only silhouette they know, whether its field is
      * tangled, and how much of the 3D view they're looking at belongs to it.
      */
+    /**
+     * The card for a flare or CME.
+     *
+     * Every number shown is the measured one — this app does not round a real
+     * measurement into a vibe. The `warn` line carries DONKI's own framing
+     * ("prototyping quality... research context"): the catalogue is analyst-
+     * submitted research data, not a NOAA forecast, and a planetarium should
+     * not imply otherwise.
+     */
+    eventCard(): CardInfo | null {
+      const event = this.selectedEvent;
+      if (!event) { return null; }
+
+      const when = flareStamp(event.unix);
+      const region = event.arNumber ? `sunspot region ${event.arNumber}` : "";
+
+      if (event.kind === "flare") {
+        const where = region
+          ? `From ${region}${event.sourceLocation ? ` (${event.sourceLocation})` : ""}.`
+          : "";
+        const linked = event.linked.length
+          ? " It also threw off a cloud of gas — the blue circle on the timeline."
+          : "";
+        return {
+          name: eventTitle(event),
+          detail: when,
+          compare: where,
+          blurb: `${describeFlareClass(event.cls ?? "")}${linked}`.trim(),
+          warn: EVENT_DISCLAIMER,
+        };
+      }
+
+      const arrival = earthArrivalUnix(event);
+      const parts = [describeCmeAim(event)];
+      if (arrival) { parts.push(`Expected at Earth ${flareStamp(arrival)}.`); }
+      if (region) { parts.push(`It came from ${region}.`); }
+      return {
+        name: eventTitle(event),
+        detail: describeCmeSpeed(event.speedKms ?? 0),
+        compare: when,
+        blurb: parts.join(" "),
+        warn: EVENT_DISCLAIMER,
+      };
+    },
+
+    /** A timeline mark was tapped. TimeScrubber has already scrubbed there. */
+    pickEvent(id: string): void {
+      this.selectedId = id;
+    },
+
     regionCard(numberText: string): CardInfo | null {
       const region = this.rt.regions.find((r) => String(r.number) === numberText);
       if (!region) { return null; }

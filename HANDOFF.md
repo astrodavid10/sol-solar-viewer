@@ -61,7 +61,7 @@ never seen running · **PARTIAL** · **NOT STARTED**
 | M-W5 | PFSS field lines + 72 h scrubber | **UNVERIFIED** |
 | M-W6 | Spacecraft (PSP, SolO, STEREO-A) trails + labels | **UNVERIFIED** |
 | M-W7 | Kiosk mode + polish | **UNVERIFIED** |
-| M-W8 | **App consumes `events.json`** (flare/CME marks, event card) | **NOT STARTED** |
+| M-W8 | App consumes `events.json` (flare/CME marks, event card) | **UNVERIFIED** (2026-08-23) |
 
 M-W1/M-W2 are marked DONE rather than UNVERIFIED because the disk view and stats work with
 no WWT at all and the user has been exercising them.
@@ -144,6 +144,20 @@ control is now Coronal Loops / Chromosphere / Hot Corona / Artist. → footgun 2
 outage drill. Produces `data/events/events.json` (~4 KB). → footgun 23 (DONKI AR numbers are
 SRS + 10000) and footgun 25 (a CME must not carry the Carrington quaternion).
 
+**Events in the app (M-W8)** — `src/data/events.ts` reader; `TimeScrubber` now marks CMEs as
+blue circles distinct from the flare diamonds and emits `pick-event`; tapping a mark scrubs
+there *and* opens a card in the existing single card slot (`evt:` prefix). DONKI events take
+precedence over NOAA flare history where both describe the same flare — DONKI knows where it
+happened and what CME went with it — but NOAA remains the fallback for the newest events
+DONKI has not published yet (median lag 1.9 h for flares, 7.5 h for CMEs). Every card carries
+"Research data from NASA CCMC — not an official forecast."
+
+**`scripts/make_event_fixture.py`** — writes a synthetic `events.json` covering an X-class
+flare with a linked CME, fast Earth-directed CMEs with arrival times, and an unattributed
+flare. Needed because the live window is usually boring (2026-08-23: no X-class, no predicted
+impacts, 3 of 5 CMEs from regions already rotated off). Built through the pipeline's own
+`heeq_to_ecliptic`, so `validate --strict` passes on it — verified.
+
 **Unrelated perf bug found en route** — `kauai.ccmc.gsfc.nasa.gov` publishes a black-holed
 AAAA record and urllib has no Happy Eyeballs: 21.06 s to time out on IPv6, then 0.03 s on
 IPv4. curl races the families and never notices, which is why a curl probe said 0.87 s for a
@@ -191,13 +205,10 @@ Ordered by value, with the blocker first.
 
 1. **Browser-verify the 3D view.** One session with the dev server open, working through §4's
    unverified list. Everything else is built on the assumption this works.
-2. **M-W8 — consume `events.json`.** The pipeline half is done and the app half needs no 3D
-   work: `src/data/events.ts` (mirror `data/regions.ts`), CME/flare marks on `TimeScrubber`
-   (it *already* takes an `events` prop), and an event card in the existing `selectedCard`
-   slot. `stats/export.py` already emits `flaresWindow` and `SolarView3D` already renders
-   flare marks, so this is partly built. **Note:** today's live window had 0 X-class flares
-   and 3 of 5 CMEs with no matching current AR — a hand-written fixture will be needed to
-   exercise the interesting cases.
+2. **M-W9 — the 3D eruption layer.** M-W8 shipped the marks and cards; the remaining piece
+   is drawing the CME itself (`src/three/cme.ts`). `events.json` already carries `dir_ecl`
+   ready to use. See §6, and **read footgun 25 first** — the CME group must carry no
+   quaternion at all.
 3. **Re-enable Actions, then M-P7 — run CI once.** Actions are off at the repo level; turn
    them back on under Settings → Actions → General, or:
 

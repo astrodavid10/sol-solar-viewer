@@ -42,7 +42,7 @@
             :style="{ left: mark.left + '%' }"
             :title="mark.label"
             :aria-label="'Jump to ' + mark.label"
-            @click="$emit('scrub', mark.frame)"
+            @click="onMark(mark)"
           ></button>
         </div>
 
@@ -98,6 +98,17 @@ interface Tick {
  * is an invitation, not the main event. Kiosk mode is the exception: an unwatched
  * lobby screen should be moving.
  */
+/** One mark on the track. `id` is empty for NOAA flare history, which has no
+ *  stable identifier — only DONKI events can be selected. */
+interface EventMark {
+  key: string;
+  id: string;
+  left: number;
+  frame: number;
+  label: string;
+  severity: string;
+}
+
 export default defineComponent({
   name: "TimeScrubber",
 
@@ -135,16 +146,24 @@ export default defineComponent({
       default: 0,
     },
     /**
-     * Flares (or other moments) to mark on the track: {unix, label, cls}.
-     * cls is the GOES class string ("M1.2") — used only for severity styling.
+     * Moments to mark on the track: {unix, label, cls, kind?}.
+     *
+     * `cls` is the GOES class string ("M1.2") and drives severity styling for
+     * flares. `kind` tells a CME from a flare so the two get different marks —
+     * a guest has to be able to tell "the Sun flashed" from "the Sun threw
+     * something at us" at a glance, and they are genuinely different events
+     * even when DONKI links them to each other. Omitted `kind` means "flare",
+     * so the NOAA flare history keeps working untouched.
      */
     events: {
-      type: Array as () => { unix: number; label: string; cls: string }[],
+      type: Array as () => {
+        unix: number; label: string; cls: string; kind?: string; id?: string;
+      }[],
       default: () => [],
     },
   },
 
-  emits: ["scrub", "grab", "release"],
+  emits: ["scrub", "grab", "release", "pick-event"],
 
   setup() {
     return { kiosk, playing };
@@ -215,11 +234,11 @@ export default defineComponent({
      * locating its bracketing frames, then to a track percent on the frame
      * axis — the same axis the range input uses, so a tap really lands there.
      */
-    eventMarks(): { key: string; left: number; frame: number; label: string; severity: string }[] {
+    eventMarks(): EventMark[] {
       const times = this.times;
       if (times.length < 2 || !this.events.length) { return []; }
       const last = times.length - 1;
-      const out: { key: string; left: number; frame: number; label: string; severity: string }[] = [];
+      const out: EventMark[] = [];
       for (const event of this.events) {
         if (event.unix < times[0] || event.unix > times[last]) { continue; }
         let indexA = 0;
@@ -227,12 +246,16 @@ export default defineComponent({
         const span = times[indexA + 1] - times[indexA];
         const frame = indexA + (span > 0 ? (event.unix - times[indexA]) / span : 0);
         const letter = (event.cls || "C").charAt(0).toUpperCase();
+        const severity = event.kind === "cme"
+          ? "cme"
+          : letter === "X" ? "x" : letter === "M" ? "m" : "c";
         out.push({
-          key: `${event.unix}-${event.cls}`,
+          key: event.id || `${event.unix}-${event.cls}`,
+          id: event.id || "",
           left: (frame / Math.max(this.frameCount - 1, 1)) * 100,
           frame,
           label: event.label,
-          severity: letter === "X" ? "x" : letter === "M" ? "m" : "c",
+          severity,
         });
       }
       return out;
@@ -296,6 +319,14 @@ export default defineComponent({
   },
 
   methods: {
+    /** Tapping a mark always scrubs there; if it is a DONKI event it also asks
+     *  the parent to open its card. Scrub first so the view is already at the
+     *  right moment by the time the card appears. */
+    onMark(mark: EventMark): void {
+      this.$emit("scrub", mark.frame);
+      if (mark.id) { this.$emit("pick-event", mark.id); }
+    },
+
     togglePlay(): void {
       if (!this.canPlay) { return; }
       this.playing = !this.playing;
@@ -437,6 +468,22 @@ export default defineComponent({
     height: 10px;
     margin-left: -5px;
     top: 0;
+  }
+
+  // CMEs: a circle in the open-field blue, deliberately NOT a diamond and
+  // deliberately not on the flare colour ramp. A flare is a flash on the Sun;
+  // a CME is something leaving it, and the two must not read as degrees of the
+  // same thing even when DONKI links them.
+  &.is-cme {
+    width: 9px;
+    height: 9px;
+    margin-left: -4.5px;
+    top: 1px;
+    border-radius: 50%;
+    transform: none;
+    background: transparent;
+    border: 2px solid var(--sol-accent2, #5fb8ff);
+    box-shadow: 0 0 6px rgba(95, 184, 255, 0.55);
   }
 }
 

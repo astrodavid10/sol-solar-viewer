@@ -4,9 +4,11 @@
 so a fresh session (human or Claude) can pick the work up without re-deriving context.
 
 - **Last updated:** 2026-08-23 (second session that day)
-- **Repo:** `github.com/astrodavid10/sol-solar-viewer`. Actions are ENABLED and the
-  `gh-pages` branch is live (app + data). The repo is still PRIVATE and GitHub Pages is not
-  yet turned on.
+- **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
+  enabled on `gh-pages` / root, and the deployed data tree passes
+  `validate --url … --strict` at 0 failed / 0 warnings.
+- **Repo:** `github.com/astrodavid10/sol-solar-viewer`. Actions ENABLED, `gh-pages` carries
+  the app at the root and all six data products under `data/`.
 - **Branch:** work is on `feature/unified-sphere-view`, which is well ahead of `main` and
   carries the single-sphere consolidation (the "Sun Now" disk view was deleted in `a270e5a`).
   **`main` is stale — do not read it for current state.**
@@ -55,6 +57,10 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
    The `data.yml` (4-hourly) and `keepalive.yml` (monthly) schedules are armed.
    **One open question blocks the flip** — see §3, Highway Gothic Narrow.
 3. **No app-side tests.** Regressions in the app are caught only by eye.
+4. **Field lines are hand-fed.** GONG is unreachable from CI (see below), so the published
+   frames come from a workstation run. They age out of the 8 h staleness threshold and the
+   app will start showing its "data is stale" banner until someone republishes or the CI
+   blockage is solved.
 
 ---
 

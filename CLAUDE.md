@@ -288,6 +288,17 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     `index.json` as expected-stale and do NOT "fix" it by lowering
     `MIN_FRAMES_TO_PUBLISH`.
 
+34. **After a forced orphan push, the Pages build can wedge — kick it with an
+    explicit `POST /pages/builds`.** Enabling Pages on `gh-pages` produced two
+    builds that `errored` with the useless message "Page build failed", then one
+    that sat at `building` for over five minutes with the site still 404. The
+    branch was fine (`.nojekyll` present, 60 files, 11.8 MB). What cleared it
+    was `gh api -X POST repos/<owner>/<repo>/pages/builds`, which built in under
+    a minute. The likely cause is our own design: `publish_gh_pages.sh`
+    force-pushes a single orphan commit, so the commit Pages was told to build
+    stops existing on the next publish. If the site 404s after a publish, ask
+    for a build before believing anything is broken.
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).

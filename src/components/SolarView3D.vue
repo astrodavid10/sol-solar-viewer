@@ -7,6 +7,17 @@
          click-through; individual controls opt back in. -->
     <div class="sv-overlay">
       <div class="sv-labels">
+        <!-- Drawn BEFORE the chips so a chip always paints over its own
+             leader. One per chip that de-collision had to move: the marker's
+             true projected point stays honest and only the text steps aside. -->
+        <div
+          v-for="leader in leaders"
+          :key="leader.id"
+          class="sv-leader"
+          :style="leader.style"
+          aria-hidden="true"
+        ></div>
+
         <spacecraft-label
           v-for="chip in chips"
           v-show="chip.visible && layers.spacecraft"
@@ -48,6 +59,10 @@
         />
       </div>
 
+      <!-- One vertical stack, top right. The app title used to sit in a
+           full-width banner above the stage with share and info at its far
+           right, which spent a whole row of a phone screen on a wordmark and
+           put four controls in two different places. -->
       <div class="sv-buttons">
         <button
           type="button"
@@ -58,10 +73,38 @@
         >
           <font-awesome-icon icon="rotate-left" />
         </button>
+
+        <!-- Web Share of the current deep link (the URL already carries the
+             surface/channel state). Hidden on the kiosk — guests take THAT home
+             via the QR pill, and the exhibit machine shouldn't open share
+             sheets. -->
         <button
+          v-if="!kiosk"
           type="button"
           class="sv-icon-btn"
+          :aria-label="copied ? 'Link copied' : 'Share this view'"
+          :title="copied ? 'Link copied!' : 'Share this view'"
+          @click="share"
+        >
+          <font-awesome-icon :icon="copied ? 'check' : 'share-nodes'" />
+        </button>
+
+        <!-- Both redundant on desktop: the rail keeps these panels open. -->
+        <button
           v-if="!wide"
+          type="button"
+          class="sv-icon-btn"
+          :class="{ 'is-active': sheet === 'info' }"
+          aria-label="About this app"
+          title="What am I looking at?"
+          @click="toggleInfo"
+        >
+          <font-awesome-icon icon="circle-info" />
+        </button>
+        <button
+          v-if="!wide"
+          type="button"
+          class="sv-icon-btn"
           :class="{ 'is-active': sheet === 'layers' }"
           aria-label="Layers"
           title="Layers"
@@ -201,6 +244,7 @@ import {
 import { useSolarStats, thinFlareEvents } from "../data/useSolarStats";
 import { DebugHelpers, createDebugHelpers } from "../three/debug";
 import { FieldLines, createFieldLines } from "../three/fieldLines";
+import { deCollideLabels } from "../three/labelLayout";
 import { ProjectTarget, Projected, cameraPosition, projectTargets } from "../three/project";
 import { SolarWind, createSolarWind } from "../three/solarWind";
 import { SpacecraftTrails, TrailInput, createSpacecraftTrails } from "../three/spacecraftTrails";
@@ -228,6 +272,7 @@ import {
   frameT,
   frameTimes,
   getAppHandle,
+  kiosk,
   layers,
   playing,
   resetToken,
@@ -312,6 +357,15 @@ const FACING_MIN_DOT = 0.1;
 
 /** Most flare diamonds a phone-width scrubber track can carry (see thinning). */
 const MAX_FLARE_MARKS = 10;
+
+/** Chip height is a 44 px tap target; 46 leaves 2 px of air between two. */
+const LABEL_STRIDE_PX = 46;
+
+/** Chips further apart than one chip-width never collide, so never move. */
+const LABEL_SPREAD_PX = 96;
+
+/** Below this the chip is close enough to its marker to need no leader. */
+const LABEL_LEADER_MIN_PX = 6;
 
 /** The sub-Earth marker's id in the shared selection slot. */
 const SUB_EARTH_ID = "sub-earth";
@@ -518,7 +572,7 @@ export default defineComponent({
     // layer only reads the current speed (416 km/s today) to scale itself.
     const { stats } = useSolarStats();
     return {
-      frameT, frameTimes, sceneTime, layers, playing, resetToken, sheet,
+      frameT, frameTimes, sceneTime, kiosk, layers, playing, resetToken, sheet,
       surfaceMode, fieldColorMode, textureChannel, wide,
       solarStats: stats,
     };
@@ -551,6 +605,11 @@ export default defineComponent({
       unobserved: 0,
       /** `events/events.json`, or null while it loads / when it is absent. */
       solarEvents: null as SolarEvents | null,
+      /** Share button feedback on the clipboard-fallback path. */
+      copied: false,
+      copiedTimer: 0,
+      /** One entry per chip de-collision had to move; see layoutLabels(). */
+      leaders: [] as { id: string; style: Record<string, string> }[],
 
       rt: markRaw(makeRuntime()),
     };
@@ -759,6 +818,7 @@ export default defineComponent({
     window.clearTimeout(rt.modeTimer);
     window.removeEventListener("resize", this.onResize);
     window.removeEventListener("orientationchange", this.onResize);
+    window.clearTimeout(this.copiedTimer);
     rt.observer?.disconnect();
     rt.abort?.abort();
     playing.value = false;
@@ -897,6 +957,7 @@ export default defineComponent({
         rt.lastProjectMs = now;
         this.updateSpacecraft();
         this.updateSurfaceMarkers();
+        this.layoutLabels();
         this.tuneWind();
         if (rt.debug) { this.assertTextureFacing(); }
       }
@@ -1374,6 +1435,54 @@ export default defineComponent({
     },
 
     /**
+     * Keep the chips off each other.
+     *
+     * Projection is exact, which is the problem: two active regions 12 deg
+     * apart on the Sun land ~12 px apart on a phone, and the chips naming them
+     * are 44 px tall. Measured on the live site across three viewports from
+     * 360x640 to 820x700, ALL THREE surface chips (AR 4513, AR 4515 and the
+     * sub-Earth marker) overlapped each other at every size.
+     *
+     * Runs on the combined set — a spacecraft chip and a region chip collide
+     * exactly as readily as two region chips — and only at the 20 Hz DOM
+     * cadence, never per frame.
+     */
+    layoutLabels(): void {
+      const boxes: { chip: Chip | RegionChip; ax: number; ay: number;
+        x: number; y: number; visible: boolean }[] = [];
+      const collect = (chip: Chip | RegionChip, visible: boolean): void => {
+        boxes.push({ chip, ax: chip.x, ay: chip.y, x: chip.x, y: chip.y, visible });
+      };
+      if (this.layers.spacecraft) {
+        this.chips.forEach((chip) => collect(chip, chip.visible));
+      }
+      this.regionChips.forEach((chip) => collect(chip, chip.visible));
+      collect(this.earthChip, this.earthChip.visible);
+
+      deCollideLabels(boxes, { strideY: LABEL_STRIDE_PX, spreadX: LABEL_SPREAD_PX });
+
+      const leaders: { id: string; style: Record<string, string> }[] = [];
+      boxes.forEach((box) => {
+        box.chip.y = box.y;
+        if (!box.visible) { return; }
+        const dy = box.y - box.ay;
+        if (Math.abs(dy) < LABEL_LEADER_MIN_PX) { return; }
+        // A pure vertical nudge, so the leader is a vertical line from the
+        // marker's true point to where the chip ended up. Drawn from whichever
+        // end is higher so the height is always positive.
+        leaders.push({
+          id: box.chip.id,
+          style: {
+            transform: `translate3d(${Math.round(box.ax)}px, `
+              + `${Math.round(Math.min(box.ay, box.y))}px, 0)`,
+            height: `${Math.round(Math.abs(dy))}px`,
+          },
+        });
+      });
+      this.leaders = leaders;
+    },
+
+    /**
      * The card for one active region, in the language a guest can act on: how
      * big it is against the only silhouette they know, whether its field is
      * tangled, and how much of the 3D view they're looking at belongs to it.
@@ -1456,6 +1565,41 @@ export default defineComponent({
 
     toggleLayers(): void {
       this.sheet = this.sheet === "layers" ? null : "layers";
+    },
+
+    toggleInfo(): void {
+      this.sheet = this.sheet === "info" ? null : "info";
+    },
+
+    /**
+     * Native share sheet where available (every phone), clipboard fallback on
+     * desktop. location.href is already the canonical deep link — useDeepLink
+     * keeps ?surface=&fieldcolor=&texch= in step with the app state.
+     *
+     * Moved here from TopBar when the banner became a title pill: the control
+     * belongs with the other three, not on its own in a row of its own.
+     */
+    async share(): Promise<void> {
+      const url = window.location.href;
+      const nav = navigator as Navigator & {
+        share?: (data: { title: string; url: string }) => Promise<void>;
+      };
+      if (nav.share) {
+        try {
+          await nav.share({ title: "Sol — the Sun right now", url });
+        } catch {
+          // Guest closed the sheet — not an error.
+        }
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(url);
+        this.copied = true;
+        window.clearTimeout(this.copiedTimer);
+        this.copiedTimer = window.setTimeout(() => { this.copied = false; }, 2000);
+      } catch {
+        // Clipboard blocked (http:// LAN testing) — the button just does nothing.
+      }
     },
 
     measure(): void {
@@ -1563,8 +1707,15 @@ export default defineComponent({
 </script>
 
 <style lang="less" scoped>
+// `z-index: 0` is load-bearing, not cosmetic. With `z-index: auto` this
+// element creates NO stacking context, so its descendants (the scrubber at 5,
+// the card slot at 20) competed directly with SIBLINGS in sol.vue -- which is
+// how the brand mark spent a whole session invisible at z-index 3, and what the
+// title pill would have walked straight into. Now the whole 3D view is one
+// layer and a sibling only has to clear 0. (CLAUDE.md footgun 27.)
 .solar-view-3d {
   position: relative;
+  z-index: 0;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -1590,9 +1741,26 @@ export default defineComponent({
   inset: 0;
 }
 
+// From a marker's true projected point to the chip de-collision moved. Dark
+// core inside a light edge, the same dual-contrast idea the chips themselves
+// need: the dark half wins over the bright photosphere, the light half over the
+// black sky, and one treatment therefore works on both.
+.sv-leader {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: rgba(245, 244, 240, 0.55);
+  box-shadow: 0 0 0 0.5px rgba(5, 1, 15, 0.85);
+  pointer-events: none;
+}
+
+// The stage now runs to the top of the page (the top bar is gone), so these
+// have to clear a notch themselves.
 .sv-buttons {
   position: absolute;
-  top: 0.5rem;
+  top: calc(env(safe-area-inset-top) + 0.5rem);
   right: 0.5rem;
   display: flex;
   flex-direction: column;
@@ -1621,10 +1789,12 @@ export default defineComponent({
   }
 }
 
-// Below both icon buttons (2 x 44 px + a 0.4rem gap under a 0.5rem inset).
+// Below the whole stack. Four 44 px buttons with 0.4rem gaps under the inset;
+// derived rather than typed as a magic number, because the stack's length
+// changes with `wide` and the kiosk flag.
 .sv-layer-popover {
   position: absolute;
-  top: 7.1rem;
+  top: calc(env(safe-area-inset-top) + 0.5rem + (4 * 44px) + (3 * 0.4rem) + 0.4rem);
   right: 0.5rem;
   pointer-events: auto;
 }

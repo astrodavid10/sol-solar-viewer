@@ -260,20 +260,33 @@ export default defineComponent({
   padding: 0.2rem 0.75rem 0.4rem;
 }
 
+// Content-driven, not breakpoint-driven. This was `repeat(2, 1fr)` with a
+// `@media (min-width: 381px)` override to `repeat(4, 1fr)`, which meant a
+// 390 px phone -- the single most common size there is -- got four 87 px
+// columns and clipped every chip: "Small flare", "Solar wind", "392 km/s" and
+// "5 spotted regions · today" all ran past their boxes (measured in a browser
+// at 390x844, 2026-08-23).
+//
+// 150px is the measured floor: the widest chip content is "876,904 mph" and
+// "5 spotted regions · today", and both fit above it. auto-fit then chooses
+// 2 columns on a phone and 4 as soon as there is room, with no breakpoint to
+// get wrong -- and it cannot clip, because the track can never be narrower
+// than the content needs.
 .ss-grid {
   display: grid;
   gap: 0.4rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+// The desktop rail is a fixed narrow column, so it always wants 2x2 -- there
+// auto-fit would give 2 anyway, but saying so keeps the rail stable while the
+// window is dragged rather than flipping to 4 at some incidental width.
+.ss-grid.is-two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 // Roomier than a small phone in portrait: one row of four reads better than
 // a 2x2 block, and keeps the disk taller.
-@media (min-width: 381px) {
-  .ss-grid.is-auto {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
 .ss-explainer {
   margin: 0.4rem 0 0;
   color: var(--sol-text-dim);

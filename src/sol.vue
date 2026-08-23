@@ -2,9 +2,17 @@
   <v-app id="app">
     <div id="main-content">
       <div class="sol-root" :class="{ 'is-wide': wide, 'is-kiosk': kioskMode }">
-        <top-bar class="sol-area-top" @info="sheet = 'info'" />
-
         <main class="sol-area-stage">
+          <!-- Was a full-width banner row above the stage. On a phone that
+               spent 44 px of a 640 px screen on a wordmark; now it floats over
+               the Sun, and the Sun got the row back. Rendered HERE rather than
+               inside SolarView3D so it paints with the entry chunk, before the
+               engine has downloaded. -->
+          <p class="sol-title no-select" aria-label="Sol — the Sun right now">
+            <span class="sol-title-name">Sol</span>
+            <span class="sol-title-sub">the Sun right now</span>
+          </p>
+
           <!-- The whole app. Async because the WWT engine + three.js live only
                in this chunk, and its module scope installs wwtPinia on the app
                instance stashed by setAppHandle() below — main.ts must never
@@ -61,7 +69,6 @@ import BrandMark from "./components/BrandMark.vue";
 import InfoModal from "./components/InfoModal.vue";
 import LayerPanel from "./components/LayerPanel.vue";
 import SunStats from "./components/SunStats.vue";
-import TopBar from "./components/TopBar.vue";
 import { attractActive, initAttract, stopAttract } from "./kiosk/attract";
 import { KIOSK_RELOAD_HOUR, installKioskGuards, scheduleDailyReload } from "./kiosk/kiosk";
 import { statsTrack } from "./kiosk/kioskStats";
@@ -135,7 +142,6 @@ export default defineComponent({
     "layer-panel": LayerPanel,
     "solar-view-3d": solarView3d,
     "sun-stats": SunStats,
-    "top-bar": TopBar,
   },
 
   props: {
@@ -289,9 +295,53 @@ export default defineComponent({
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-.sol-area-top,
 .sol-area-stats {
   flex: 0 0 auto;
+}
+
+// Top centre, over the canvas. `pointer-events: none` because it is a label,
+// not a control -- a guest dragging the Sun must not have the drag swallowed by
+// the wordmark sitting on top of it.
+//
+// The max-width keeps it clear of the four-button stack on the right and the
+// brand mark on the left: at 360 px the pill is ~170 px wide, centred, so it
+// spans 95-265 against buttons at 306-350 and the mark at 12-56.
+.sol-title {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  max-width: calc(100% - 7.5rem);
+  margin: 0;
+  padding: 0.28rem 0.85rem;
+  border: var(--sol-panel-border);
+  border-radius: 999px;
+  background: var(--sol-surface);
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sol-title-name {
+  flex: 0 0 auto;
+  font-family: "Overpass", system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 1.05rem;
+  line-height: 1.1;
+  color: var(--sol-accent);
+}
+
+.sol-title-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.76rem;
+  color: var(--sol-text-dim);
 }
 
 // The Sun gets every pixel the chrome doesn't need.
@@ -312,7 +362,7 @@ export default defineComponent({
 // whole bottom edge), and the z-index clears everything the 3D view uses except
 // the card slot at 20, which is a deliberate modal-ish overlay.
 .sol-brand {
-  top: 0.75rem;
+  top: calc(env(safe-area-inset-top) + 0.75rem);
   left: 0.75rem;
   z-index: 6;
 }
@@ -397,17 +447,15 @@ export default defineComponent({
 .sol-root.is-wide {
   display: grid;
   grid-template-columns: 65fr 35fr;
-  // Two rows, matching grid-template-areas below. These MUST stay the same
+  // THREE rows, matching grid-template-areas below. These MUST stay the same
   // length: leaving four row sizes here against a two-row area map put the
   // stage in an `auto` row, and the 3D canvas has no intrinsic height, so it
   // collapsed to nothing.
   // info takes the slack and scrolls; layers and stats keep their height.
-  grid-template-rows: auto 1fr auto auto;
-  // One view now, so the right-hand rail carries only the stats. The Sun
-  // spans the full height beside them rather than sharing the column with a
-  // view switcher and disk controls that no longer exist.
+  grid-template-rows: 1fr auto auto;
+  // The "top" row went with the banner -- the title is an overlay on the stage
+  // now, so the Sun runs the full height of the window.
   grid-template-areas:
-    "top    top"
     "stage  info"
     "stage  layers"
     "stage  stats";
@@ -415,10 +463,6 @@ export default defineComponent({
   // Spacing between the rail's panels comes from the grid, so all three gaps
   // are the same by construction rather than by three components agreeing.
   row-gap: var(--sol-rail-gutter);
-
-  .sol-area-top {
-    grid-area: top;
-  }
 
   .sol-area-stage {
     grid-area: stage;

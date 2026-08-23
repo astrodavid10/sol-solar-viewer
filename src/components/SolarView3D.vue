@@ -1232,6 +1232,9 @@ export default defineComponent({
       }));
       rt.trails = markRaw(createSpacecraftTrails(inputs));
       rt.trails.setVisible(this.layers.spacecraft);
+      // Before the first render: the line widths are meaningless until the
+      // shader knows the framebuffer size (footgun 16).
+      this.syncLineResolution();
       rt.stage.scene.add(rt.trails.group);
 
       rt.targets = [];
@@ -1719,6 +1722,28 @@ export default defineComponent({
       if (!root) { return; }
       this.rt.widthCss = root.clientWidth;
       this.rt.heightCss = root.clientHeight;
+      this.syncLineResolution();
+    },
+
+    /**
+     * Keep the fat orbit lines' screen-space widths correct.
+     *
+     * Line2 expands its quads in a vertex shader, so it needs the FRAMEBUFFER
+     * size — and it must come from `gl.drawingBufferWidth/Height`, never from
+     * `gl.canvas.width/height`, because the vendored three-wwt shim reports the
+     * canvas in CSS px on DPR > 1 screens (footgun 16). `stage.bufferSize()` is
+     * that source. The CSS width goes along so the widths declared in CSS px
+     * become the right number of device px.
+     *
+     * Called from measure(), which is what the ResizeObserver and the
+     * resize/orientationchange handlers already go through — so a device
+     * rotation or a URL bar sliding away re-syncs it for free.
+     */
+    syncLineResolution(): void {
+      const rt = this.rt;
+      if (!rt.stage || !rt.trails) { return; }
+      const buffer = rt.stage.bufferSize();
+      rt.trails.setResolution(buffer.width, buffer.height, rt.widthCss);
     },
 
     observeSize(): void {

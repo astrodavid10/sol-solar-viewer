@@ -227,7 +227,8 @@ export default defineComponent({
 .im-title {
   margin: 0 2.5rem 0.7rem 0;
   color: var(--sol-accent);
-  font-family: "Highway Gothic Narrow", "Roboto", sans-serif;
+  font-family: "Overpass", system-ui, sans-serif;
+  font-weight: 600;
   font-size: 1.4rem;
   font-weight: 400;
 }

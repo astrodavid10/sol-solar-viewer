@@ -16,33 +16,30 @@ source at `src/three/three-wwt/LICENSE`.
 Vendored rather than taken from npm because `@cosmicds/three-wwt@0.0.3` bundles
 a duplicate copy of the WWT engine (1.7 MB) and ships a broken CJS entry point.
 
-## Roboto / Roboto Condensed
+## Overpass
 
-`src/assets/Roboto.ttf`, `src/assets/RobotoCondensed.ttf`,
-`src/assets/RobotoCondensed-Italic.ttf` — Apache License 2.0. Copyright Google
-Inc. The fonts self-declare this in their `name` tables; the license text is at
-<https://www.apache.org/licenses/LICENSE-2.0>.
+`src/assets/Overpass-SemiBold.ttf` — SIL Open Font License 1.1 (the font is dual
+licensed OFL 1.1 / LGPL 2.1). Copyright 2016 Red Hat, Inc. The license text is
+redistributed with it at `src/assets/Overpass-LICENSE.md`, and the font
+self-declares both the license (name record 13) and its URL (record 14) in its
+own `name` table. Taken from
+[RedHatOfficial/Overpass](https://github.com/RedHatOfficial/Overpass) v3.0.5.
 
-## Highway Gothic Narrow
+This is the app's only bundled face, used for the app title and the info-modal
+heading. One weight, `font-display: swap` — it is decoration on a short string
+and must never hold up the first paint.
 
-`src/assets/HighwayGothicNarrow.ttf` — **terms unverified.**
+**It replaced Highway Gothic Narrow**, which shipped here until this repository
+was made public. That file recorded `copyright: "2009"` and
+`trademark: "Ash Pikachu Font"` but carried **no license record and no license
+URL**, and publishing the repository would have redistributed it on unknown
+terms. Overpass descends from the same US FHWA Standard Alphabets, so the change
+is within the same lineage rather than a new look.
 
-The font's `name` table records `copyright: "2009"` and
-`trademark: "Ash Pikachu Font"`, but carries **no license record (nameID 13) and
-no license URL (nameID 14)**. Highway Gothic derives from the US FHWA Standard
-Alphabets, which are themselves a US government work, but that says nothing
-about the terms of this particular digitization.
-
-**This is not specific to Sol.** The file here is byte-identical
-(SHA-256 `7b98172d…`) to the one in `exo-sonification`, and the same font ships
-in at least seven projects in this family — including `minids`, which is already
-published publicly under MIT. Sol therefore introduces no exposure that does not
-already exist, and the question of terms is an organization-wide one to settle
-once rather than a Sol blocker.
-
-If it is ever settled the other way, [Overpass](https://overpassfont.org/) is an
-open FHWA-derived face under the SIL Open Font License and is a drop-in
-replacement.
+`Roboto.ttf`, `RobotoCondensed.ttf` and `RobotoCondensed-Italic.ttf` were also
+removed. They had **no `@font-face` rule**, so the browser never loaded them —
+naming "Roboto" in a CSS stack only ever resolved to a system copy where one
+existed. They were 500 KB of dead weight in every clone.
 
 ## WorldWide Telescope engine
 

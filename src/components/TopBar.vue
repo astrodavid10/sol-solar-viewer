@@ -109,7 +109,8 @@ export default defineComponent({
 }
 
 .tb-title {
-  font-family: "Highway Gothic Narrow", "Roboto", sans-serif;
+  font-family: "Overpass", system-ui, sans-serif;
+  font-weight: 600;
   font-size: 1.5rem;
   line-height: 1.1;
   color: var(--sol-accent);

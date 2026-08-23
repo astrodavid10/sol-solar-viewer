@@ -161,18 +161,18 @@ Footgun 22 was two revisions out of date. The favicon hotlinked
 `?view=&wl=&pfss=&movie=&res=` into every shareable URL; those params are still *stripped* on
 write, because a QR printed before the consolidation can carry them.
 
-### ⚠ OPEN QUESTION BLOCKING THE PUBLIC FLIP
+### Font: Highway Gothic Narrow → Overpass (RESOLVED)
 
-**Highway Gothic Narrow has no license record.** `src/assets/HighwayGothicNarrow.ttf`
-(SHA-256 `7b98172d…`) carries `copyright: "2009"` and `trademark: "Ash Pikachu Font"` but no
-nameID 13 or 14. `THIRD-PARTY.md` argues it is an organization-wide question rather than a Sol
-blocker — the same file ships in at least seven projects here, including `minids`, which is
-already public. Going public redistributes it. Three options: ship as-is (accept the existing
-exposure), swap to **Overpass** (open FHWA-derived face, SIL OFL, a genuine drop-in — this
-also retires the question permanently), or drop the display face. **Not yet decided.**
-The orphaned `Roboto*.ttf` files are a separate matter: they have no `@font-face` rule at all
-and are dead weight (see §8's Tier 0 notes).
+`HighwayGothicNarrow.ttf` carried no license record at all (no nameID 13, no nameID 14 — just
+`copyright: "2009"` / `trademark: "Ash Pikachu Font"`), and making the repo public would have
+redistributed it on unknown terms. Replaced with **Overpass** (Red Hat, SIL OFL 1.1 / LGPL
+2.1 dual), which descends from the same US FHWA Standard Alphabets, self-declares its license
+in its own name table, and ships its license text alongside at
+`src/assets/Overpass-LICENSE.md`. One weight, `font-display: swap`.
 
+The three `Roboto*.ttf` files went too: they had **no `@font-face` rule**, so the browser never
+loaded them — naming "Roboto" in a CSS stack only ever resolved to a system copy. 500 KB of
+dead weight in every clone.
 ---
 
 ## 3. What changed on 2026-08-23 (FIRST session)

@@ -80,7 +80,7 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  // Vertically centred on the marker, extending to the right of it.
+  // Vertically centered on the marker, extending to the right of it.
   min-height: 44px;
   margin: -22px 0 0 -10px;
   padding: 0 0.55rem 0 0.35rem;

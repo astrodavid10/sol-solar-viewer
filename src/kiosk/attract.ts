@@ -4,13 +4,17 @@
 // A planetarium lobby screen is idle most of the day, and an idle screen has
 // exactly one job: look alive enough that a passing guest reaches out and
 // touches it. So after `?kioskIdle` seconds (90 s by default) the app takes
-// itself for a walk:
+// itself for a walk — one continuous 3D scene, camera drifting round the Sun,
+// field lines looping the 72 h animation, while the sphere's texture channel
+// cycles underneath it all:
 //
-//   3D for 45 s   — field-line animation looping, camera drifting slowly
-//                   round the Sun (2°/s), re-homed at the start of every leg
-//   disk for ~21 s — 0304 → 0171 → 0193, 7 s each: the three most photogenic
-//                   channels, as big bright stills
-//   …and repeat.
+//   HMIIC → 0171 → 0193 → 0304 → HMIB, 15 s each (~75 s per cycle), forever,
+//   re-homing the camera at the top of every cycle.
+//
+// (There used to be a separate 2D "disk" leg here — SDO stills shown flat,
+// cut to from the 3D scene. The disk view is gone: imagery now paints the
+// sphere directly, so the attract loop never leaves 3D. It just changes what
+// the Sun is wearing.)
 //
 // Three rules shape the code below:
 //
@@ -20,8 +24,8 @@
 //      `attractDrift` — that SolarView3D's existing per-frame tick consumes.
 //      Everything else the loop does is a write to a state ref.
 //   2. ANY TOUCH WINS, INSTANTLY. The idle watcher's activity callback stops
-//      the timers and puts back the view/channel the loop found, so a guest
-//      never has to undo the screensaver before they can explore.
+//      the timers and puts back the texture channel the loop found, so a
+//      guest never has to undo the screensaver before they can explore.
 //   3. NOTHING THE LOOP DOES IS A STATISTIC. The guest's stats session is
 //      closed before the first attract move and reopened on the next touch;
 //      kioskStats then no-ops on its own for everything in between.
@@ -30,29 +34,51 @@ import { ref, watch } from "vue";
 
 import { IdleWatcher, KIOSK_IDLE_MS, createIdleWatcher } from "./kiosk";
 import { statsInit, statsSessionEnd, statsSessionStart, statsTrack } from "./kioskStats";
-import { ProductId } from "../data/sdoCatalog";
 import {
-  DiskMode,
-  ViewId,
+  TextureChannel,
   attractDrift,
-  channel,
-  diskMode,
   kiosk,
   playing,
   resetView,
   sheet,
-  view,
+  textureChannel,
 } from "../state/useAppState";
 import { numberParam } from "../urlParams";
 
-/** The 3D leg: long enough for the 48 h field-line loop to read as motion. */
-const PHASE_3D_MS = 45_000;
+/**
+ * Dwell time per texture channel. Switching `textureChannel` costs a real
+ * download (258-773 KB per CLAUDE.md's measured sizes) plus a GPU decode, so
+ * this has to comfortably outlast that or the loop would thrash the network
+ * and show a stale/blank sphere more often than a settled one. 15 s clears
+ * that with room to spare on kiosk wifi, while still changing often enough
+ * that a guest who glances over for a few seconds sees the Sun differently
+ * dressed than the guest before them.
+ */
+const PHASE_CHANNEL_MS = 15_000;
 
-/** Each channel in the disk interlude (3 x 7 s ≈ the 20 s the interlude wants). */
-const PHASE_DISK_MS = 7_000;
-
-/** The disk interlude's channels, in the order shown: hot loops → corona. */
-const ATTRACT_CHANNELS: ProductId[] = ["0304", "0171", "0193"];
+/**
+ * The channels shown, in the order shown, and why this order:
+ *   HMIIC — colorized continuum: the Sun "as your eye would see it" (with
+ *           sunspots). The most legible anchor image, so the loop starts and
+ *           ends on it — whoever glances over mid-cycle is more likely to
+ *           catch something recognizable.
+ *   0171  — quiet corona, calm gold loops: the gentlest step up from visible
+ *           light into EUV.
+ *   0193  — hotter corona / active regions: livelier structure, still a
+ *           gold-green palette that reads easily next to 0171.
+ *   0304  — chromosphere & prominences: the most dramatic-looking channel
+ *           (bright reds, visible filaments) — placed as the mid-cycle peak
+ *           rather than the opener.
+ *   HMIB  — the magnetogram: the black/white polarity map that is the actual
+ *           source of the field lines that have been arcing overhead the
+ *           whole time. Ending here ties the sphere's texture back to the 3D
+ *           structure the guest has been watching, right before the loop
+ *           re-homes the camera and starts over on HMIIC.
+ * Five channels x 15 s = 75 s per full cycle, inside the 60-90 s target in
+ * the brief: long enough that a passing guest sees the Sun visibly change,
+ * short enough that someone who lingers doesn't wait too long for variety.
+ */
+const ATTRACT_CHANNELS: TextureChannel[] = ["HMIIC", "0171", "0193", "0304", "HMIB"];
 
 /**
  * Grace period between "idle" and the first attract move. A guest who walked
@@ -70,9 +96,7 @@ export const attractActive = ref(false);
 
 /** What the screen looked like before the loop started; restored on exit. */
 interface Snapshot {
-  view: ViewId;
-  channel: ProductId;
-  diskMode: DiskMode;
+  textureChannel: TextureChannel;
 }
 
 let watcher: IdleWatcher | null = null;
@@ -90,7 +114,7 @@ let writing = false;
  * Every state write the loop makes goes through here. `attractActive` alone
  * can't gate the usage watchers: the restore-on-exit writes happen with the
  * flag already down, and would otherwise be counted as the arriving guest's
- * first channel pick. Paired with the sync-flush watchers in trackUsage(),
+ * first channel pick. Paired with the sync-flush watcher in trackUsage(),
  * this flag is exact.
  */
 function selfWrite(apply: () => void): void {
@@ -104,43 +128,34 @@ function selfWrite(apply: () => void): void {
 
 // ── Choreography ────────────────────────────────────────────────────────────
 
-/** The 3D leg: re-home, loop the field lines, start the slow orbit drift. */
-function begin3dPhase(): void {
+/**
+ * One texture-channel dwell. `rehome` is true once per full cycle (the first
+ * step) — re-homing every dwell would reset the 72 h field-line playhead to 0
+ * every 15 s and the animation would never visibly progress, but never
+ * re-homing at all would let the drifting camera wander somewhere useless
+ * over an unattended run that can go for hours.
+ */
+function beginChannelPhase(id: TextureChannel, rehome: boolean): void {
   selfWrite(() => {
-    // resetView() re-homes the camera (via resetToken) and parks the playhead —
-    // and clears `playing` on the way, so the play flag has to come after it.
-    resetView();
-    view.value = "3d";
-    playing.value = true;
-    attractDrift.value = true;
+    if (rehome) {
+      // resetView() re-homes the camera (via resetToken) and parks the
+      // playhead — and clears `playing` on the way, so the play flag has to
+      // come after it.
+      resetView();
+      playing.value = true;
+      attractDrift.value = true;
+    }
+    textureChannel.value = id;
   });
 }
 
-/** The disk leg: one big, bright still. */
-function beginDiskPhase(id: ProductId): void {
-  selfWrite(() => {
-    attractDrift.value = false;
-    playing.value = false;
-    view.value = "disk";
-    // Never the movie: the 48 h files run to 50 MB (footgun 7) and DiskMovie
-    // autoplays in kiosk mode, so an unattended loop would download all day.
-    diskMode.value = "still";
-    channel.value = id;
-  });
-}
-
-/** One step of the loop: the 3D leg, then one channel per disk leg, forever. */
+/** One step of the loop: cycle the sphere's texture channel forever. */
 function nextPhase(): void {
   if (!attractActive.value) { return; }
-  const step = phase % (ATTRACT_CHANNELS.length + 1);
+  const step = phase % ATTRACT_CHANNELS.length;
   phase += 1;
-  if (step === 0) {
-    begin3dPhase();
-    timer = window.setTimeout(nextPhase, PHASE_3D_MS);
-  } else {
-    beginDiskPhase(ATTRACT_CHANNELS[step - 1]);
-    timer = window.setTimeout(nextPhase, PHASE_DISK_MS);
-  }
+  beginChannelPhase(ATTRACT_CHANNELS[step], step === 0);
+  timer = window.setTimeout(nextPhase, PHASE_CHANNEL_MS);
 }
 
 function enterAttract(): void {
@@ -153,7 +168,7 @@ function enterAttract(): void {
   // talking to itself, and none of it is usage data.
   statsSessionEnd(watcher?.lastActivityTs() ?? Date.now());
 
-  saved = { view: view.value, channel: channel.value, diskMode: diskMode.value };
+  saved = { textureChannel: textureChannel.value };
 
   pending = true;
   window.clearTimeout(timer);
@@ -179,9 +194,7 @@ function exitAttract(): void {
     attractDrift.value = false;
     playing.value = false;
     if (saved) {
-      view.value = saved.view;
-      channel.value = saved.channel;
-      diskMode.value = saved.diskMode;
+      textureChannel.value = saved.textureChannel;
       saved = null;
     }
   });
@@ -201,25 +214,25 @@ function onActivity(): void {
 // ── Usage tracking ──────────────────────────────────────────────────────────
 
 /**
- * The two things worth counting beyond taps: switching into 3D, and picking a
- * channel. `flush: "sync"` is load-bearing — the callback has to run inside
- * the write so `writing` still reads true for the loop's own writes; a queued
- * (default pre-flush) callback would see it back down and count them.
- * statsTrack's own "no open session" rule is the second line of defence.
+ * The one thing worth counting beyond taps: which channel a guest picks to
+ * paint the sphere with. (There used to be a second watcher here counting
+ * 2D→3D switches; with the disk view gone there's only one view, so
+ * "switched into 3D" isn't an event that can happen any more — this is what
+ * it was replaced with.) `flush: "sync"` is load-bearing — the callback has
+ * to run inside the write so `writing` still reads true for the loop's own
+ * writes; a queued (default pre-flush) callback would see it back down and
+ * count them. statsTrack's own "no open session" rule is the second line of
+ * defense.
  *
- * Note the rollup field names are exo-era (`mode3d`, `planets`): kioskStats.ts
- * is shared verbatim across data stories, so a channel id lands in `planets`.
+ * Note the rollup field name is exo-era (`planets`): kioskStats.ts is shared
+ * verbatim across data stories, so a channel id lands in `planets`.
  */
 function trackUsage(): () => void {
-  const stopView = watch(view, (now, before) => {
-    if (writing || attractActive.value) { return; }
-    if (now === "3d" && before !== "3d") { statsTrack("mode3d"); }
-  }, { flush: "sync" });
-  const stopChannel = watch(channel, (id) => {
+  const stopChannel = watch(textureChannel, (id) => {
     if (writing || attractActive.value) { return; }
     statsTrack("select", id);
   }, { flush: "sync" });
-  return () => { stopView(); stopChannel(); };
+  return () => { stopChannel(); };
 }
 
 // ── Lifecycle ───────────────────────────────────────────────────────────────

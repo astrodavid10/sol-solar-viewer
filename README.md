@@ -1,16 +1,23 @@
 # Sol — the Sun Right Now
 
 A mobile-first solar data explorer for planetarium guests ("Data to Dome, Dome to Phone").
-Scan a QR code during or after a show and take the Sun home with you:
+Scan a QR code during or after a show and take the Sun home with you.
 
-- **Sun Now** — live full-disk imagery from NASA SDO in eight wavelengths, with pinch-zoom
-  up to 4K and 48-hour movie loops, streamed straight from the GSFC archive.
-- **3D** — the Sun in WorldWide Telescope's solar-system mode, wrapped in its actual magnetic
-  field: PFSS field lines computed from GONG magnetograms (the same model and colors as the
-  dome show), animated over the last 48 hours, with Parker Solar Probe and Solar Orbiter
-  shown where they really are.
-- **Live conditions** — current flare activity, solar wind speed, and geomagnetic (aurora)
-  status from NOAA SWPC.
+One screen: the Sun as a sphere you can turn, with 72 hours of its recent history under a
+scrubber.
+
+- **The Sun itself** — a real SDO image of the photosphere, reprojected onto the sphere in
+  Carrington coordinates. Five channels to switch between: three AIA wavelengths, the visible
+  Sun, and the magnetic map. The hemisphere Earth cannot see is dimmed, because it is a
+  stylized fill rather than an observation.
+- **Its magnetic field** — PFSS field lines computed from GONG magnetograms by our own
+  pipeline (the same model and colors as the dome show), morphing across 19 frames spanning
+  the last 72 hours.
+- **What is flying through it** — Parker Solar Probe, Solar Orbiter and STEREO-A where they
+  really are, from JPL Horizons.
+- **What is happening right now** — flare class, solar wind speed, the Kp/aurora outlook and
+  the day's sunspot count from NOAA SWPC, plus flares and CMEs from NASA CCMC's DONKI
+  catalog marked on the timeline.
 
 ## Stack
 

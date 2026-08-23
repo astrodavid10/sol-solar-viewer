@@ -1,4 +1,4 @@
-"""Resolve the 48 h window into 13 magnetogram slots.
+"""Resolve the 72 h window into 19 magnetogram slots.
 
 The slot grid is snapped DOWN to the frame spacing (4 h), so every run of the
 day asks for the same target times.  That is what makes the traced-frame cache

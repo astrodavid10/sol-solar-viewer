@@ -26,7 +26,7 @@ const LIVE_ENDPOINT = "https://swhv.oma.be/position";
 export interface SpacecraftBody {
   id: string;
   name: string;
-  /** Hex colour from the pipeline (dome palette). */
+  /** Hex color from the pipeline (dome palette). */
   color: string;
   /** 3n heliocentric ecliptic-J2000 AU — flattened for three.js. */
   positions: Float32Array;

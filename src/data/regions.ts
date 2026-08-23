@@ -33,7 +33,33 @@ export interface SolarRegion {
   seedCount: number;
 }
 
+/**
+ * One UT day of NOAA's Solar Region Summary, from `ar/regions.json`'s
+ * `history` array (schema sol.ar/2).
+ *
+ * Daily, not 4-hourly, and deliberately so: SWPC issues the SRS once a day at
+ * 00:00 UT. Sampling it at the field-line cadence would be the same number
+ * wearing four timestamps, so the UI names the date instead.
+ */
+export interface RegionDay {
+  /** UT date, `YYYY-MM-DD`. */
+  date: string;
+  /** Total sunspots across every numbered region that day. */
+  spotCount: number;
+  /** Numbered regions that day, spotless plage regions included. */
+  regionCount: number;
+  /** Regions with at least one spot — always <= regionCount. */
+  spottedRegionCount: number;
+}
+
 /* eslint-disable @typescript-eslint/naming-convention -- pipeline JSON keys */
+interface RawRegionDay {
+  date?: string;
+  spot_count?: number;
+  region_count?: number;
+  spotted_region_count?: number;
+}
+
 interface RawRegion {
   number?: number;
   lat_deg?: number;
@@ -47,6 +73,7 @@ interface RawRegion {
 
 interface RawRegions {
   regions?: RawRegion[];
+  history?: RawRegionDay[];
 }
 /* eslint-enable @typescript-eslint/naming-convention */
 
@@ -58,7 +85,7 @@ function num(value: unknown, fallback = 0): number {
  * Fetch and normalize `ar/regions.json`.
  *
  * A 404 is a NORMAL condition, not an error: the product is optional (a plain
- * `yarn serve` with no `public/data/ar/` is a Sun with no labelled regions,
+ * `yarn serve` with no `public/data/ar/` is a Sun with no labeled regions,
  * which is also what a genuinely spotless Sun looks like). Resolves to an empty
  * array on any failure and never throws — the caller checks its own destroyed
  * flag rather than distinguishing an abort from a bad gateway.
@@ -116,6 +143,73 @@ export function regionVector(region: SolarRegion, radius: number, out: Vec3 = [0
   out[1] = radius * cl * Math.sin(lon);
   out[2] = radius * Math.sin(lat);
   return out;
+}
+
+/**
+ * Fetch the daily history from the same `ar/regions.json` the region chips
+ * already load — no second request, no second product.
+ *
+ * Absent (`sol.ar/1`, or a run whose SRS history was unavailable) resolves to
+ * an empty array, and the caller falls back to the live count. That is exactly
+ * what the chip showed before this existed, so an old data tree served to a new
+ * app degrades to the old behavior rather than to a blank.
+ */
+export async function loadRegionHistory(
+  baseUrl: string,
+  signal?: AbortSignal,
+): Promise<RegionDay[]> {
+  let raw: RawRegions;
+  try {
+    const response = await fetch(
+      new URL("ar/regions.json", baseUrl).href, { signal, cache: "no-store" });
+    if (!response.ok) { return []; }
+    raw = await response.json() as RawRegions;
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(raw?.history) ? raw.history : [];
+  const out: RegionDay[] = [];
+  list.forEach((day) => {
+    if (typeof day.date !== "string" || !day.date) { return; }
+    out.push({
+      date: day.date,
+      spotCount: num(day.spot_count),
+      regionCount: num(day.region_count),
+      spottedRegionCount: num(day.spotted_region_count),
+    });
+  });
+  return out;
+}
+
+/** UT date of a unix timestamp, as the `YYYY-MM-DD` the history is keyed on. */
+export function utDate(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * The history row for a moment in time — the day it falls in, or the NEAREST
+ * day the pipeline actually published.
+ *
+ * Nearest rather than exact because a day NOAA issued no report for is omitted
+ * from the array rather than written as zero (the pipeline cannot tell that
+ * case from a genuinely spotless Sun). Showing the neighboring day, dated,
+ * beats showing "0 sunspots" or a blank.
+ */
+export function regionDayAt(history: RegionDay[], unixSeconds: number): RegionDay | null {
+  if (!history.length) { return null; }
+  const wanted = utDate(unixSeconds);
+  const exact = history.find((day) => day.date === wanted);
+  if (exact) { return exact; }
+  let best = history[0];
+  let bestGap = Number.POSITIVE_INFINITY;
+  history.forEach((day) => {
+    const gap = Math.abs(Date.parse(`${day.date}T12:00:00Z`) / 1000 - unixSeconds);
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = day;
+    }
+  });
+  return best;
 }
 
 // ---------------------------------------------------------------------

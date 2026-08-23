@@ -52,15 +52,16 @@
         <button
           type="button"
           class="sv-icon-btn"
-          aria-label="Recentre the Sun"
-          title="Recentre the Sun"
-          @click="recentre"
+          aria-label="Recenter the Sun"
+          title="Recenter the Sun"
+          @click="recenter"
         >
           <font-awesome-icon icon="rotate-left" />
         </button>
         <button
           type="button"
           class="sv-icon-btn"
+          v-if="!wide"
           :class="{ 'is-active': sheet === 'layers' }"
           aria-label="Layers"
           title="Layers"
@@ -71,9 +72,19 @@
       </div>
 
       <transition name="fade">
-        <div v-if="sheet === 'layers'" class="sv-layer-popover">
+        <div v-if="!wide && sheet === 'layers'" class="sv-layer-popover">
           <layer-panel />
         </div>
+      </transition>
+
+      <!-- The far side is never observed from Earth. The sphere dims it, and
+           this says why once the guest has actually turned it into view --
+           without it the dimming reads as a rendering fault. -->
+      <transition name="fade">
+        <p v-if="unobserved > 0.55" class="sv-unobserved">
+          You're looking at the Sun's far side — no telescope sees this half
+          from Earth, so it isn't a photograph.
+        </p>
       </transition>
 
       <!-- One card slot, three kinds of subject: a spacecraft, an active
@@ -146,7 +157,7 @@ import "../wwt/wwt-hacks";
 import { EngineSetting, WWTControl } from "@wwtelescope/engine";
 import { WWTAwareComponent, WWTComponent, wwtPinia } from "@wwtelescope/engine-pinia";
 import { defineComponent, markRaw } from "vue";
-import { Vector3 } from "three";
+import { TextureLoader, Vector3 } from "three";
 
 import LayerPanel from "./LayerPanel.vue";
 import RegionLabel from "./RegionLabel.vue";
@@ -194,6 +205,7 @@ import { ProjectTarget, Projected, cameraPosition, projectTargets } from "../thr
 import { SolarWind, createSolarWind } from "../three/solarWind";
 import { SpacecraftTrails, TrailInput, createSpacecraftTrails } from "../three/spacecraftTrails";
 import { SunGlow, createSunGlow } from "../three/sunGlow";
+import { OffLimbLayer, createOffLimb } from "../three/offLimb";
 import { SunSurface, createSunSurface } from "../three/sunSurface";
 import { ThreeStage, createThreeStage } from "../three/stage";
 import { installHiDpiCanvas } from "../wwt/wwt-hacks";
@@ -214,14 +226,16 @@ import {
   attractDrift,
   fieldColorMode,
   frameT,
+  frameTimes,
   getAppHandle,
   layers,
   playing,
   resetToken,
+  sceneUnix as sceneTime,
   sheet,
   surfaceMode,
   textureChannel,
-  view,
+  wide,
 } from "../state/useAppState";
 import { boolParam, stringParam } from "../urlParams";
 
@@ -254,7 +268,19 @@ const MODE_TIMEOUT_MS = 10000;
  *  animation (user-reported); a 30 Hz single-input re-render is negligible. */
 const PUBLISH_MS = 33;
 
-/** DOM label refresh — 20 Hz reads as continuous without 60 Hz of re-renders. */
+/**
+ * DOM label refresh while the camera is STILL. 20 Hz is plenty for labels that
+ * are only tracking the Sun's own rotation and the spacecraft crawling along
+ * their orbits.
+ *
+ * While the camera is MOVING it is not plenty: the scene renders at 60 fps and
+ * the labels stepped at 20, so they visibly lagged and stuttered behind the
+ * features they name (user-reported). Motion is the case where the eye is most
+ * sensitive to it, so the tick below projects every frame whenever the camera
+ * has actually changed and falls back to this rate the moment it settles.
+ * Projecting a handful of points and writing their transforms is cheap; it is
+ * doing it 60 times a second for nothing that is worth avoiding.
+ */
 const PROJECT_MS = 50;
 
 /** Kiosk attract loop: prograde camera drift, in degrees per second. */
@@ -342,7 +368,7 @@ interface CardInfo {
   detail: string;
   compare: string;
   blurb: string;
-  /** Optional final line, set apart in warning colour. */
+  /** Optional final line, set apart in warning color. */
   warn?: string;
 }
 
@@ -361,6 +387,11 @@ interface Runtime {
   stage: ThreeStage | null;
   fieldLines: FieldLines | null;
   surface: SunSurface | null;
+  offLimb: OffLimbLayer | null;
+  /** Off-limb crop URL currently loaded, so a re-check does not reload it. */
+  offLimbUrl: string;
+  offLimbDir: Vector3;
+  offLimbUp: Vector3;
   wind: SolarWind | null;
   glow: SunGlow | null;
   trails: SpacecraftTrails | null;
@@ -374,6 +405,8 @@ interface Runtime {
   lastTickMs: number;
   lastPublishMs: number;
   lastProjectMs: number;
+  /** Camera state the labels were last projected for — see PROJECT_MS. */
+  lastCam: { lat: number; lng: number; zoom: number; rotation: number };
   dragging: boolean;
   destroyed: boolean;
   /** Last playhead value WE wrote to shared state, so the watcher can tell
@@ -401,6 +434,8 @@ interface Runtime {
   windFrame: number;
   /** ?debug=1 sub-Earth assertion has already run (it only needs to once). */
   textureChecked: boolean;
+  /** The swhv.oma.be live-position fetch has been issued (at most once). */
+  liveRequested: boolean;
 }
 
 function makeRuntime(): Runtime {
@@ -408,6 +443,10 @@ function makeRuntime(): Runtime {
     stage: null,
     fieldLines: null,
     surface: null,
+    offLimb: null,
+    offLimbUrl: "",
+    offLimbDir: new Vector3(),
+    offLimbUp: new Vector3(),
     wind: null,
     glow: null,
     trails: null,
@@ -421,6 +460,8 @@ function makeRuntime(): Runtime {
     lastTickMs: 0,
     lastPublishMs: 0,
     lastProjectMs: 0,
+    /** Last camera state the labels were projected for — see PROJECT_MS. */
+    lastCam: { lat: NaN, lng: NaN, zoom: NaN, rotation: NaN },
     dragging: false,
     destroyed: false,
     published: -1,
@@ -438,6 +479,7 @@ function makeRuntime(): Runtime {
     cameraWorld: new Vector3(),
     windFrame: -1,
     textureChecked: false,
+    liveRequested: false,
   };
 }
 
@@ -476,8 +518,9 @@ export default defineComponent({
     // layer only reads the current speed (416 km/s today) to scale itself.
     const { stats } = useSolarStats();
     return {
-      frameT, layers, playing, resetToken, sheet, surfaceMode, fieldColorMode,
-      textureChannel, view, solarStats: stats,
+      frameT, frameTimes, sceneTime, layers, playing, resetToken, sheet,
+      surfaceMode, fieldColorMode, textureChannel, wide,
+      solarStats: stats,
     };
   },
 
@@ -490,7 +533,6 @@ export default defineComponent({
       frameCount: 0,
       loadedFrom: 0,
       loadedCount: 0,
-      frameTimes: [] as number[],
       dataStale: false,
       dataStaleHours: 0,
 
@@ -505,6 +547,8 @@ export default defineComponent({
         visible: false,
       } as RegionChip,
       selectedId: "",
+      /** 0..1 — how much of the hemisphere in view was never observed. */
+      unobserved: 0,
       /** `events/events.json`, or null while it loads / when it is absent. */
       solarEvents: null as SolarEvents | null,
 
@@ -605,16 +649,8 @@ export default defineComponent({
   },
 
   watch: {
-    // The component stays mounted for the life of the page (sol.vue hides it
-    // with v-show — remounting WWT leaves its texture caches on a dead GL
-    // context and the Sun comes back black). Pause three's per-frame work
-    // while the guest is in Sun Now; WWT's own loop keeps its state warm.
-    view(value: string) {
-      this.rt.stage?.setEnabled(value === "3d");
-    },
-
     resetToken() {
-      this.recentre();
+      this.recenter();
       // resetView() parks frameT at 0, which for a frame-index playhead is the
       // OLDEST frame. Resting state is "now", so override it here — this
       // watcher runs before the frameT one, so that write is what survives.
@@ -656,6 +692,11 @@ export default defineComponent({
 
     "layers.spacecraft"(value: boolean) {
       this.rt.trails?.setVisible(value);
+      // The layer now starts OFF (useAppState), so this is where most guests
+      // who ever see a spacecraft first ask for one — and the first place it is
+      // worth spending two requests on swhv.oma.be. Once only: the baked
+      // ephemeris is accurate to well under a pixel without it.
+      if (value && !this.rt.liveRequested) { void this.refreshLivePositions(); }
       // Only a SPACECRAFT card is dismissed with the spacecraft layer — the
       // surface markers share this slot and are not part of that layer.
       if (!value && this.selectedId && !this.isSurfaceId(this.selectedId)) {
@@ -690,7 +731,7 @@ export default defineComponent({
     host.applySetting(["solarSystemOrbits", this.layers.orbits] as EngineSetting);
 
     // Non-freestanding requirement (CLAUDE.md footgun 5): 3D mode needs
-    // worldwidetelescope.org for its imageset catalogue. If the mode never
+    // worldwidetelescope.org for its imageset catalog. If the mode never
     // engages, say so plainly instead of showing a black rectangle.
     this.rt.modeTimer = window.setTimeout(() => {
       if (!solarSystemModeActive()) {
@@ -724,6 +765,7 @@ export default defineComponent({
 
     rt.fieldLines?.dispose();
     rt.surface?.dispose();
+    rt.offLimb?.dispose();
     rt.wind?.dispose();
     rt.glow?.dispose();
     rt.trails?.dispose();
@@ -768,10 +810,16 @@ export default defineComponent({
         rSunAu: R_SUN_AU,
         dataBaseUrl: dataBaseUrl(),
         mode: this.surfaceMode,
-        wavelengthAngstrom: this.textureChannel,
+        channel: this.textureChannel,
         debug: boolParam("debug"),
       }));
       rt.stage.scene.add(rt.surface.object3d);
+
+      // The part of the image that is NOT on the sphere. Created next to the
+      // surface because it is the same picture, and it takes its texture from
+      // whatever channel the surface settles on.
+      rt.offLimb = markRaw(createOffLimb({ rSunAu: R_SUN_AU }));
+      rt.stage.scene.add(rt.offLimb.object3d);
 
       // Wind paths arrive with the first frame (see tick()); the layer is
       // created here so its buffers exist before anything can ask for them.
@@ -830,7 +878,22 @@ export default defineComponent({
 
       this.updateSun(dt);
 
-      if (now - rt.lastProjectMs > PROJECT_MS) {
+      // Camera motion, cheaply: lat/lng/zoom/rotation is the whole of WWT's
+      // camera state, and the engine eases viewCamera toward targetCamera for
+      // a while after a drag ends, so this keeps up through the settle too.
+      const cam = cameraInfo();
+      const moved = Math.abs(cam.latDeg - rt.lastCam.lat) > 1e-4
+        || Math.abs(cam.lngDeg - rt.lastCam.lng) > 1e-4
+        || Math.abs(cam.zoom - rt.lastCam.zoom) > 1e-9
+        || Math.abs(cam.rotation - rt.lastCam.rotation) > 1e-5;
+      if (moved) {
+        rt.lastCam.lat = cam.latDeg;
+        rt.lastCam.lng = cam.lngDeg;
+        rt.lastCam.zoom = cam.zoom;
+        rt.lastCam.rotation = cam.rotation;
+      }
+
+      if (moved || now - rt.lastProjectMs > PROJECT_MS) {
         rt.lastProjectMs = now;
         this.updateSpacecraft();
         this.updateSurfaceMarkers();
@@ -892,7 +955,7 @@ export default defineComponent({
      * only, so the engine's own per-frame easing smooths it for free (footgun
      * 14), and wrapped into [0, 360) exactly as the engine's drag handler does:
      * the easing takes the short way round only while both cameras agree on
-     * where the branch cut is, and it normalises `viewCamera` itself.
+     * where the branch cut is, and it normalizes `viewCamera` itself.
      */
     driftCamera(dt: number): void {
       const camera = WWTControl.singleton?.renderContext?.targetCamera;
@@ -912,7 +975,7 @@ export default defineComponent({
             rt.manifest = markRaw(manifest);
             this.frameCount = manifest.frames.length;
             this.loadedFrom = manifest.frames.length;
-            this.frameTimes = manifest.frames.map((f) => f.magUnix);
+            frameTimes.value = manifest.frames.map((f) => f.magUnix);
             // Surfaced now so the banner (if it appears) already has the right
             // number in it; `dataStale` itself waits for index.json's verdict.
             this.dataStaleHours = manifest.newestMagAgeHours;
@@ -960,7 +1023,7 @@ export default defineComponent({
         closedFloor: manifest.hints.closedFloor,
       }));
       rt.fieldLines.setVisible(this.layers.fieldLines);
-      // The layer can be (re)built long after the guest picked a colour — a
+      // The layer can be (re)built long after the guest picked a color — a
       // deep link sets it before any frame data has arrived.
       rt.fieldLines.setMonochrome(this.fieldColorMode === "blue");
       stage.scene.add(rt.fieldLines.group);
@@ -1044,7 +1107,10 @@ export default defineComponent({
         };
       });
 
-      void this.refreshLivePositions();
+      // Deferred until the layer is switched on (see the layers.spacecraft
+      // watcher). A deep link that arrives with it already on still gets the
+      // live dots, because the watcher has not run for that case.
+      if (this.layers.spacecraft) { void this.refreshLivePositions(); }
     },
 
     /**
@@ -1054,6 +1120,7 @@ export default defineComponent({
      */
     async refreshLivePositions(): Promise<void> {
       const rt = this.rt;
+      rt.liveRequested = true;
       const when = new Date();
       const results = await Promise.all([
         fetchLivePosition("psp", when),
@@ -1065,15 +1132,16 @@ export default defineComponent({
       });
     },
 
-    /** Scene time: the magnetogram time under the playhead, or now. */
+    /**
+     * Scene time: the magnetogram time under the playhead, or now.
+     *
+     * The arithmetic moved to useAppState's `sceneUnix` computed when the
+     * sunspot chip needed the same answer — one definition, two readers. Kept
+     * as a method because this file calls it from the render tick, where a
+     * plain function read is cheaper to reason about than a computed.
+     */
     sceneUnix(): number {
-      const times = this.frameTimes;
-      if (!times.length) { return Date.now() / 1000; }
-      const last = times.length - 1;
-      const t = Math.min(Math.max(this.frameT, 0), last);
-      const indexA = Math.min(Math.floor(t), last);
-      const indexB = Math.min(indexA + 1, last);
-      return times[indexA] + (times[indexB] - times[indexA]) * (t - indexA);
+      return this.sceneTime;
     },
 
     updateSpacecraft(): void {
@@ -1083,7 +1151,7 @@ export default defineComponent({
 
       const unix = this.sceneUnix();
       // The live dot is only honest at the newest frame; anywhere else in the
-      // 48-hour window the baked ephemeris is the correct answer.
+      // 72-hour window the baked ephemeris is the correct answer.
       const atNewest = this.frameT >= this.frameCount - 1.001;
 
       ephemeris.bodies.forEach((body) => {
@@ -1121,6 +1189,46 @@ export default defineComponent({
         chip.visible = point.visible;
         chip.detail = this.formatDistance(rSunAt(body, ephemeris.epochs, unix));
       });
+
+      // Same cadence as the chips rather than per frame: this drives a piece of
+      // DOM, and 20 Hz is already far more than a fading hint needs.
+      this.unobserved = this.rt.surface?.unobservedFraction() ?? 0;
+      this.updateOffLimb();
+    },
+
+    /**
+     * Aim the off-limb billboard and keep its texture in step with the surface.
+     *
+     * The crop is pulled from the surface's OWN manifest choice rather than
+     * fetched independently: a run may not publish every channel, and the crop
+     * has to match the channel the surface actually got, not the one the guest
+     * asked for.
+     */
+    updateOffLimb(): void {
+      const rt = this.rt;
+      const offLimb = rt.offLimb;
+      const surface = rt.surface;
+      if (!offLimb || !surface) { return; }
+
+      const info = surface.textureInfo();
+      if (info && info.offLimbUrl && info.offLimbUrl !== rt.offLimbUrl) {
+        const wanted = info.offLimbUrl;
+        const halfWidth = info.offLimbHalfWidthRSun;
+        rt.offLimbUrl = wanted;
+        new TextureLoader().load(wanted, (texture) => {
+          if (rt.destroyed || rt.offLimbUrl !== wanted) {
+            texture.dispose();
+            return;
+          }
+          offLimb.setTexture(texture, halfWidth);
+        }, undefined, () => {
+          // Optional product: an absent crop just means no off-limb layer.
+          if (rt.offLimbUrl === wanted) { rt.offLimbUrl = ""; }
+        });
+      }
+
+      if (!surface.subEarthFrame(rt.offLimbDir, rt.offLimbUp)) { return; }
+      offLimb.update(rt.cameraWorld, rt.offLimbDir, rt.offLimbUp);
     },
 
     /** "97 R☉ · 0.45 AU" — solar radii first, because that's the story. */
@@ -1154,7 +1262,7 @@ export default defineComponent({
      * (number, mag class, spot count, seed count) which the shader never needed.
      */
     /**
-     * Flare + CME catalogue. Optional product: absent or empty simply means no
+     * Flare + CME catalog. Optional product: absent or empty simply means no
      * marks, which on a quiet Sun is the honest answer rather than an error.
      */
     async loadEventLayer(): Promise<void> {
@@ -1231,7 +1339,7 @@ export default defineComponent({
       // Occluder radius 0 on purpose. projectTargets' sphere test is built for
       // bodies out in SPACE — for a point sitting ON the sphere it misfires,
       // hiding near-limb chips at the closest zoom (a marker at 1.03 R can be
-      // farther from the camera than the Sun's centre while still being in front
+      // farther from the camera than the Sun's center while still being in front
       // of the surface). The facing dot below is the exact test for a point on a
       // sphere, so this call is used purely for the world→CSS projection.
       cameraPosition(stage.camera, rt.cameraWorld);
@@ -1275,7 +1383,7 @@ export default defineComponent({
      *
      * Every number shown is the measured one — this app does not round a real
      * measurement into a vibe. The `warn` line carries DONKI's own framing
-     * ("prototyping quality... research context"): the catalogue is analyst-
+     * ("prototyping quality... research context"): the catalog is analyst-
      * submitted research data, not a NOAA forecast, and a planetarium should
      * not imply otherwise.
      */
@@ -1340,7 +1448,7 @@ export default defineComponent({
 
     // --- chrome -----------------------------------------------------------
 
-    recentre(): void {
+    recenter(): void {
       // targetCamera only: the engine eases viewCamera toward it every frame,
       // so this is a smooth flight home for free (footgun 14).
       homeCamera(false);
@@ -1605,6 +1713,26 @@ export default defineComponent({
   color: var(--sol-text-dim);
   font-size: 0.75rem;
   text-align: center;
+}
+
+// Centered near the top, clear of the card slot and the scrubber. Deliberately
+// quiet: it explains the dimming the guest has just caused, it is not an alert.
+.sv-unobserved {
+  position: absolute;
+  top: 3.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(24rem, calc(100% - 2rem));
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  background: rgba(8, 6, 2, 0.78);
+  backdrop-filter: blur(4px);
+  color: var(--sol-text-dim);
+  font-size: 0.74rem;
+  line-height: 1.3;
+  text-align: center;
+  pointer-events: none;
 }
 
 .sv-cover {

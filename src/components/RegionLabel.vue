@@ -22,9 +22,9 @@ import { defineComponent } from "vue";
  *
  * A sibling of SpacecraftLabel rather than a prop on it: the two mark different
  * KINDS of thing (a body out in space at a distance vs. a place on the sphere),
- * so they carry different content (no distance, no mission colour), different
+ * so they carry different content (no distance, no mission color), different
  * weight (a ring on the surface, not a glowing dot in the dark) and a different
- * anchor (centred on the point, because the point is a location the guest can
+ * anchor (centered on the point, because the point is a location the guest can
  * see under it). What they share — translate3d positioning on the compositor at
  * 20 Hz, a 44 px tap target regardless of zoom, DOM text that stays crisp at any
  * DPR — is the pattern, not the component.
@@ -75,7 +75,7 @@ export default defineComponent({
 
   computed: {
     chipStyle(): Record<string, string> {
-      // The ring (or glyph) is centred on the projected point; the text hangs
+      // The ring (or glyph) is centered on the projected point; the text hangs
       // to the right of it. translate3d keeps the chip on the compositor —
       // left/top would relayout the whole overlay 20 times a second.
       return {
@@ -98,7 +98,7 @@ export default defineComponent({
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  // 44 px of tap target, with the marker itself centred on the projected point:
+  // 44 px of tap target, with the marker itself centered on the projected point:
   // half the height up, and left by (padding-left + half the marker).
   min-height: 44px;
   margin: -22px 0 0 -11px;

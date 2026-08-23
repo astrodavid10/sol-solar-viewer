@@ -15,6 +15,7 @@ import { EngineSetting, WWTControl } from "@wwtelescope/engine";
 
 import {
   R_SUN_AU,
+  Vec3,
   julianDateNow,
   sunEclipticLongitudeDeg,
   sunPoleEcliptic,
@@ -189,14 +190,14 @@ export function solarSystemModeActive(): boolean {
 // ---------------------------------------------------------------------
 
 /**
- * Pin the world origin to the Sun's CENTRE.
+ * Pin the world origin to the Sun's CENTER.
  *
  * NEVER `setTrackedObject(0)` instead: `getPlanetTargetPoint` adds a
  * lat/lng-dependent SURFACE offset, so the origin slides by ~1 R_sun as the
  * guest orbits and the whole three.js overlay detaches from the sphere
  * (CLAUDE.md footgun 1). `target = custom` keeps our viewTarget verbatim.
  */
-function pinToSunCentre(camera: MutableCamera): void {
+function pinToSunCenter(camera: MutableCamera): void {
   camera.target = SS_CUSTOM;
   camera.targetReferenceFrame = "";
   camera.viewTarget.x = 0;
@@ -269,6 +270,166 @@ function clampLat(deg: number): number {
   return Math.min(Math.max(deg, -MAX_LAT_DEG), MAX_LAT_DEG);
 }
 
+// ---------------------------------------------------------------------
+// Free orbit
+// ---------------------------------------------------------------------
+
+/**
+ * Stop this far from the Sun's pole. Not a wall the guest can feel — at 88 deg
+ * the remaining 2 deg is a couple of pixels of drag — but the elevation axis
+ * below is cross(axis, u), which is undefined when u IS the axis.
+ */
+const MAX_SOLAR_LAT_DEG = 88;
+
+/** Degrees of orbit per pixel of drag. The engine's own solar-system move()
+ *  works out to ~0.378 deg/px, which spins the Sun ~147 deg on one phone
+ *  swipe; this is that scaled for touch, matching the old SOLAR_MOVE_SCALE. */
+const ORBIT_DEG_PER_PX = 0.113;
+
+/**
+ * Drag direction. "Grab the globe and it follows your finger": drag right and
+ * the face you are looking at travels right, which means the CAMERA orbits the
+ * other way.
+ *
+ * These are constants rather than inline signs because the sense cannot be
+ * derived from the engine's own move(): that rotates about WWT's +/-Y pole
+ * (`lng -= x`, `lat += y`) and this rotates about the SUN's axis, so the two
+ * conventions do not carry over — and they do not even agree with each other.
+ * Both were settled by hand at the screen: azimuth needed +1, elevation -1,
+ * because the elevation axis is cross(solar_axis, u), whose direction flips
+ * with which side of the Sun the camera is on. If either ever feels inverted,
+ * it is a one-character fix here.
+ */
+const AZIMUTH_SIGN = 1;
+const ELEVATION_SIGN = -1;
+
+function rotateAbout(v: Vec3, axis: Vec3, angleRad: number): Vec3 {
+  // Rodrigues. Cheaper and clearer here than building a quaternion for one use.
+  const c = Math.cos(angleRad);
+  const s = Math.sin(angleRad);
+  const d = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+  return [
+    v[0] * c + (axis[1] * v[2] - axis[2] * v[1]) * s + axis[0] * d * (1 - c),
+    v[1] * c + (axis[2] * v[0] - axis[0] * v[2]) * s + axis[1] * d * (1 - c),
+    v[2] * c + (axis[0] * v[1] - axis[1] * v[0]) * s + axis[2] * d * (1 - c),
+  ];
+}
+
+function norm3(v: Vec3): Vec3 {
+  const n = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / n, v[1] / n, v[2] / n];
+}
+
+function cross3(a: Vec3, b: Vec3): Vec3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+/** Camera direction (unit, world) for WWT's lat/lng — the header's formula. */
+function directionFor(latDeg: number, lngDeg: number): Vec3 {
+  const lat = (latDeg * Math.PI) / 180;
+  const lng = (lngDeg * Math.PI) / 180;
+  return [-Math.cos(lat) * Math.sin(lng), Math.sin(lat), Math.cos(lat) * Math.cos(lng)];
+}
+
+/**
+ * Inverse of directionFor. General, unlike the special case earthFacingCamera
+ * solves: cos(lat) is never negative over [-90, 90], so the atan2 recovers lng
+ * for any direction that is not exactly +/-Y.
+ */
+function latLngFor(u: Vec3): { latDeg: number; lngDeg: number } {
+  return {
+    latDeg: (Math.asin(Math.min(1, Math.max(-1, u[1]))) * 180) / Math.PI,
+    lngDeg: (Math.atan2(-u[0], u[2]) * 180) / Math.PI,
+  };
+}
+
+/** The `rotation` that puts a world-space up vector on screen-up at lat/lng. */
+function rollFor(latDeg: number, lngDeg: number, up: Vec3): number {
+  const lat = (latDeg * Math.PI) / 180;
+  const lng = (lngDeg * Math.PI) / 180;
+  const sinLat = Math.sin(lat);
+  const cosLat = Math.cos(lat);
+  const sinLng = Math.sin(lng);
+  const cosLng = Math.cos(lng);
+  const e1: Vec3 = [cosLng, 0, sinLng];
+  const e2: Vec3 = [sinLat * sinLng, cosLat, -sinLat * cosLng];
+  const onE1 = up[0] * e1[0] + up[1] * e1[1] + up[2] * e1[2];
+  const onE2 = up[0] * e2[0] + up[1] * e2[1] + up[2] * e2[2];
+  return -Math.atan2(onE1, onE2);
+}
+
+/**
+ * Orbit the camera by a drag, in pixels.
+ *
+ * This REPLACES the engine's own solar-system move(), and the reason is the
+ * header's formula: WWT's lat/lng sphere has its poles at +/-Y, which in this
+ * app's world frame is an arbitrary pair of points in the ecliptic plane
+ * (ecliptic longitude 90 and 270). Near them `lng` stops doing anything, so
+ * dragging sideways went dead, and clampCameraLat's guard against that
+ * degeneracy read as an invisible wall in a direction with no relationship to
+ * anything the guest can see.
+ *
+ * So we orbit in the frame a guest actually expects — the SUN's. Horizontal
+ * drag turns about the solar rotation axis (a full circle, never degenerate);
+ * vertical drag tilts toward the poles and stops just short of them, exactly
+ * as spinning a globe does. The only singular points are now the Sun's own
+ * poles, which is where a person expects a globe's controls to converge.
+ *
+ * Roll is recomputed every step so solar north stays up, which is also what
+ * keeps the horizon from tumbling as the guest wanders.
+ */
+export function orbitByPixels(dxPx: number, dyPx: number): void {
+  const rc = renderContext();
+  if (!rc) { return; }
+
+  const cam = rc.targetCamera.copy();
+  const axis = norm3(sunPoleEcliptic(julianDateNow()) as Vec3);
+  let u = directionFor(cam.lat, cam.lng);
+
+  // Azimuth about the solar axis — see AZIMUTH_SIGN.
+  u = rotateAbout(u, axis, (AZIMUTH_SIGN * dxPx * ORBIT_DEG_PER_PX * Math.PI) / 180);
+
+  // Elevation about the horizontal axis perpendicular to both. Clamp on the
+  // ANGLE to the SOLAR pole, not on WWT's lat, which measures from elsewhere.
+  const right = cross3(axis, u);
+  const rightLen = Math.hypot(right[0], right[1], right[2]);
+  if (rightLen > 1e-6) {
+    const next = rotateAbout(
+      u, norm3(right), (ELEVATION_SIGN * dyPx * ORBIT_DEG_PER_PX * Math.PI) / 180);
+    const cosPolar = next[0] * axis[0] + next[1] * axis[1] + next[2] * axis[2];
+    const solarLat = 90 - (Math.acos(Math.min(1, Math.max(-1, cosPolar))) * 180) / Math.PI;
+    if (Math.abs(solarLat) <= MAX_SOLAR_LAT_DEG) { u = next; }
+  }
+
+  u = norm3(u);
+  const { latDeg, lngDeg } = latLngFor(u);
+
+  // Solar north with the along-view part removed: projected north, i.e. what
+  // "up" means for a picture of the Sun.
+  const along = axis[0] * u[0] + axis[1] * u[1] + axis[2] * u[2];
+  const up = norm3([
+    axis[0] - along * u[0],
+    axis[1] - along * u[1],
+    axis[2] - along * u[2],
+  ]);
+
+  cam.lat = latDeg;
+  cam.lng = lngDeg;
+  cam.rotation = rollFor(latDeg, lngDeg, up);
+  cam.angle = 0;
+  pinToSunCenter(cam);
+  // Both cameras: the engine eases viewCamera toward targetCamera, and a drag
+  // should track the finger rather than lag it.
+  rc.targetCamera = cam;
+  const view = cam.copy();
+  pinToSunCenter(view);
+  rc.viewCamera = view;
+}
+
 /**
  * Frame the Sun.
  *
@@ -283,7 +444,7 @@ export function homeCamera(instant = false): void {
 
   const framing = earthFacingCamera();
   const target = rc.targetCamera.copy();
-  pinToSunCentre(target);
+  pinToSunCenter(target);
   target.lat = framing.latDeg;
   target.lng = framing.lngDeg;
   target.rotation = framing.rotationRad;
@@ -293,28 +454,51 @@ export function homeCamera(instant = false): void {
 
   // Harmless when already set, and it guarantees the origin stays pinned even
   // if something else in the engine reset the target between frames.
-  pinToSunCentre(rc.viewCamera);
+  pinToSunCenter(rc.viewCamera);
 
   if (instant) {
     const view = target.copy();
-    pinToSunCentre(view);
+    pinToSunCenter(view);
     rc.viewCamera = view;
   }
 }
 
 /**
- * Keep the guest out of the polar singularity. Called EVERY FRAME from the
- * three-wwt onBeforeRender hook rather than by patching the engine's input
- * handlers: WWT accumulates latitude in several places (drag, tilt, momentum)
- * and a single clamp at the end of the frame catches all of them.
+ * Keep the camera off the Sun's rotation axis.
+ *
+ * This used to clamp WWT's `lat`, which sounds right and is not: that latitude
+ * is measured from +/-Y, an arbitrary pair of points in the ecliptic plane, so
+ * the clamp stopped the guest at an invisible wall unrelated to anything on
+ * screen — and it is the reason free exploration felt stuck. orbitByPixels now
+ * bounds the angle to the SOLAR axis instead, where a globe's controls are
+ * expected to converge.
+ *
+ * What survives is a per-frame backstop: WWT accumulates camera state in
+ * several places (momentum, pinch, its own easing), and any of them can land
+ * the camera exactly on the axis, where the elevation cross-product is
+ * undefined. Nudging off the pole here catches all of them in one place —
+ * which was the original reason this ran every frame.
  */
-export function clampCameraLat(maxDeg = MAX_LAT_DEG): void {
+export function clampCameraLat(maxSolarLatDeg = MAX_SOLAR_LAT_DEG): void {
   const rc = renderContext();
   if (!rc) { return; }
-  if (rc.targetCamera.lat > maxDeg) { rc.targetCamera.lat = maxDeg; }
-  if (rc.targetCamera.lat < -maxDeg) { rc.targetCamera.lat = -maxDeg; }
-  if (rc.viewCamera.lat > maxDeg) { rc.viewCamera.lat = maxDeg; }
-  if (rc.viewCamera.lat < -maxDeg) { rc.viewCamera.lat = -maxDeg; }
+  const axis = norm3(sunPoleEcliptic(julianDateNow()) as Vec3);
+
+  for (const cam of [rc.targetCamera, rc.viewCamera]) {
+    const u = directionFor(cam.lat, cam.lng);
+    const cosPolar = u[0] * axis[0] + u[1] * axis[1] + u[2] * axis[2];
+    const solarLat = 90 - (Math.acos(Math.min(1, Math.max(-1, cosPolar))) * 180) / Math.PI;
+    if (Math.abs(solarLat) <= maxSolarLatDeg) { continue; }
+
+    // Tilt back toward the equator along the shortest path.
+    const right = cross3(axis, u);
+    if (Math.hypot(right[0], right[1], right[2]) < 1e-6) { continue; }
+    const excess = (Math.abs(solarLat) - maxSolarLatDeg) * Math.sign(solarLat);
+    const fixed = rotateAbout(u, norm3(right), (excess * Math.PI) / 180);
+    const ll = latLngFor(norm3(fixed));
+    cam.lat = ll.latDeg;
+    cam.lng = ll.lngDeg;
+  }
 }
 
 let lastPad = 0;

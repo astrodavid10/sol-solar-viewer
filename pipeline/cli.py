@@ -51,7 +51,7 @@ from .config import (CACHE_DIR, DEFAULT_OUT, FRAME_SPACING_HOURS,
                      GONG_TOLERANCE_HOURS, KEEP_FRAME_CACHE_SETS,
                      MIN_FRAMES_TO_PUBLISH, PIPELINE_VERSION, SCHEMA_INDEX,
                      EVENTS_MAX_BYTES, EVENTS_WINDOW_SLACK_HOURS,
-                     STALE_HOURS, TEX_WAVELENGTHS, WINDOW_HOURS)
+                     STALE_HOURS, TEX_CHANNELS, WINDOW_HOURS)
 from .io_utils import (PipelineError, Staging, age_hours, human_bytes, iso_z,
                        json_dumps, parse_iso_z, prune_dirs, read_json, unix_s,
                        utcnow, write_json)
@@ -476,16 +476,46 @@ def run_regions(ctx: Ctx, ss: Optional[pfss_seeds.SeedSet]) -> ProductResult:
     from .regions import export as regions_export
     print("[regions]")
     ss = ss or acquire_seed_set(ctx)
+
+    # Per-UT-day spot counts covering the scrubber's window, so the app's
+    # sunspot chip can follow the playhead instead of always reporting today.
+    # +1 day because a 72 h window anchored mid-day touches four UT dates, and
+    # the app resolves a frame time to the date it falls in.
+    days = WINDOW_HOURS // 24 + 1
+    try:
+        history = srs_src.daily_history(days, now=ctx.now)
+    except Exception as exc:                                   # noqa: BLE001
+        # Optional enrichment of an otherwise-good product: the chip falls back
+        # to the current count, which is what it showed before this existed.
+        print("  WARN daily history unavailable: {0}".format(exc))
+        history = []
+
     doc = regions_export.build_regions(
         ss.regions, ss.region_seed_counts, ss.srs_epoch, ss.source, ctx.now,
-        status="degraded" if ss.source.startswith("cached") else "ok")
+        status="degraded" if ss.source.startswith("cached") else "ok",
+        history=history)
     ctx.staging.write_json("ar/regions.json", doc)
     complex_n = sum(1 for r in doc["regions"] if r["is_complex"])
     print("  {0} region(s) ({1} delta), epoch {2}, source {3}".format(
         doc["count"], complex_n, doc["srs_epoch_date"], ss.source))
+    if history:
+        print("  history: {0}/{1} day(s) -> {2}".format(
+            len(history), days,
+            ", ".join("{0} {1} spot(s)/{2} region(s)".format(
+                h["date"][5:], h["spot_count"], h["region_count"])
+                for h in history)))
+        # The top-level `count` comes from srs.txt and this series from
+        # solar_regions.json; they legitimately disagree (see daily_history).
+        if history[-1]["region_count"] != doc["count"]:
+            print("  note: today's srs.txt lists {0} region(s), the history "
+                  "product {1} -- different epochs and Section I only, both "
+                  "expected".format(doc["count"], history[-1]["region_count"]))
+    else:
+        print("  history: none available ({0} day(s) requested)".format(days))
     return ProductResult(name="active_regions", url="ar/regions.json",
                          status=doc["status"], generated=ctx.now,
-                         extra={"count": doc["count"]})
+                         extra={"count": doc["count"],
+                                "history_days": len(history)})
 
 
 def _regions_for_check(ctx: Ctx) -> List[dict]:
@@ -503,7 +533,7 @@ def _regions_for_check(ctx: Ctx) -> List[dict]:
 
 
 def run_texture(ctx: Ctx) -> ProductResult:
-    """Publish one Carrington map per TEX_WAVELENGTHS channel.
+    """Publish one Carrington map per TEX_CHANNELS entry.
 
     The document keeps its original top-level shape, describing the FIRST
     channel (TEX_WAVELENGTH, the app's default), and adds a `layers` array with
@@ -526,20 +556,29 @@ def run_texture(ctx: Ctx) -> ProductResult:
     primary_info: Optional[dict] = None
     total_bytes = 0
 
-    for wavelength in TEX_WAVELENGTHS:
+    for channel in TEX_CHANNELS:
+        code = channel["code"]
         try:
-            blob, doc, info = texture_export.build_texture(
-                ctx.now, regions, verbose=ctx.verbose, wavelength=wavelength)
+            blob, doc, info, offlimb = texture_export.build_texture(
+                ctx.now, regions, verbose=ctx.verbose, code=code)
         except Exception as exc:                       # noqa: BLE001
-            if wavelength == TEX_WAVELENGTHS[0]:
+            if code == TEX_CHANNELS[0]["code"]:
                 raise
-            print("  {0} A skipped: {1}".format(wavelength, exc))
+            print("  {0} skipped: {1}".format(code, exc))
             continue
         ctx.staging.write_bytes("texture/" + doc["url"], blob)
+        ctx.staging.write_bytes("texture/" + doc["off_limb"]["url"], offlimb)
         texture_export.log_texture(info, len(blob), verbose=ctx.verbose)
-        total_bytes += len(blob)
+        print("    off-limb {0} ({1}, reaches {2:.2f} R_sun)".format(
+            doc["off_limb"]["url"], human_bytes(len(offlimb)),
+            doc["off_limb"]["half_width_rsun"]))
+        total_bytes += len(blob) + len(offlimb)
         layers.append({
+            "channel": doc["channel"],
+            "label": doc["label"],
             "wavelength_angstrom": doc["wavelength_angstrom"],
+            "far_side": doc["far_side"],
+            "off_limb": doc["off_limb"],
             "url": doc["url"],
             "bytes": doc["bytes"],
             "obs_iso": doc["obs_iso"],
@@ -572,7 +611,7 @@ def run_texture(ctx: Ctx) -> ProductResult:
 
 
 def run_events(ctx: Ctx) -> ProductResult:
-    """Flare + CME catalogue from CCMC DONKI.
+    """Flare + CME catalog from CCMC DONKI.
 
     Never fatal by design (see run_all): DONKI has no SLA, and field lines are
     the headline product. A DONKI outage falls back to the cached response and,
@@ -1093,7 +1132,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p, pfss_flags=False)
     p.set_defaults(func=lambda a: _single(a, "texture"))
 
-    p = sub.add_parser("events", help="flare + CME catalogue (CCMC DONKI)")
+    p = sub.add_parser("events", help="flare + CME catalog (CCMC DONKI)")
     _add_common(p, pfss_flags=False)
     p.set_defaults(func=lambda a: _single(a, "events"))
 

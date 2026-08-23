@@ -17,14 +17,14 @@ on:
         type: boolean
         default: false
       max_frames:
-        description: "Only the N newest slots (blank = all 13)"
+        description: "Only the N newest slots (blank = all 19)"
         type: string
         default: ""
 
 permissions:
   contents: write
 
-# Serialised with app-deploy.yml: both force-push a single orphan commit to
+# Serialized with app-deploy.yml: both force-push a single orphan commit to
 # gh-pages, so they must never interleave their checkouts.
 concurrency:
   group: gh-pages-publish
@@ -50,7 +50,7 @@ jobs:
 
       # Rolling cache of GONG FITS + traced-frame npz (~10 MB/day).  The
       # run_id key always misses so the cache is always re-saved; restore-keys
-      # pull the newest previous copy.  With it, 12 of 13 frames hit.
+      # pull the newest previous copy.  With it, 18 of 19 frames hit.
       - name: Restore pipeline cache
         uses: actions/cache@v4
         with:

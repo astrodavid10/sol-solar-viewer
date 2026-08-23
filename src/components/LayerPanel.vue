@@ -17,21 +17,23 @@
       </span>
     </button>
 
-    <div class="lp-group" role="radiogroup" aria-label="Field line colour">
-      <span class="lp-group-label">Field lines</span>
-      <div class="lp-segments">
-        <button
-          v-for="option in fieldColors"
-          :key="option.key"
-          type="button"
-          class="lp-segment"
-          :class="{ 'is-on': fieldColorMode === option.key }"
-          role="radio"
-          :aria-checked="fieldColorMode === option.key"
-          @click="pickFieldColor(option.key)"
-        >{{ option.label }}</button>
-      </div>
-    </div>
+    <!-- Same switch as the layer rows above, because it is the same kind of
+         question: on or off. Off is not "no color" — it is one flat electric
+         blue, so the field still reads as a single structure. -->
+    <button
+      type="button"
+      class="lp-row"
+      :aria-pressed="polarityOn"
+      @click="togglePolarity"
+    >
+      <span class="lp-switch" :class="{ 'is-on': polarityOn }">
+        <span class="lp-knob"></span>
+      </span>
+      <span class="lp-text">
+        <span class="lp-label">Polarity</span>
+        <span class="lp-hint">Color the field lines by magnetic direction</span>
+      </span>
+    </button>
 
     <div class="lp-group" role="radiogroup" aria-label="Surface">
       <span class="lp-group-label">Surface</span>
@@ -54,8 +56,8 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 
+import { product } from "../data/sdoCatalog";
 import {
-  FieldColorMode,
   LayerFlags,
   TextureChannel,
   fieldColorMode,
@@ -73,7 +75,7 @@ interface Row {
 /**
  * One row of the Surface control. A channel entry paints that AIA wavelength
  * from the pipeline's Carrington map; "artist" is the synthetic surface.
- * Collapsing "which channel" and "real vs stylised" into one control is
+ * Collapsing "which channel" and "real vs stylized" into one control is
  * deliberate — they are the same question to a guest ("what am I looking at"),
  * and two segmented controls in a phone popover is one too many.
  */
@@ -81,11 +83,6 @@ type SurfaceKey = TextureChannel | "artist";
 
 interface SurfaceOption {
   key: SurfaceKey;
-  label: string;
-}
-
-interface FieldColorOption {
-  key: FieldColorMode;
   label: string;
 }
 
@@ -106,19 +103,18 @@ const ROWS: Row[] = [
 // still exists in SurfaceMode because sunSurface uses it internally — in that
 // mode the sphere renders depth-only, and it is the authoritative occluder for
 // far-side field lines (CLAUDE.md footgun 18), so it must not be deleted.
-// "Polarity" first: it is the default and the one that carries information.
-const FIELD_COLORS: FieldColorOption[] = [
-  { key: "polarity", label: "Polarity" },
-  { key: "blue", label: "Electric blue" },
-];
+/**
+ * The five published channels, plus the synthetic surface.
+ *
+ * Labels come from `sdoCatalog` rather than being written again here: the
+ * texture channel codes ARE that catalog's product ids, so one table names
+ * every SDO product in the app and the two can never drift apart.
+ */
+const TEXTURE_CHANNELS: TextureChannel[] = ["HMIIC", "0304", "0171", "0193", "HMIB"];
 
-// Labels match the Sun Now chips for the same channels, so a guest who learned
-// them on the disk view reads the same words here.
 const SURFACES: SurfaceOption[] = [
-  { key: 171, label: "Coronal Loops" },
-  { key: 304, label: "Chromosphere" },
-  { key: 193, label: "Hot Corona" },
-  { key: "artist", label: "Artist" },
+  ...TEXTURE_CHANNELS.map((key) => ({ key, label: product(key).label })),
+  { key: "artist" as const, label: "Artist" },
 ];
 
 /**
@@ -142,14 +138,16 @@ export default defineComponent({
       return SURFACES;
     },
 
+    /** The switch is on when the polarity palette is in use. */
+    polarityOn(): boolean {
+      return this.fieldColorMode === "polarity";
+    },
+
     /** Which segment reads as selected. "sdo" is shown as its channel. */
     surfaceKey(): SurfaceKey {
       return this.surfaceMode === "sdo" ? this.textureChannel : "artist";
     },
 
-    fieldColors(): FieldColorOption[] {
-      return FIELD_COLORS;
-    },
   },
 
   methods: {
@@ -166,8 +164,8 @@ export default defineComponent({
       this.surfaceMode = "sdo";
     },
 
-    pickFieldColor(key: FieldColorMode): void {
-      this.fieldColorMode = key;
+    togglePolarity(): void {
+      this.fieldColorMode = this.polarityOn ? "blue" : "polarity";
     },
   },
 });
@@ -178,11 +176,11 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   min-width: 15rem;
-  padding: 0.3rem;
-  border: 1px solid rgba(255, 200, 80, 0.28);
-  border-radius: 12px;
+  padding: var(--sol-panel-pad);
+  border: var(--sol-panel-border);
+  border-radius: var(--sol-panel-radius);
   background: var(--sol-surface);
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--sol-panel-shadow);
 }
 
 .lp-row {

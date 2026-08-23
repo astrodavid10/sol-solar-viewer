@@ -11,10 +11,10 @@ getting it wrong produces a *silent* visual bug rather than an error:
                        {-1,0,1}, valid in {0,1}.
 4. dequantization   -- declared round-trip error under 1e-4 R_sun and every
                        valid line's radii inside [0.99, 2.61] (a line outside
-                       that is a frame/units bug, e.g. metres for R_sun).
+                       that is a frame/units bug, e.g. meters for R_sun).
 5. cross-frame      -- identical n_lines and n_verts_total in EVERY frame; this
                        is the morph guarantee, and violating it makes the GPU
-                       lerp read a neighbouring line's vertices.
+                       lerp read a neighboring line's vertices.
 6. matrices         -- orthonormal, det +1, and equal to the closed form
                        mat3_hci . Rz(hci_rot_deg); catches a sunpy frame change.
 7. quaternion       -- Rotation.from_quat(q).as_matrix() == mat3; catches an
@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import io
 import math
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 from urllib.parse import urljoin
@@ -41,7 +42,8 @@ from .config import (CME_MIN_SPEED_KMS, EVENTS_MAX_BYTES,
                      EVENTS_WINDOW_SLACK_HOURS, LIM_RSUN, SCHEMA_AR,
                      SCHEMA_EPHEM, SCHEMA_EVENTS, SCHEMA_INDEX, SCHEMA_PFSS,
                      SCHEMA_STATS, SCHEMA_TEXTURE, TEX_MAX_BYTES,
-                     TEX_MAX_OBS_AGE_HOURS, TEX_OUT_H, TEX_OUT_W,
+                     TEX_MAX_OBS_AGE_HOURS, TEX_OFFLIMB_MAX_BYTES,
+                     TEX_OUT_H, TEX_OUT_W,
                      WINDOW_HOURS)
 from .io_utils import age_hours, http_get, parse_iso_z
 from .pfss.export import (MAX_DEQUANT_ERR, dequantize, frame_bytes_expected,
@@ -361,6 +363,58 @@ def _claims_present(idx: Optional[dict], name: str) -> bool:
     return entry.get("status") in ("ok", "degraded")
 
 
+def _check_region_history(rep: Report, regions: dict) -> None:
+    """The per-UT-day counts schema sol.ar/2 added.
+
+    An EMPTY history is legal, not a failure: solar_regions.json can be down,
+    and the app falls back to the live count exactly as it did before the array
+    existed.  What must never happen is a MALFORMED one -- the chip reads a
+    number out of it and puts it on screen next to a date.
+    """
+    history = regions.get("history")
+    if not isinstance(history, list):
+        rep.check(False, "regions.json history is a list",
+                  "got {0}".format(type(history).__name__))
+        return
+    if not history:
+        rep.info("regions.json history is empty (SRS history unavailable)")
+        return
+
+    dates = [h.get("date") for h in history if isinstance(h, dict)]
+    rep.check(len(dates) == len(history), "every history entry is an object")
+    parsed = []
+    for d in dates:
+        try:
+            parsed.append(datetime.strptime(str(d), "%Y-%m-%d").date())
+        except (TypeError, ValueError):
+            rep.check(False, "history date parses", "got {0!r}".format(d))
+            return
+    rep.check(parsed == sorted(parsed), "history is ordered oldest first")
+    rep.check(len(set(parsed)) == len(parsed), "history dates are unique")
+
+    for h in history:
+        n_reg = h.get("region_count")
+        n_spot = h.get("spot_count")
+        n_spotted = h.get("spotted_region_count")
+        ok = all(isinstance(v, int) and v >= 0 for v in (n_reg, n_spot,
+                                                          n_spotted))
+        rep.check(ok, "history {0} counts are non-negative ints".format(
+            h.get("date")), "got {0!r}".format(h))
+        if not ok:
+            continue
+        # A spotted region has at least one spot, so the spot total can never
+        # be under the number of spotted regions -- the check that catches the
+        # `or 1` flooring bug this array was written around.
+        rep.check(n_spotted <= n_reg,
+                  "history {0}: spotted <= total regions".format(h.get("date")),
+                  "{0} spotted of {1}".format(n_spotted, n_reg))
+        rep.check(n_spot >= n_spotted,
+                  "history {0}: spot count >= spotted regions".format(
+                      h.get("date")),
+                  "{0} spot(s), {1} spotted region(s)".format(n_spot,
+                                                              n_spotted))
+
+
 def _check_side_products(rep: Report, get, idx: Optional[dict]
                          ) -> Optional[int]:
     n_regions: Optional[int] = None
@@ -377,6 +431,7 @@ def _check_side_products(rep: Report, get, idx: Optional[dict]
         n_regions = len(regions.get("regions") or [])
         rep.check(int(regions.get("count", -1)) == n_regions,
                   "regions.json count matches array length")
+        _check_region_history(rep, regions)
 
     ephem = _json(get, "ephem/spacecraft.json")
     if ephem is None:
@@ -427,7 +482,7 @@ _DIR_TOL = 1e-5
 
 
 def _check_events(rep: Report, get, idx: Optional[dict]) -> None:
-    """events/events.json -- the flare + CME catalogue.
+    """events/events.json -- the flare + CME catalog.
 
     Every rule here exists because getting it wrong is SILENT: a bad
     window_hours puts marks off the end of the scrubber, a bad dir_ecl aims a
@@ -632,19 +687,99 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
             "top-level {0!r} not among {1}".format(
                 doc.get("url"),
                 [lay.get("url") for lay in layers if isinstance(lay, dict)]))
-        waves = [lay.get("wavelength_angstrom") for lay in layers
-                 if isinstance(lay, dict)]
-        rep.check(len(set(waves)) == len(waves),
-                  "texture layer wavelengths are unique", "got {0}".format(waves))
+        # Identity is the SDO product code, not the wavelength: HMIB and HMIIC
+        # have no wavelength (a magnetogram and a colorized continuum image),
+        # so wavelength_angstrom is null for both and cannot tell them apart.
+        codes = [lay.get("channel") for lay in layers if isinstance(lay, dict)]
+        rep.check(all(isinstance(c, str) and c for c in codes),
+                  "every texture layer names its channel", "got {0}".format(codes))
+        rep.check(len(set(codes)) == len(codes),
+                  "texture layer channels are unique", "got {0}".format(codes))
+
+        # An honesty invariant, not a formatting one. farside_modulation
+        # invents band-limited mottling for the hemisphere Earth cannot see.
+        # That is a defensible stylization in EUV; on a magnetogram it is
+        # fabricated magnetic field, and on a continuum image the polar ramp
+        # encodes coronal holes that image does not show.
+        bad_fill = [lay.get("channel") for lay in layers
+                    if isinstance(lay, dict)
+                    and str(lay.get("channel", "")).startswith("HMI")
+                    and lay.get("far_side") != "flat"]
+        rep.check(not bad_fill,
+                  "HMI layers use a flat far side (no invented structure)",
+                  "got quiet fill on {0}".format(bad_fill))
         for lay in layers:
             if not isinstance(lay, dict):
                 rep.check(False, "texture layer is an object")
                 continue
             _check_texture_jpeg(rep, get, doc, lay.get("url"), lay)
+            _check_offlimb(rep, get, lay)
     else:
         rep.check(False, "texture.json has a non-empty layers array",
                   "got {0!r}".format(layers))
         _check_texture_jpeg(rep, get, doc, doc.get("url"), doc)
+
+
+def _check_offlimb(rep: Report, get, layer: dict) -> None:
+    """One channel's off-limb crop.
+
+    The rule that matters is `half_width_rsun`: the app scales the billboard by
+    it so the crop's blacked-out hole lands on the sphere's silhouette. A wrong
+    value does not fail anywhere — it just draws the corona at the wrong size
+    around the Sun, which is exactly the kind of thing nobody notices until a
+    guest asks why the prominences float.
+    """
+    off = layer.get("off_limb")
+    channel = layer.get("channel")
+    if not isinstance(off, dict):
+        rep.check(False, "{0} has an off_limb block".format(channel))
+        return
+
+    name = off.get("url")
+    if not rep.check(isinstance(name, str) and name.endswith(".jpg")
+                     and "/" not in name,
+                     "{0} off-limb url is a sibling .jpg".format(channel),
+                     "got {0!r}".format(name)):
+        return
+
+    half = off.get("half_width_rsun")
+    # AIA reaches ~1.28 R_sun and HMI ~1.09; anything outside this band means
+    # the limb fit or the crop geometry has moved.
+    rep.check(isinstance(half, (int, float)) and 1.02 < float(half) < 1.60,
+              "{0} off-limb half_width_rsun is plausible".format(channel),
+              "got {0!r}".format(half))
+
+    blob = get("texture/" + name)
+    if not rep.check(blob is not None, "{0} fetched".format(name)):
+        return
+    rep.check(len(blob) < TEX_OFFLIMB_MAX_BYTES,
+              "{0} under {1} bytes".format(name, TEX_OFFLIMB_MAX_BYTES),
+              "{0} bytes".format(len(blob)))
+    if "bytes" in off:
+        rep.check(len(blob) == int(off["bytes"]),
+                  "{0} size matches texture.json".format(name),
+                  "{0} vs {1}".format(len(blob), off["bytes"]))
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(blob))
+        img.load()
+    except Exception as exc:                                   # noqa: BLE001
+        rep.check(False, "{0} decodes".format(name), str(exc))
+        return
+    rep.check(img.size[0] == img.size[1], "{0} is square".format(name),
+              "got {0}x{1}".format(*img.size))
+
+    # The disk MUST be blacked out: the billboard is additively blended, so a
+    # bright center would paint a second Sun over the sphere.
+    import numpy as np
+    arr = np.asarray(img.convert("L"), dtype=float)
+    n = arr.shape[0]
+    c = n // 2
+    q = n // 8
+    core = arr[c - q:c + q, c - q:c + q]
+    rep.check(float(core.mean()) < 4.0,
+              "{0} disk center is blacked out".format(name),
+              "center mean {0:.1f}".format(float(core.mean())))
 
 
 def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict) -> None:

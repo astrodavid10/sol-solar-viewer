@@ -23,6 +23,10 @@ import { urlWithoutParams } from "../urlParams";
 /** Dropped from the derived base: kiosk flags, plus everything we re-add. */
 const STRIPPED_PARAMS = [
   "kiosk", "kioskIdle", "kioskStats", "debug",
+  "texch", "surface", "fieldcolor",
+  // Legacy disk-view params. The app no longer writes them, but a kiosk URL
+  // configured before the single-view consolidation may still carry them, and
+  // they must not ride along into a guest's take-home link.
   "view", "wl", "pfss", "movie", "res",
 ];
 
@@ -35,13 +39,16 @@ export function derivedHomeUrl(): string {
 }
 
 /**
- * `<base>?view=<view>&wl=<channel>[&pfss=1]` — the deep link useDeepLink reads
- * on the other end. Pure apart from the `base === ""` fallback, so it can be
- * exercised without a browser.
+ * `<base>?texch=<channel>` — the deep link useDeepLink reads on the other end.
+ * Pure apart from the `base === ""` fallback, so it can be exercised without a
+ * browser.
  */
-export function takeHomeUrl(base: string, viewId: string, channelId: string, pfss: boolean): string {
+export function takeHomeUrl(base: string, channelId: string): string {
   const root = base || derivedHomeUrl();
-  const params = [`view=${viewId}`, `wl=${channelId}`];
-  if (pfss) { params.push("pfss=1"); }
+  // Only the channel now: with one view there is no `view` to carry, and the
+  // disk-only knobs (pfss overlay, movie, resolution) went with it. Kept as a
+  // query param rather than a fragment so the deep-link reader — which never
+  // pushes history — can pick it up on first paint.
+  const params = [`texch=${encodeURIComponent(channelId)}`];
   return root + (root.includes("?") ? "&" : "?") + params.join("&");
 }

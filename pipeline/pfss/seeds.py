@@ -5,13 +5,13 @@ constants from ``config``.
 
 Two properties matter more than anything else here:
 
-1. **Frozen for the whole window.**  Every one of the 13 frames is traced from
+1. **Frozen for the whole window.**  Every one of the 19 frames is traced from
    the SAME seed positions, so row *i* of frame *n* and row *i* of frame *n+1*
    are the same field line at two times -- which is what makes a GPU lerp
    between them physically meaningful instead of a random cross-fade.
 
 2. **Keyed on the SRS *date*, not on run time.**  All six daily runs share one
-   ``seed_set_id``, which (a) makes 12 of 13 traced-frame caches hit on the
+   ``seed_set_id``, which (a) makes 18 of 19 traced-frame caches hit on the
    second run of a day and (b) stops the line set from jumping mid-day, which
    would look like the corona teleporting.
 
@@ -226,7 +226,7 @@ def seed_xyz_solrad(lats_deg: np.ndarray, lons_deg: np.ndarray,
 
     Used for DUMMY lines: a seed that traced nothing in some frame is stored as
     N copies of its own seed point (never zeros -- zeros would draw rays into
-    the Sun's centre the moment a shader bug let them through) with valid=0.
+    the Sun's center the moment a shader bug let them through) with valid=0.
     """
     lat = np.radians(np.asarray(lats_deg, dtype=float))
     lon = np.radians(np.asarray(lons_deg, dtype=float))

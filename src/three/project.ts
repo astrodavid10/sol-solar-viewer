@@ -40,7 +40,7 @@ export function cameraPosition(camera: Camera, out: Vector3 = new Vector3()): Ve
  * viewport.
  *
  * Occlusion: a body is hidden when it sits inside the Sun's angular disc AS
- * SEEN FROM THE CAMERA and is farther away than the Sun's centre. The angular
+ * SEEN FROM THE CAMERA and is farther away than the Sun's center. The angular
  * test alone would hide a spacecraft passing in FRONT of the disc, which is
  * exactly when guests most want the label.
  */

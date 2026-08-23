@@ -99,7 +99,7 @@ def atomic_write_bytes(path: Path, data: bytes) -> Path:
 def _round_floats(obj: Any, nd: int = JSON_ROUND) -> Any:
     """Recursively round floats so products are byte-stable and compact.
 
-    Also normalises numpy scalars (json can't encode np.float32) and turns
+    Also normalizes numpy scalars (json can't encode np.float32) and turns
     non-finite values into None -- NaN/Infinity are not legal JSON and would
     silently break ``JSON.parse`` in the browser.
     """

@@ -9,7 +9,7 @@
     <span class="sc-top">
       <span class="sc-label">{{ label }}</span>
       <!-- Freshness is never hidden: green under 15 min, amber under an hour,
-           grey beyond. The title carries the actual time for anyone who cares. -->
+           gray beyond. The title carries the actual time for anyone who cares. -->
       <span class="sc-dot" :class="'is-' + tier" :title="freshnessTitle"></span>
     </span>
     <span class="sc-value">{{ value }}</span>

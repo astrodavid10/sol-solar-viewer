@@ -9,7 +9,7 @@ construction -- no independent alignment to get wrong.
 
 Output contract (``sol.texture/1``)
 ----------------------------------
-2048x1024 plate carree (CAR).  Column 0's pixel CENTRE is Carrington longitude
+2048x1024 plate carree (CAR).  Column 0's pixel CENTER is Carrington longitude
 0.0879 deg -- i.e. the left EDGE of column 0 is longitude 0 -- and longitude
 increases left to right to 360 at the right edge.  Row 0 is the TOP of the
 picture and is +90 deg latitude (north up).  Formulae::
@@ -22,7 +22,7 @@ Source image: (b) from the plan
 The GSFC browse JPGs, not FITS via Fido.  Reasons: no VSO/JSOC dependency in
 CI (Fido is the flakiest thing in the whole pipeline), 700 KB and ~1 s to
 fetch, and a synthesized WCS is honest to well under one output pixel
-(0.176 deg = 2200 km at disk centre) which is all a 2048x1024 texture can
+(0.176 deg = 2200 km at disk center) which is all a 2048x1024 texture can
 resolve.  Real FITS via ``Fido.search(a.Instrument.aia,
 a.Wavelength(171*u.AA))`` remains the documented alternative if
 sub-arcsecond WCS ever matters.
@@ -30,14 +30,14 @@ sub-arcsecond WCS ever matters.
 Three properties of the browse JPGs, all VERIFIED EMPIRICALLY (2026-08-23):
 
 1. *Solar north is already up* -- the P angle is applied.  Tested by predicting
-   the pixel position of the four catalogued active regions under six
+   the pixel position of the four cataloged active regions under six
    hypotheses (P applied / +P / -P, crossed with row order) and scoring each by
    the image brightness there (ARs are bright in 171).  North-up + row 0 = top
    scored 140.2; the next best hypothesis scored 110.3.  With P = 18.62 deg
    that day the test had plenty of leverage.  Consequently ``rotation_angle=0``
    and the PIL array (row 0 = top) is flipped into FITS bottom-up order.
-2. *Fixed plate scale, disk centred.*  A limb-ring fit gave radius 788.9 px and
-   a centre 6.6 px from the image centre, against 790.5 px predicted from
+2. *Fixed plate scale, disk centered.*  A limb-ring fit gave radius 788.9 px and
+   a center 6.6 px from the image center, against 790.5 px predicted from
    sunpy's ``angular_radius`` at 1.2"/px -- 0.2% agreement.  So the nominal
    scale is used (a self-calibrated scale would be biased ~1% high by the 171
    limb-brightening shell at ~1.008 R_sun, and would jitter run to run); the
@@ -79,28 +79,37 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       TEX_AR_OFFSET_WARN_DEG, TEX_FARSIDE_NOISE_AMP,
                       TEX_FARSIDE_NOISE_TERMS, TEX_FARSIDE_SEED,
                       TEX_FEATHER_DEG, TEX_JPEG_QUALITY, TEX_LAT_FADE_DEG,
-                      TEX_LIMB_CENTRE_TOL_PX, TEX_LIMB_RADIUS_TOL,
+                      TEX_LIMB_CENTER_TOL_PX, TEX_LIMB_RADIUS_TOL,
                       TEX_MAX_BYTES, TEX_MAX_OBS_AGE_HOURS,
                       TEX_MAX_SOURCE_TRIES, TEX_MIN_DISK_MEAN, TEX_OUT_H,
                       TEX_OUT_W, TEX_POLE_FADE_DEG, TEX_POLE_FLOOR,
                       TEX_QUIET_ANNULUS_DEG, TEX_QUIET_PERCENTILE,
-                      TEX_SRC_RES, TEX_SRC_SCALE_ARCSEC, TEX_WAVELENGTH)
+                      TEX_CHANNELS, TEX_OFFLIMB_INNER, TEX_OFFLIMB_QUALITY,
+                      TEX_OFFLIMB_SIZE, TEX_SRC_RES, tex_src_scale)
 from ..io_utils import (PipelineError, age_hours, http_get_full, human_bytes,
                         iso_z, unix_s)
 
-def jpeg_name(wavelength: int) -> str:
-    """File name for one channel's Carrington map."""
-    return "aia{0:04d}_carrington_{1}x{2}.jpg".format(
-        wavelength, TEX_OUT_W, TEX_OUT_H)
+def jpeg_name(code: str) -> str:
+    """File name for one channel's Carrington map.
+
+    Keyed on the SDO product CODE rather than a wavelength, because HMIB and
+    HMIIC have no wavelength -- they are a magnetogram and a colorized
+    continuum image.
+    """
+    return "sdo{0}_carrington_{1}x{2}.jpg".format(code, TEX_OUT_W, TEX_OUT_H)
 
 
-def product_code(wavelength: int) -> str:
-    """SDO browse/latest product code, e.g. 171 -> "0171"."""
-    return "{0:04d}".format(wavelength)
+def channel_for(code: str) -> dict:
+    """The TEX_CHANNELS entry for a product code."""
+    for ch in TEX_CHANNELS:
+        if ch["code"] == code:
+            return ch
+    raise PipelineError("unknown texture channel {0!r}".format(code))
 
 
-JPEG_NAME = jpeg_name(TEX_WAVELENGTH)
-PRODUCT_CODE = product_code(TEX_WAVELENGTH)
+DEFAULT_CODE = TEX_CHANNELS[0]["code"]
+JPEG_NAME = jpeg_name(DEFAULT_CODE)
+PRODUCT_CODE = DEFAULT_CODE
 _BROWSE_RE_TMPL = r'href="(\d{{8}}_\d{{6}}_{res}_{prod}\.jpg)"'
 
 
@@ -127,7 +136,7 @@ def _browse_dir(day: datetime) -> str:
 
 
 def browse_candidates(now: datetime, days: int = 2,
-                      wavelength: int = TEX_WAVELENGTH
+                      code: str = None
                       ) -> List[Tuple[datetime, str]]:
     """(obstime, url) for every browse frame in the last ``days`` day dirs.
 
@@ -136,7 +145,7 @@ def browse_candidates(now: datetime, days: int = 2,
     us pick an image that does not exist yet.
     """
     pat = re.compile(_BROWSE_RE_TMPL.format(res=TEX_SRC_RES,
-                                           prod=product_code(wavelength)))
+                                           prod=code or DEFAULT_CODE))
     out: List[Tuple[datetime, str]] = []
     for d in range(days):
         base = _browse_dir(now - timedelta(days=d))
@@ -180,7 +189,7 @@ def disk_mean(rgb: np.ndarray) -> float:
 
 
 def fetch_source(now: datetime, verbose: bool = False,
-                 wavelength: int = TEX_WAVELENGTH) -> SourceImage:
+                 code: str = None) -> SourceImage:
     """Newest usable browse frame, else the ``latest_*.jpg`` fallback.
 
     The browse frame is strongly preferred because its FILENAME carries the
@@ -192,7 +201,8 @@ def fetch_source(now: datetime, verbose: bool = False,
     exposure are skipped and the next older one tried.
     """
     skipped: List[str] = []
-    candidates = browse_candidates(now, wavelength=wavelength)
+    code = code or DEFAULT_CODE
+    candidates = browse_candidates(now, code=code)
     for t, url in candidates[::-1][:TEX_MAX_SOURCE_TRIES]:
         name = url.rsplit("/", 1)[-1]
         try:
@@ -211,8 +221,7 @@ def fetch_source(now: datetime, verbose: bool = False,
                 len(skipped), "; ".join(skipped if verbose else skipped[:2])))
         return SourceImage(rgb, t, url, "browse", len(raw))
 
-    url = "{0}/latest_{1}_{2}.jpg".format(SDO_LATEST_BASE, TEX_SRC_RES,
-                                          product_code(wavelength))
+    url = "{0}/latest_{1}_{2}.jpg".format(SDO_LATEST_BASE, TEX_SRC_RES, code)
     print("  no usable browse frame ({0}); trying latest_*.jpg".format(
         "; ".join(skipped[:3]) or "empty listing"))
     raw, headers = http_get_full(url, timeout=60.0)
@@ -241,7 +250,7 @@ def measure_limb(lum: np.ndarray, r_pred: float
                  ) -> Tuple[float, float, float, float, int]:
     """Fit the limb ring: (cx, cy, radius, per-ray scatter, n rays used).
 
-    Each of 720 rays from the current centre estimate is walked outward and the
+    Each of 720 rays from the current center estimate is walked outward and the
     steepest intensity FALL is taken as that ray's limb; a least-squares circle
     through those points is iterated a few times.  Bright off-limb loops are
     rejected by distance from the median radius.  0-based pixel coordinates in
@@ -272,10 +281,10 @@ def measure_limb(lum: np.ndarray, r_pred: float
 
 
 def input_header(src: SourceImage, obstime, observer,
-                 wavelength: int = TEX_WAVELENGTH):
+                 channel: dict = None):
     """Synthesized level-1.5-style WCS for a browse JPG.
 
-    Disk centre at the array centre, ``TEX_SRC_SCALE_ARCSEC``/px, and identity
+    Disk center at the array center, ``TEX_SRC_SCALE_ARCSEC``/px, and identity
     PC (== solar north up, solar west to increasing column) because the browse
     product already has the P rotation applied.
     """
@@ -284,23 +293,32 @@ def input_header(src: SourceImage, obstime, observer,
     from sunpy.coordinates import Helioprojective
     from sunpy.map.header_helper import make_fitswcs_header
 
-    centre = SkyCoord(0.0 * u.arcsec, 0.0 * u.arcsec, obstime=obstime,
+    channel = channel_for(DEFAULT_CODE) if channel is None else channel
+    scale = tex_src_scale(channel["scale"])
+    # HMI and AIA are different telescopes at different plate scales; saying
+    # "AIA" for a magnetogram would put a false instrument in the WCS that the
+    # reprojection then trusts.
+    detector = "HMI" if channel["code"].startswith("HMI") else "AIA"
+
+    center = SkyCoord(0.0 * u.arcsec, 0.0 * u.arcsec, obstime=obstime,
                       observer=observer, frame=Helioprojective)
-    return make_fitswcs_header(
-        (src.rgb.shape[0], src.rgb.shape[1]), centre,
-        scale=u.Quantity([TEX_SRC_SCALE_ARCSEC, TEX_SRC_SCALE_ARCSEC],
-                         u.arcsec / u.pix),
+    header = make_fitswcs_header(
+        (src.rgb.shape[0], src.rgb.shape[1]), center,
+        scale=u.Quantity([scale, scale], u.arcsec / u.pix),
         rotation_angle=0.0 * u.deg,
-        instrument="AIA", telescope="SDO", observatory="SDO", detector="AIA",
-        wavelength=wavelength * u.angstrom)
+        instrument=detector, telescope="SDO", observatory="SDO",
+        detector=detector,
+        **({"wavelength": channel["wavelength"] * u.angstrom}
+           if channel["wavelength"] else {}))
+    return header
 
 
 def output_header(obstime, observer):
     """Carrington CAR header with longitude 0 at the LEFT EDGE.
 
-    ``make_heliographic_header`` centres the map on ``map_center_longitude``,
+    ``make_heliographic_header`` centers the map on ``map_center_longitude``,
     so 180 deg puts 0 at the edges.  Verified: crpix1 1024.5, cdelt1 +0.17578,
-    crval1 180 => column 0 centre = 0.0879 deg and column 2047 = 359.912 deg,
+    crval1 180 => column 0 center = 0.0879 deg and column 2047 = 359.912 deg,
     increasing left to right.  cdelt2 is also POSITIVE, so FITS row 0 is
     latitude -89.91: the array is flipped once on the way to the JPEG.
     """
@@ -332,9 +350,9 @@ def sub_earth_distance(lon: np.ndarray, lat: np.ndarray, l0: float, b0: float
 def reproject_rgb(src: SourceImage, in_header, out_header) -> np.ndarray:
     """(TEX_OUT_H, TEX_OUT_W, 3) float32, NaN off the visible hemisphere.
 
-    One reprojection per colour channel.  The AIA 171 colour table is a
+    One reprojection per color channel.  The AIA 171 color table is a
     monotone function of intensity, so per-channel interpolation cannot
-    introduce false colour.  ~1.8 s per channel.
+    introduce false color.  ~1.8 s per channel.
     """
     import sunpy.map
     planes = []
@@ -353,7 +371,7 @@ def reproject_rgb(src: SourceImage, in_header, out_header) -> np.ndarray:
 
 def quiet_sun_rgb(near: np.ndarray, valid: np.ndarray, dist: np.ndarray
                   ) -> np.ndarray:
-    """Median RGB of the quiet near side -- the far side's base colour."""
+    """Median RGB of the quiet near side -- the far side's base color."""
     lo, hi = TEX_QUIET_ANNULUS_DEG
     ann = valid & (dist > lo) & (dist < hi)
     if ann.sum() < 1000:
@@ -409,14 +427,29 @@ def feather_weight(dist: np.ndarray, valid: np.ndarray, lat: np.ndarray
 
 
 def compose(near: np.ndarray, valid: np.ndarray, dist: np.ndarray,
-            lon: np.ndarray, lat: np.ndarray
+            lon: np.ndarray, lat: np.ndarray, farside: str = "quiet"
             ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Blend near side over the quiet base and flip to picture row order.
+
+    ``farside`` selects what fills the hemisphere Earth cannot see:
+
+      "quiet"  the measured quiet-Sun color times farside_modulation's
+               band-limited mottling and polar darkening. A stylization, and a
+               defensible one for EUV -- a flat EUV hemisphere looks wrong.
+      "flat"   the measured quiet-Sun color and nothing else.
+
+    "flat" exists because the mottling is INVENTED. On a magnetogram it would
+    be fabricated magnetic field on the half of the Sun nobody can see, drawn
+    convincingly enough to be believed, and the polar ramp encodes coronal
+    holes that a continuum image does not show either.
 
     Returns (uint8 image with row 0 = +90 lat, feather weights, base RGB).
     """
     base = quiet_sun_rgb(near, valid, dist)
-    quiet = base[None, None, :] * farside_modulation(lon, lat)[..., None]
+    if farside == "flat":
+        quiet = np.broadcast_to(base[None, None, :], near.shape)
+    else:
+        quiet = base[None, None, :] * farside_modulation(lon, lat)[..., None]
     w = feather_weight(dist, valid, lat)[..., None]
     blend = w * np.nan_to_num(near, nan=0.0, posinf=0.0, neginf=0.0) \
         + (1.0 - w) * quiet
@@ -444,13 +477,13 @@ def encode_jpeg(img: np.ndarray, quality: int = TEX_JPEG_QUALITY) -> bytes:
 def ar_offsets(near: np.ndarray, valid: np.ndarray, lon: np.ndarray,
                lat: np.ndarray, regions: List[dict], l0: float, b0: float
                ) -> List[dict]:
-    """Where the bright 171 pixels sit relative to each catalogued AR.
+    """Where the bright 171 pixels sit relative to each cataloged AR.
 
-    This is the check that catches a P-angle, mirror or centre-longitude error:
+    This is the check that catches a P-angle, mirror or center-longitude error:
     all of those look plausible and only show up as a systematic displacement
     of real features.  Per region, take a +/-10 deg window, drop pixels that
     are nearer some OTHER region (a 10 uH alpha spot next to a 200 uH
-    beta-gamma-delta would otherwise just measure its neighbour's loops), and
+    beta-gamma-delta would otherwise just measure its neighbor's loops), and
     take the brightness-weighted centroid of the top 8%.
 
     Residual offsets of a couple of degrees are EXPECTED and not a bug: SRS
@@ -523,15 +556,67 @@ def ar_summary(offsets: List[dict]) -> Tuple[Optional[float], int]:
 # Driver
 # ─────────────────────────────────────────────────────────────────────────────
 
+def offlimb_name(code: str) -> str:
+    """File name for one channel's off-limb crop."""
+    return "sdo{0}_offlimb_{1}.jpg".format(code, TEX_OFFLIMB_SIZE)
+
+
+def build_offlimb(src: SourceImage, cx: float, cy: float, r_fit: float
+                  ) -> Tuple[bytes, float]:
+    """Square crop around the disk with the disk blacked out.
+
+    Returns (jpeg, half_width_rsun) where half_width_rsun is how far from Sun
+    center the crop's edge reaches -- the app needs it to size the billboard,
+    and it is NOT a constant: it falls out of the fitted limb radius, which
+    differs between AIA (~1.28 R_sun) and HMI (~1.09).
+
+    The disk is removed rather than kept because the sphere already draws it,
+    at a resolution this crop cannot match. Feathered across TEX_OFFLIMB_INNER
+    so the billboard does not meet the sphere on a hard ring.
+    """
+    import numpy as np
+    from PIL import Image
+
+    h, w = src.rgb.shape[:2]
+    # Square, centered on the FITTED disk center rather than the array center:
+    # measure_limb reports offsets of 12-14 px on AIA browse frames, and a
+    # billboard built around the wrong center would sit visibly off the sphere.
+    half = int(min(cx, cy, w - 1 - cx, h - 1 - cy))
+    if half < 32:
+        raise PipelineError(
+            "disk center ({0:.1f}, {1:.1f}) leaves only {2} px of square crop"
+            .format(cx, cy, half))
+    x0, y0 = int(round(cx)) - half, int(round(cy)) - half
+    crop = src.rgb[y0:y0 + 2 * half, x0:x0 + 2 * half].astype(np.float32)
+
+    # Radius of every pixel, in units of the solar radius.
+    n = crop.shape[0]
+    yy, xx = np.mgrid[0:n, 0:n]
+    center = (n - 1) / 2.0
+    r = np.hypot(yy - center, xx - center) / r_fit
+
+    lo, hi = TEX_OFFLIMB_INNER
+    t = np.clip((r - lo) / (hi - lo), 0.0, 1.0)
+    keep = (t * t * (3.0 - 2.0 * t))[..., None]        # smoothstep
+    out = np.clip(crop * keep, 0.0, 255.0).astype(np.uint8)
+
+    img = Image.fromarray(out).resize(
+        (TEX_OFFLIMB_SIZE, TEX_OFFLIMB_SIZE), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=TEX_OFFLIMB_QUALITY, optimize=True)
+    return buf.getvalue(), half / r_fit
+
+
 def build_texture(now: datetime, regions: Optional[List[dict]] = None,
-                  verbose: bool = False, wavelength: int = TEX_WAVELENGTH
-                  ) -> Tuple[bytes, dict, dict]:
+                  verbose: bool = False, code: str = None
+                  ) -> Tuple[bytes, dict, dict, bytes]:
     """Fetch, reproject, composite, encode.  Returns (jpeg, doc, info)."""
     import astropy.units as u
     from astropy.time import Time
     from sunpy.coordinates import get_earth, sun
 
-    src = fetch_source(now, verbose=verbose, wavelength=wavelength)
+    channel = channel_for(code or DEFAULT_CODE)
+    src = fetch_source(now, verbose=verbose, code=channel["code"])
     obs_age = age_hours(src.obstime, now)
     print("  source: {0} ({1}, {2}, obs {3}, age {4:.2f} h)".format(
         src.url.rsplit("/", 1)[-1], src.kind, human_bytes(src.nbytes),
@@ -548,23 +633,23 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
 
     # Sanity check the assumed geometry against the image's own limb.
     r_pred = float(sun.angular_radius(obstime).to_value(u.arcsec)
-                   ) / TEX_SRC_SCALE_ARCSEC
+                   ) / tex_src_scale(channel["scale"])
     cx, cy, r_fit, resid, n_rays = measure_limb(src.rgb.mean(axis=-1), r_pred)
     c_off = float(np.hypot(cx - (TEX_SRC_RES - 1) / 2.0,
                            cy - (TEX_SRC_RES - 1) / 2.0))
     r_err = abs(r_fit / r_pred - 1.0)
-    print("  limb fit: r {0:.1f} px vs {1:.1f} predicted ({2:+.2%}), centre "
+    print("  limb fit: r {0:.1f} px vs {1:.1f} predicted ({2:+.2%}), center "
           "{3:.1f} px off, scatter {4:.1f} px ({5} rays)".format(
               r_fit, r_pred, r_fit / r_pred - 1.0, c_off, resid, n_rays))
-    if r_err > TEX_LIMB_RADIUS_TOL or c_off > TEX_LIMB_CENTRE_TOL_PX:
+    if r_err > TEX_LIMB_RADIUS_TOL or c_off > TEX_LIMB_CENTER_TOL_PX:
         raise PipelineError(
             "browse JPG geometry has changed: limb radius {0:.1f} px vs "
-            "{1:.1f} predicted ({2:+.1%}, tol {3:.0%}), disk centre {4:.1f} "
-            "px from the array centre (tol {5:.0f}); the synthesized WCS is "
+            "{1:.1f} predicted ({2:+.1%}, tol {3:.0%}), disk center {4:.1f} "
+            "px from the array center (tol {5:.0f}); the synthesized WCS is "
             "no longer valid".format(r_fit, r_pred, r_fit / r_pred - 1.0,
-                           TEX_LIMB_RADIUS_TOL, c_off, TEX_LIMB_CENTRE_TOL_PX))
+                           TEX_LIMB_RADIUS_TOL, c_off, TEX_LIMB_CENTER_TOL_PX))
 
-    in_hdr = input_header(src, obstime, observer, wavelength=wavelength)
+    in_hdr = input_header(src, obstime, observer, channel=channel)
     out_hdr = output_header(obstime, observer)
     near = reproject_rgb(src, in_hdr, out_hdr)
     lon, lat = grid(out_hdr)
@@ -588,10 +673,18 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
             "visible, south {2:.0%}); the output latitude axis is flipped"
             .format(b0, n_cap, s_cap))
 
-    img, w, base = compose(near, valid, dist, lon, lat)
+    # Off-limb crop, from the SAME fitted limb the reprojection trusts, so the
+    # billboard and the sphere cannot disagree about where the edge is.
+    offlimb, offlimb_half_rsun = build_offlimb(src, cx, cy, r_fit)
+
+    img, w, base = compose(near, valid, dist, lon, lat, channel["farside"])
     blob = encode_jpeg(img)
 
-    offsets = ar_offsets(near, valid, lon, lat, regions or [], l0, b0)
+    # Only meaningful in EUV: the check scores by finding BRIGHT pixels near
+    # each region, and sunspots are dark in HMIIC while bright in HMIB just
+    # means positive polarity (see TEX_CHANNELS.ar_check).
+    offsets = (ar_offsets(near, valid, lon, lat, regions or [], l0, b0)
+               if channel["ar_check"] else [])
     med, n_good = ar_summary(offsets)
 
     doc = {
@@ -599,25 +692,44 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
         "pipeline_version": PIPELINE_VERSION,
         "generated_iso": iso_z(now),
         "generated_unix": unix_s(now),
-        "url": jpeg_name(wavelength),
+        "url": jpeg_name(channel["code"]),
         "width": TEX_OUT_W,
         "height": TEX_OUT_H,
         "bytes": len(blob),
         "projection": "plate carree (CAR), HeliographicCarrington",
         "lon_at_u0_deg": 0.0,
         "north_up": True,
-        "wavelength_angstrom": wavelength,
+        "channel": channel["code"],
+        "label": channel["label"],
+        "wavelength_angstrom": channel["wavelength"],
         "obs_iso": iso_z(src.obstime),
         "sub_earth_carr_lon_deg": l0,
         "sub_earth_lat_deg": b0,
         "near_side_half_angle_deg": 90.0,
-        "far_side": "quiet",
+        # "quiet" adds farside_modulation's invented mottling; "flat" is a
+        # plain fill with no fabricated structure. HMIB must never be "quiet" --
+        # see TEX_CHANNELS.
+        # The off-limb band, drawn as a camera-facing billboard. half_width_rsun
+        # is how far the crop reaches from Sun center; it is NOT constant
+        # across channels (AIA ~1.28 R_sun, HMI ~1.09) because it falls out of
+        # each instrument's plate scale.
+        "off_limb": {
+            "url": offlimb_name(channel["code"]),
+            "bytes": len(offlimb),
+            "size": TEX_OFFLIMB_SIZE,
+            "half_width_rsun": round(offlimb_half_rsun, 5),
+            "note": ("Square crop centered on the fitted disk center with the "
+                     "disk blacked out. Additively blended, so black is "
+                     "transparent. Only valid from the sub-earth viewpoint: it "
+                     "is a 2D projection of structure whose depth is unknown."),
+        },
+        "far_side": channel["farside"],
         "far_side_max_age_hours": None,
-        "source": ("SDO/AIA {0} A {1} JPEG from sdo.gsfc.nasa.gov ({2} px, "
-                   "solar-north-up), synthesized WCS at {3}\"/px, reprojected "
-                   "with sunpy + reproject").format(
-                       wavelength, src.kind, TEX_SRC_RES,
-                       TEX_SRC_SCALE_ARCSEC),
+        "source": ("SDO/{0} {1} JPEG from sdo.gsfc.nasa.gov ({2} px, "
+                   "solar-north-up), synthesized WCS at {3:.4f}\"/px, "
+                   "reprojected with sunpy + reproject").format(
+                       channel["code"], src.kind, TEX_SRC_RES,
+                       tex_src_scale(channel["scale"])),
         "source_url": src.url,
         "note": ("lon_deg = (x + 0.5) * 360/{0}, x = 0..{1} left to right; "
                  "lat_deg = 90 - (y + 0.5) * 180/{2}, y = 0..{3} top to "
@@ -639,7 +751,7 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
         "p_deg": p_deg,
         "limb_radius_px": r_fit,
         "limb_radius_pred_px": r_pred,
-        "limb_centre_offset_px": c_off,
+        "limb_center_offset_px": c_off,
         "valid_fraction": frac,
         "near_fraction": float((w >= 1.0).mean()),
         "feather_fraction": float(((w > 0.0) & (w < 1.0)).mean()),
@@ -654,7 +766,7 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
             "max": int(img.max()),
         },
     }
-    return blob, doc, info
+    return blob, doc, info, offlimb
 
 
 def log_texture(info: dict, blob_len: int, verbose: bool = False) -> None:
@@ -669,7 +781,7 @@ def log_texture(info: dict, blob_len: int, verbose: bool = False) -> None:
         info["brightness"]["p99"]))
     med, n = info["ar_offset_median_deg"], info["ar_offset_n"]
     if med is None:
-        print("  AR registration: no region within {0:.0f} deg of disk centre "
+        print("  AR registration: no region within {0:.0f} deg of disk center "
               "to check against".format(TEX_AR_MAX_SUBEARTH_DEG))
     else:
         print("  AR registration: median offset {0:.2f} deg over {1} "
@@ -702,7 +814,7 @@ def texture_status(obs_age: float) -> str:
 
 __all__ = [
     "JPEG_NAME", "SourceImage", "browse_candidates", "disk_mean",
-    "jpeg_name", "product_code",
+    "jpeg_name", "channel_for", "DEFAULT_CODE",
     "fetch_source",
     "measure_limb", "input_header", "output_header", "grid",
     "sub_earth_distance", "reproject_rgb", "quiet_sun_rgb",

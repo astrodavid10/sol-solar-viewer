@@ -126,7 +126,7 @@ const MIN_KEEP = 0.10;
  *  wind reads as a separate thing from the lines it flows along. */
 const COLOR: [number, number, number] = [0.70, 0.83, 1.0];
 
-/** Per-particle peak alpha. Additive, so this is a contribution, not a colour:
+/** Per-particle peak alpha. Additive, so this is a contribution, not a color:
  *  what the guest sees where streams overlap is the sum. */
 const ALPHA = 0.5;
 
@@ -180,7 +180,7 @@ void main() {
   // Pull back and the whole 1-6 R_sun stream compresses into fewer pixels, so
   // additively blended dots stack into a white blob. THIN THE POPULATION
   // rather than dimming it: every surviving particle keeps its full alpha, so
-  // the wind stays made of visible dots instead of turning into a grey haze.
+  // the wind stays made of visible dots instead of turning into a gray haze.
   //
   // aRank is a fixed random value per particle, so the same particles drop out
   // at the same zoom every time — no flicker, and no frame-to-frame popping as

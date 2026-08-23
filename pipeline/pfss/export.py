@@ -31,7 +31,7 @@ interleaved rather than convenient.
     uint8[n_lines]          valid      # 1 real line, 0 dummy
 
 Polarity is per FRAME, not per line: a loop that opens up between two
-magnetograms genuinely changes class, and the app recolours accordingly.
+magnetograms genuinely changes class, and the app recolors accordingly.
 """
 
 from __future__ import annotations

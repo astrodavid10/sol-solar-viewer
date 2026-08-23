@@ -1,6 +1,20 @@
+// The one bundled face, used for the app title and the info-modal heading.
+//
+// Overpass, not Highway Gothic Narrow. Both descend from the US FHWA Standard
+// Alphabets, so the look is the same lineage -- but the Highway Gothic
+// digitization we shipped carried NO license record at all (no nameID 13, no
+// nameID 14), and publishing this repo redistributes whatever is in it.
+// Overpass self-declares SIL OFL 1.1 in its own name table and ships its
+// license text alongside at ./Overpass-LICENSE.md.
+//
+// `swap`: this is decoration on a short string. It must never hold up the
+// first paint of the Sun.
 @font-face {
-  font-family: "Highway Gothic Narrow";
-  src: url("./HighwayGothicNarrow.ttf");
+  font-family: "Overpass";
+  src: url("./Overpass-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
 }
 
 .no-select {
@@ -43,7 +57,7 @@ body {
   padding: 0;
   overflow: hidden;
 
-  font-family: Verdana, Arial, Helvetica, sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 a {

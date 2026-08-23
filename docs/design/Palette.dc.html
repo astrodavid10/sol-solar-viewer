@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Barlow:wght@400;500;600;700&family=Nunito+Sans:wght@400;600&display=swap">
+  <style>
+    body { margin:0; background:#08021A; color:#F5F4F0; font-family:"Barlow","Segoe UI",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+    a { color:#FFC850; } a:hover { color:#FFD98A; }
+    .disp { font-family:"Chakra Petch","Barlow",sans-serif; letter-spacing:0.02em; }
+    .bod { font-family:"Nunito Sans","Barlow",sans-serif; }
+    .sec { font-family:"Barlow",sans-serif; font-size:11px; font-weight:600; letter-spacing:0.22em; text-transform:uppercase; color:#A6AEC4; }
+    .rule { height:1px; background:linear-gradient(90deg, rgba(243,73,130,0.8) 0%, rgba(123,126,224,0.55) 34%, rgba(148,155,175,0.13) 100%); }
+    .mono { font-family:Consolas,"SFMono-Regular","Liberation Mono",monospace; font-size:11.5px; letter-spacing:-0.01em; }
+    table { border-collapse:collapse; width:100%; }
+    td, th { text-align:left; vertical-align:middle; }
+    .sw { display:block; width:26px; height:18px; border-radius:4px; border:1px solid rgba(148,155,175,0.3); }
+    .tk { padding:9px 8px 9px 0; color:#FFC850; }
+    .tkn { padding:9px 8px 9px 0; color:#5FB8FF; }
+    .td { padding:9px 8px; color:#7E86A0; }
+    .tp { padding:9px 8px; color:#F5F4F0; }
+    .tf { padding:9px 0 9px 8px; color:#A6AEC4; font-family:"Nunito Sans","Barlow",sans-serif; }
+    tbody tr { border-top:1px solid rgba(148,155,175,0.13); }
+    .crow { display:flex; justify-content:space-between; }
+  </style>
+</helmet>
+<div style="width:1100px; min-height:1430px; box-sizing:border-box; padding:44px 48px 52px; background:#08021A; background-image:radial-gradient(1100px 600px at 12% -8%, rgba(32,34,103,0.42) 0%, rgba(8,2,26,0) 62%);">
+
+  <div style="display:flex; flex-direction:column; gap:6px;">
+    <div class="sec">Sol &middot; revision 01</div>
+    <h1 class="disp" style="margin:0; font-size:38px; font-weight:700; color:#F5F4F0;">Palette &amp; tokens</h1>
+    <p class="bod" style="margin:2px 0 0; font-size:14.5px; line-height:1.5; color:#A6AEC4; max-width:790px; text-wrap:pretty;">The chrome stops wearing the Sun&rsquo;s color. Grounds and neutrals move to the INTUITIVE Planetarium deep-space palette; gold is demoted to a single job &mdash; the Sun, and the word &ldquo;on&rdquo;.</p>
+  </div>
+  <div class="rule" style="margin:22px 0 30px;"></div>
+
+  <div class="sec" style="margin-bottom:12px;">Source &mdash; Planetarium Brand Kit V7, page 1</div>
+  <div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:12px; margin-bottom:34px;">
+    <div style="border-radius:10px; overflow:hidden; border:1px solid rgba(148,155,175,0.18);"><div style="height:56px; background:#0e0024;"></div><div style="padding:8px 10px; background:rgba(255,255,255,0.03);"><div style="font-size:12px; font-weight:600;">Spaceberry</div><div class="mono" style="color:#A6AEC4;">#0e0024</div><div class="bod" style="font-size:10.5px; color:#7E86A0; margin-top:3px;">the kit&rsquo;s default dark, not black</div></div></div>
+    <div style="border-radius:10px; overflow:hidden; border:1px solid rgba(148,155,175,0.18);"><div style="height:56px; background:#202267;"></div><div style="padding:8px 10px; background:rgba(255,255,255,0.03);"><div style="font-size:12px; font-weight:600;">Spacebubble</div><div class="mono" style="color:#A6AEC4;">#202267</div><div class="bod" style="font-size:10.5px; color:#7E86A0; margin-top:3px;">co-primary</div></div></div>
+    <div style="border-radius:10px; overflow:hidden; border:1px solid rgba(148,155,175,0.18);"><div style="height:56px; background:#821036;"></div><div style="padding:8px 10px; background:rgba(255,255,255,0.03);"><div style="font-size:12px; font-weight:600;">Cosmaroon</div><div class="mono" style="color:#A6AEC4;">#821036</div><div class="bod" style="font-size:10.5px; color:#7E86A0; margin-top:3px;">accent</div></div></div>
+    <div style="border-radius:10px; overflow:hidden; border:1px solid rgba(148,155,175,0.18);"><div style="height:56px; background:#64102d;"></div><div style="padding:8px 10px; background:rgba(255,255,255,0.03);"><div style="font-size:12px; font-weight:600;">Midnight Cherry</div><div class="mono" style="color:#A6AEC4;">#64102d</div><div class="bod" style="font-size:10.5px; color:#7E86A0; margin-top:3px;">accent</div></div></div>
+    <div style="border-radius:10px; overflow:hidden; border:1px solid rgba(148,155,175,0.18);"><div style="height:56px; background:#f5f4f0;"></div><div style="padding:8px 10px; background:rgba(255,255,255,0.03);"><div style="font-size:12px; font-weight:600;">Light Speed White</div><div class="mono" style="color:#A6AEC4;">#f5f4f0</div><div class="bod" style="font-size:10.5px; color:#7E86A0; margin-top:3px;">&rarr; --sol-text</div></div></div>
+    <div style="border-radius:10px; overflow:hidden; border:1px solid rgba(148,155,175,0.18);"><div style="height:56px; background:#EAEBEF;"></div><div style="padding:8px 10px; background:rgba(255,255,255,0.03);"><div style="font-size:12px; font-weight:600;">Nova White</div><div class="mono" style="color:#A6AEC4;">#EAEBEF</div><div class="bod" style="font-size:10.5px; color:#7E86A0; margin-top:3px;">unused here</div></div></div>
+    <div style="border-radius:10px; overflow:hidden; border:1px solid rgba(148,155,175,0.18);"><div style="height:56px; background:#D9DDE2;"></div><div style="padding:8px 10px; background:rgba(255,255,255,0.03);"><div style="font-size:12px; font-weight:600;">Starliner</div><div class="mono" style="color:#A6AEC4;">#D9DDE2</div><div class="bod" style="font-size:10.5px; color:#7E86A0; margin-top:3px;">unused here</div></div></div>
+    <div style="border-radius:10px; overflow:hidden; border:1px solid rgba(148,155,175,0.18);"><div style="height:56px; background:#949baf;"></div><div style="padding:8px 10px; background:rgba(255,255,255,0.03);"><div style="font-size:12px; font-weight:600;">Spaceship Gray</div><div class="mono" style="color:#A6AEC4;">#949baf</div><div class="bod" style="font-size:10.5px; color:#7E86A0; margin-top:3px;">&rarr; dim text + hairlines</div></div></div>
+  </div>
+
+  <div class="sec" style="margin-bottom:4px;">Mapped onto the existing tokens &mdash; src/assets/sol.less</div>
+  <div style="height:1px; background:rgba(148,155,175,0.18); margin:10px 0 4px;"></div>
+  <table class="mono" style="font-size:11.5px;">
+    <thead>
+      <tr style="color:#7E86A0;">
+        <th style="padding:9px 8px 9px 0; font-weight:600; width:184px;">TOKEN</th>
+        <th style="padding:9px 8px; font-weight:600; width:176px;">TODAY</th>
+        <th style="padding:9px 8px; font-weight:600; width:42px;"></th>
+        <th style="padding:9px 8px; font-weight:600; width:204px;">PROPOSED</th>
+        <th style="padding:9px 0 9px 8px; font-weight:600;">FROM</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="tk">--sol-bg</td><td class="td">#000</td><td style="padding:9px 8px;"><span class="sw" style="background:#000;"></span></td><td class="tp">#000 &nbsp;<span style="color:#7E86A0;">unchanged</span></td><td class="tf">must match the WebGL sky exactly &mdash; any tint puts a visible seam at the canvas edge</td></tr>
+      <tr><td class="tk">--sol-surface</td><td class="td">rgba(20,16,8,.92)</td><td style="padding:9px 8px;"><span class="sw" style="background:#0E0526;"></span></td><td class="tp">rgba(16,6,42,.90)</td><td class="tf">Spaceberry. Composites to <span class="mono" style="color:#F5F4F0;">#0E0526</span> on black &mdash; the kit&rsquo;s dark, reached honestly</td></tr>
+      <tr><td class="tkn">--sol-surface-raised</td><td class="td">&mdash; new</td><td style="padding:9px 8px;"><span class="sw" style="background:#0A0B21;"></span></td><td class="tp">rgba(32,34,103,.34)</td><td class="tf">Spacebubble veil &mdash; hover, pressed, selected row</td></tr>
+      <tr><td class="tkn">--sol-casing</td><td class="td">&mdash; new</td><td style="padding:9px 8px;"><span class="sw" style="background:#05010F;"></span></td><td class="tp">#05010F</td><td class="tf">the dark half of every dual-contrast mark. Used in CSS <em>and</em> in three.js</td></tr>
+      <tr><td class="tk">--sol-text</td><td class="td">#f5efe2 <span style="color:#4d4535;">warm cream</span></td><td style="padding:9px 8px;"><span class="sw" style="background:#F5F4F0;"></span></td><td class="tp">#F5F4F0</td><td class="tf">Light Speed White, verbatim from the kit</td></tr>
+      <tr><td class="tk">--sol-text-dim</td><td class="td">#b8b0a0 <span style="color:#4d4535;">warm gray</span></td><td style="padding:9px 8px;"><span class="sw" style="background:#A6AEC4;"></span></td><td class="tp">#A6AEC4</td><td class="tf">Spaceship Gray <span class="mono" style="color:#F5F4F0;">#949BAF</span>, lightness 63 &rarr; 71% so it clears AAA on the panel</td></tr>
+      <tr><td class="tkn">--sol-text-quiet</td><td class="td">&mdash; new</td><td style="padding:9px 8px;"><span class="sw" style="background:#7E86A0;"></span></td><td class="tp">#7E86A0</td><td class="tf">timestamps, units, provenance. Never below 12px</td></tr>
+      <tr><td class="tk">--sol-accent</td><td class="td">#ffc850</td><td style="padding:9px 8px;"><span class="sw" style="background:#FFC850;"></span></td><td class="tp">#FFC850 &nbsp;<span style="color:#7E86A0;">unchanged</span></td><td class="tf">the dome&rsquo;s closed-loop gold. <strong style="color:#FFC850;">Usage narrows</strong>: the Sun, and &ldquo;this is on&rdquo;. Never a panel border again</td></tr>
+      <tr><td class="tk">--sol-accent2</td><td class="td">#5fb8ff</td><td style="padding:9px 8px;"><span class="sw" style="background:#5FB8FF;"></span></td><td class="tp">#5FB8FF &nbsp;<span style="color:#7E86A0;">unchanged</span></td><td class="tf">open-field blue, shared with the dome</td></tr>
+      <tr><td class="tkn">--sol-ember</td><td class="td">&mdash; new</td><td style="padding:9px 8px;"><span class="sw" style="background:#F34982;"></span></td><td class="tp">#F34982</td><td class="tf">Cosmaroon with its hue held (340&deg;), lightness 29 &rarr; 62%. Brand furniture <em>only</em> &mdash; see the guard-rail</td></tr>
+      <tr><td class="tkn">--sol-violet</td><td class="td">&mdash; new</td><td style="padding:9px 8px;"><span class="sw" style="background:#7B7EE0;"></span></td><td class="tp">#7B7EE0</td><td class="tf">Spacebubble, hue 238&deg; held, lightness 27 &rarr; 68%. Planet orbits and reference furniture</td></tr>
+      <tr><td class="tk">--sol-panel-border</td><td class="td">1px rgba(255,200,80,.3)</td><td style="padding:9px 8px;"><span class="sw" style="background:#0E0526; border-color:rgba(148,155,175,0.5);"></span></td><td class="tp">1px solid rgba(148,155,175,.22)</td><td class="tf"><strong style="color:#F34982;">The single highest-leverage line.</strong> Today every rail panel wears gold; one token takes it off all of them at once</td></tr>
+      <tr><td class="tk">--sol-panel-shadow</td><td class="td">0 8px 26px rgba(0,0,0,.6)</td><td style="padding:9px 8px;"></td><td class="tp">0 10px 30px rgba(0,0,0,.65),<br>inset 0 1px 0 rgba(245,244,240,.07)</td><td class="tf">the inset hairline is the whole &ldquo;sleek&rdquo; move &mdash; a lit top edge instead of a drawn box. Comma list, so it still fits one token</td></tr>
+      <tr><td class="tk">--sol-panel-radius</td><td class="td">12px</td><td style="padding:9px 8px;"></td><td class="tp">14px</td><td class="tf">one notch softer, matching the kit&rsquo;s stadium shapes</td></tr>
+      <tr><td class="tk">--sol-panel-pad</td><td class="td">1rem</td><td style="padding:9px 8px;"></td><td class="tp">1rem &nbsp;<span style="color:#7E86A0;">unchanged</span></td><td class="tf">&mdash;</td></tr>
+      <tr><td class="tk">--sol-rail-gutter</td><td class="td">0.75rem</td><td style="padding:9px 8px;"></td><td class="tp">0.75rem &nbsp;<span style="color:#7E86A0;">unchanged</span></td><td class="tf">the grid row-gap stays the only source of rail spacing</td></tr>
+      <tr style="border-bottom:1px solid rgba(148,155,175,0.13);"><td class="tkn">--sol-label-bg</td><td class="td">&mdash; new</td><td style="padding:9px 8px;"><span class="sw" style="background:#080215;"></span></td><td class="tp">rgba(9,2,24,.86)</td><td class="tf">label chips sit darker than panels, so they read as marks on the sky rather than floating UI</td></tr>
+    </tbody>
+  </table>
+
+  <div class="sec" style="margin:34px 0 12px;">Measured contrast &mdash; WCAG 2.1 relative luminance</div>
+  <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:14px;">
+    <div style="padding:16px; border-radius:14px; background:#0E0526; border:1px solid rgba(148,155,175,0.22); box-shadow:0 10px 30px rgba(0,0,0,0.65), inset 0 1px 0 rgba(245,244,240,0.07);">
+      <div class="mono" style="color:#7E86A0; margin-bottom:3px;">#0E0526</div>
+      <div style="font-size:12px; font-weight:600; margin-bottom:11px;">Panel over black sky</div>
+      <div style="display:flex; flex-direction:column; gap:6px; font-size:12px;">
+        <div class="crow"><span style="color:#F5F4F0;">--sol-text</span><span class="mono" style="color:#7de08a;">17.86 &middot; AAA</span></div>
+        <div class="crow"><span style="color:#A6AEC4;">--sol-text-dim</span><span class="mono" style="color:#7de08a;">8.87 &middot; AAA</span></div>
+        <div class="crow"><span style="color:#7E86A0;">--sol-text-quiet</span><span class="mono" style="color:#7de08a;">5.43 &middot; AA</span></div>
+        <div class="crow"><span style="color:#FFC850;">--sol-accent</span><span class="mono" style="color:#7de08a;">12.76 &middot; AAA</span></div>
+        <div class="crow"><span style="color:#5FB8FF;">--sol-accent2</span><span class="mono" style="color:#7de08a;">9.16 &middot; AAA</span></div>
+        <div class="crow"><span style="color:#F34982;">--sol-ember</span><span class="mono" style="color:#7de08a;">5.70 &middot; AA</span></div>
+        <div class="crow"><span style="color:#7B7EE0;">--sol-violet</span><span class="mono" style="color:#7de08a;">5.53 &middot; AA</span></div>
+      </div>
+      <p class="bod" style="margin:11px 0 0; font-size:10.5px; line-height:1.45; color:#A6AEC4;">The dark planetarium lobby case. Every role clears AA; body text clears AAA with headroom for a guest who has just come out of a bright foyer.</p>
+    </div>
+    <div style="padding:16px; border-radius:14px; background:#281F3F; border:1px solid rgba(148,155,175,0.22); box-shadow:0 10px 30px rgba(0,0,0,0.65), inset 0 1px 0 rgba(245,244,240,0.07);">
+      <div class="mono" style="color:#A6AEC4; margin-bottom:3px;">#281F3F</div>
+      <div style="font-size:12px; font-weight:600; margin-bottom:11px;">Same panel over the white-hot disk</div>
+      <div style="display:flex; flex-direction:column; gap:6px; font-size:12px;">
+        <div class="crow"><span style="color:#F5F4F0;">--sol-text</span><span class="mono" style="color:#7de08a;">14.05 &middot; AAA</span></div>
+        <div class="crow"><span style="color:#A6AEC4;">--sol-text-dim</span><span class="mono" style="color:#7de08a;">6.98 &middot; AA</span></div>
+        <div class="crow"><span style="color:#7E86A0;">--sol-text-quiet</span><span class="mono" style="color:#FFC850;">4.27 &middot; AA lg</span></div>
+        <div class="crow"><span style="color:#FFC850;">--sol-accent</span><span class="mono" style="color:#7de08a;">10.04 &middot; AAA</span></div>
+        <div class="crow"><span style="color:#5FB8FF;">--sol-accent2</span><span class="mono" style="color:#7de08a;">7.21 &middot; AAA</span></div>
+        <div class="crow"><span style="color:#F34982;">--sol-ember</span><span class="mono" style="color:#FFC850;">4.48 &middot; AA lg</span></div>
+        <div class="crow"><span style="color:#7B7EE0;">--sol-violet</span><span class="mono" style="color:#FFC850;">4.35 &middot; AA lg</span></div>
+      </div>
+      <p class="bod" style="margin:11px 0 0; font-size:10.5px; line-height:1.45; color:#A6AEC4;">At 90% opacity the panel holds AA for every text role even with the brightest photosphere dragged behind it. <span style="color:#F5F4F0;">--sol-text-quiet is the floor</span>: keep it to 12px+ short strings, never a sentence.</p>
+    </div>
+    <div style="padding:16px; border-radius:14px; background:linear-gradient(135deg,#FFFDF5 0%,#FFF0C0 42%,#FFC94F 100%); border:1px solid rgba(5,1,15,0.35);">
+      <div class="mono" style="color:#6B2E08; margin-bottom:3px;">#FFFFFF</div>
+      <div style="font-size:12px; font-weight:600; color:#2A1000; margin-bottom:11px;">Naked on the disk &mdash; <span style="color:#8a1010;">no plate</span></div>
+      <div style="display:flex; flex-direction:column; gap:6px; font-size:12px;">
+        <div class="crow"><span style="color:#F5F4F0;">--sol-text</span><span class="mono" style="color:#8a1010; font-weight:700;">1.10 &middot; FAIL</span></div>
+        <div class="crow"><span style="color:#A6AEC4;">--sol-text-dim</span><span class="mono" style="color:#8a1010; font-weight:700;">2.22 &middot; FAIL</span></div>
+        <div class="crow"><span style="color:#FFC850;">--sol-accent</span><span class="mono" style="color:#8a1010; font-weight:700;">1.54 &middot; FAIL</span></div>
+        <div class="crow"><span style="color:#5FB8FF;">--sol-accent2</span><span class="mono" style="color:#8a1010; font-weight:700;">2.15 &middot; FAIL</span></div>
+      </div>
+      <p class="bod" style="margin:11px 0 0; font-size:10.5px; line-height:1.5; color:#3A1A00;"><strong>This column is the argument.</strong> No color in this palette &mdash; or any palette &mdash; survives naked on the photosphere. Region labels are gold text sitting exactly here today, at 1.54:1. Legibility over the Sun has to come from a <em>plate or a casing</em>, never from a color choice.</p>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px;">
+    <div style="padding:16px 18px; border-radius:14px; background:rgba(243,73,130,0.07); border:1px solid rgba(243,73,130,0.32);">
+      <div class="sec" style="color:#F34982; margin-bottom:8px;">Guard-rail on --sol-ember</div>
+      <p class="bod" style="margin:0 0 8px; font-size:12px; line-height:1.55; color:#F5F4F0;">Ember sits at hue 340&deg;. The inbound-field orange is at 20&deg; and the X-flare marker at 6&deg; &mdash; under deuteranopia those three converge. So ember is restricted to three places where it is never adjacent to data and never a small dot:</p>
+      <ul class="bod" style="margin:0; padding-left:17px; font-size:12px; line-height:1.65; color:#A6AEC4;">
+        <li>the 1px gradient rule under the top bar</li>
+        <li>the section-header rules in the rail</li>
+        <li>the kiosk &ldquo;Take it with you&rdquo; pill</li>
+      </ul>
+      <p class="bod" style="margin:8px 0 0; font-size:11px; line-height:1.5; color:#7E86A0;">Never a status, never a severity, never a legend swatch.</p>
+    </div>
+    <div style="padding:16px 18px; border-radius:14px; background:#0E0526; border:1px solid rgba(148,155,175,0.22); box-shadow:inset 0 1px 0 rgba(245,244,240,0.07);">
+      <div class="sec" style="margin-bottom:10px;">Typography</div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; align-items:baseline; gap:10px;"><span class="disp" style="font-size:18px; font-weight:700; color:#F5F4F0; flex:0 0 auto;">Pirulen</span><span class="bod" style="font-size:11px; color:#A6AEC4;">wordmark + display. <strong style="color:#F5F4F0;">20px and up only</strong> &mdash; a wide techno face muddies below that</span></div>
+        <div style="display:flex; align-items:baseline; gap:10px;"><span style="font-size:17px; font-weight:600; color:#F5F4F0; flex:0 0 auto;">Magistral</span><span class="bod" style="font-size:11px; color:#A6AEC4;">all UI: labels, buttons, stat values, and section heads at <span class="mono" style="color:#F5F4F0;">0.22em</span> tracking &mdash; the kit&rsquo;s own convention</span></div>
+        <div style="display:flex; align-items:baseline; gap:10px;"><span class="bod" style="font-size:16px; color:#F5F4F0; flex:0 0 auto;">Omnes</span><span class="bod" style="font-size:11px; color:#A6AEC4;">body copy at small sizes &mdash; exactly what the kit specifies it for</span></div>
+      </div>
+      <div style="height:1px; background:rgba(148,155,175,0.16); margin:12px 0;"></div>
+      <p class="bod" style="margin:0; font-size:11px; line-height:1.55; color:#A6AEC4;"><strong style="color:#FFC850;">Licensing is unresolved and blocking.</strong> None of the three is on Google Fonts. Pirulen (Typodermic) is free for personal use only; Magistral (ParaType) and Omnes (Darden / Adobe Fonts) need webfont licenses. The app already bundles local TTFs, so the mechanism exists &mdash; the rights do not yet. Until they do, ship this stack, which is what these artboards are drawn in:</p>
+      <div class="mono" style="margin-top:9px; font-size:10.5px; line-height:1.85; color:#7E86A0;">
+        --sol-font-display: "Pirulen", "Chakra Petch", "Highway Gothic Narrow", sans-serif;<br>
+        --sol-font-ui: "Magistral", "Barlow", system-ui, sans-serif;<br>
+        --sol-font-body: "Omnes", "Nunito Sans", system-ui, sans-serif;
+      </div>
+      <p class="bod" style="margin:9px 0 0; font-size:11px; line-height:1.5; color:#A6AEC4;">Every live number carries <span class="mono" style="color:#F5F4F0;">font-variant-numeric: tabular-nums</span> so stat values stop jittering as they refresh.</p>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

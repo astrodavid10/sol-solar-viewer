@@ -3,7 +3,7 @@
 Numbers here are *measured*, not guessed: NRHO/RSS come from the dome
 pipeline (1.8 s/solve; a coarser grid buys nothing visible), the seed grid is
 the dome's 40x80 dome grid reduced to a mobile budget, and VERT_BUCKETS was
-sized so a 13-frame 48 h window lands near 1.7 MB total on the wire.
+sized so a 19-frame 72 h window lands near 2.2 MB total on the wire.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ HEADERS = {"User-Agent": USER_AGENT}
 SCHEMA_INDEX = "sol.index/1"
 SCHEMA_PFSS = "sol.pfss/1"
 SCHEMA_EPHEM = "sol.ephem/1"
-SCHEMA_AR = "sol.ar/1"
+SCHEMA_AR = "sol.ar/2"        # /2 adds the per-UT-day `history` array
 SCHEMA_STATS = "sol.stats/1"
 SCHEMA_TEXTURE = "sol.texture/2"
 SCHEMA_EVENTS = "sol.events/1"
@@ -102,7 +102,7 @@ XRAY_FLARES_URL = (
     "https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json")
 F107_URL = "https://services.swpc.noaa.gov/products/summary/10cm-flux.json"
 
-# CCMC DONKI -- flare and CME event catalogue.  No API key, and it answers with
+# CCMC DONKI -- flare and CME event catalog.  No API key, and it answers with
 # Access-Control-Allow-Origin: * (verified 2026-08-23), but we digest it
 # server-side anyway: it sends Cache-Control: no-store, so every browser hit
 # would go to origin, and CLAUDE.md's rule is "tiny endpoints only in the
@@ -141,19 +141,52 @@ DONKI_DISCLAIMER = (
 # SDO AIA texture (see pipeline/texture/export.py for the derivations)
 # ─────────────────────────────────────────────────────────────────────────────
 
-TEX_WAVELENGTH = 171                      # Angstrom; the app's default channel
+TEX_WAVELENGTH = 171                      # the app's default channel
 
-# Every channel published as a 3D sphere texture, default FIRST.  All of these
-# are AIA, so they share one plate scale (TEX_SRC_SCALE_ARCSEC) and one browse
-# framing -- measured 2026-08: the solar disk occupies 0.7824 / 0.7843 / 0.7804
-# of the frame in 0171 / 0193 / 0304 at every offered resolution, i.e. the same
-# to 0.3%.  Adding an HMI product here would NOT be free: HMI's browse stills
-# are at 0.5044"/px and its disk fills 0.9184 of the frame, and the "quiet sun"
-# far-side fill is meaningless for a magnetogram.
-TEX_WAVELENGTHS = (171, 304, 193)
-TEX_OUT_W, TEX_OUT_H = 2048, 1024         # plate carree, 0.1758 deg/px
+# Every channel published as a 3D sphere texture, DEFAULT FIRST.
+#
+# A channel is not just a wavelength: the two HMI products differ from AIA in
+# ways that would silently produce dishonest maps if they shared AIA's settings.
+#
+#   scale     arcsec/px of the 4096 browse still. AIA is ~0.6009, HMI ~0.5044 --
+#             measured 2026-08, the solar disk fills 0.7824 of an AIA frame and
+#             0.9184 of an HMI one, a ratio of 1.174. Getting this wrong by more
+#             than TEX_LIMB_RADIUS_TOL aborts the run rather than shipping a
+#             misregistered map, which is the behavior we want.
+#   farside   how the hemisphere Earth cannot see is filled. "quiet" adds the
+#             band-limited mottling + polar darkening of farside_modulation,
+#             which is a defensible stylization for EUV. "flat" is a plain
+#             quiet-Sun fill with NO invented structure -- mandatory for HMIB,
+#             where mottling would be fabricated magnetic field, and right for
+#             HMIIC, where the polar ramp (tuned to coronal holes) is wrong.
+#   ar_check  run the active-region registration check. It scores by locating
+#             BRIGHT pixels near each cataloged region, which only means
+#             anything in EUV: sunspots are DARK in HMIIC, and bright in HMIB
+#             just means positive polarity.
+TEX_CHANNELS = (
+    {"code": "0171",  "label": "Coronal Loops", "wavelength": 171,
+     "scale": 0.6009, "farside": "quiet", "ar_check": True},
+    {"code": "0304",  "label": "Chromosphere",  "wavelength": 304,
+     "scale": 0.6009, "farside": "quiet", "ar_check": True},
+    {"code": "0193",  "label": "Hot Corona",    "wavelength": 193,
+     "scale": 0.6009, "farside": "quiet", "ar_check": True},
+    {"code": "HMIIC", "label": "Visible Sun",   "wavelength": None,
+     "scale": 0.5044, "farside": "flat",  "ar_check": False},
+    {"code": "HMIB",  "label": "Magnetic Map",  "wavelength": None,
+     "scale": 0.5044, "farside": "flat",  "ar_check": False},
+)
+# Plate carree, 0.0879 deg/px. Raised from 2048x1024 when the app became a
+# single sphere view: the Earth-facing hemisphere is half the width, so this is
+# what the guest actually sees across the disk -- 2048 px here against the 3205
+# px of a 4096 disk still. Still coarser, but the still is no longer downloaded
+# at all (0171 at 4096 is 2.6 MB against ~600 KB here), so the consolidation
+# pays for the resolution and then some.
+#
+# Do not raise further without measuring phone GPU memory: 4096x2048 RGBA is
+# 32 MB resident per texture before mipmaps, and sunSurface keeps exactly one.
+TEX_OUT_W, TEX_OUT_H = 4096, 2048
 TEX_JPEG_QUALITY = 82
-TEX_MAX_BYTES = 800_000                   # validator ceiling; measured ~150 KB
+TEX_MAX_BYTES = 1_600_000                 # validator ceiling; ~600 KB at 4096x2048
 TEX_MAX_OBS_AGE_HOURS = 24.0              # older than this -> status degraded
 
 # Source browse JPGs.  2048 px frames are the 4096 native downsampled by 2, so
@@ -163,9 +196,39 @@ TEX_MAX_OBS_AGE_HOURS = 24.0              # older than this -> status degraded
 SDO_BROWSE_BASE = "https://sdo.gsfc.nasa.gov/assets/img/browse"
 SDO_LATEST_BASE = "https://sdo.gsfc.nasa.gov/assets/img/latest"
 TEX_SRC_RES = 2048
-TEX_SRC_SCALE_ARCSEC = 0.6 * (4096 // TEX_SRC_RES)
+def tex_src_scale(channel_scale: float) -> float:
+    """arcsec/px of the browse still we actually download, for one channel."""
+    return channel_scale * (4096 // TEX_SRC_RES)
+
+
+TEX_SRC_SCALE_ARCSEC = tex_src_scale(0.6)   # AIA default, kept for callers
 TEX_LIMB_RADIUS_TOL = 0.03                # warn if the fitted limb is >3% off
-TEX_LIMB_CENTRE_TOL_PX = 25.0             # warn if the disk is not centred
+
+# ── Off-limb annulus ────────────────────────────────────────────────────────
+# The Carrington reprojection maps the SURFACE, so everything outside the limb
+# -- prominences, low coronal loops, the inner corona -- is thrown away. It is
+# also the only part of a solar image that is genuinely three-dimensional and
+# that we have no model for, so it cannot go on the sphere at all.
+#
+# Instead it ships as a square crop centered on the disk with the disk itself
+# blacked out, drawn in the app as a camera-facing billboard around the sphere.
+# Black rather than an alpha channel because the billboard is ADDITIVELY
+# blended, so black already contributes nothing -- an alpha channel would cost
+# a PNG (several times the bytes) to encode information the blend mode already
+# carries.
+#
+# The crop is only honest from Earth's viewpoint: it is a 2D projection of
+# structure whose real depth is unknown. The app fades it out as the camera
+# leaves the sub-Earth direction rather than pretending otherwise.
+TEX_OFFLIMB_SIZE = 1024                   # px, square
+TEX_OFFLIMB_QUALITY = 80
+TEX_OFFLIMB_MAX_BYTES = 400_000
+# Feather the inner edge across this fraction of a solar radius so the billboard
+# does not meet the sphere on a hard ring. Starts just inside the limb: the
+# sphere's own edge is drawn by the surface texture, and overlapping slightly
+# hides any sub-pixel disagreement between the two.
+TEX_OFFLIMB_INNER = (0.985, 1.02)
+TEX_LIMB_CENTER_TOL_PX = 25.0             # warn if the disk is not centered
 
 # SDO has two eclipse seasons a year (mid-Feb to mid-Mar, mid-Aug to mid-Sep)
 # with a daily blackout of up to ~72 min, so near-black browse frames are
@@ -191,7 +254,7 @@ TEX_FEATHER_DEG = (75.0, 90.0)
 # nothing the app cares about is lost.
 TEX_LAT_FADE_DEG = (72.0, 88.0)
 
-# Quiet-sun base colour: median of the near side between these angular
+# Quiet-sun base color: median of the near side between these angular
 # distances, below this percentile (excludes limb brightening and AR cores).
 TEX_QUIET_ANNULUS_DEG = (20.0, 60.0)
 TEX_QUIET_PERCENTILE = 80.0
@@ -205,7 +268,7 @@ TEX_FARSIDE_NOISE_TERMS = 12
 TEX_POLE_FADE_DEG = (55.0, 90.0)
 TEX_POLE_FLOOR = 0.55
 
-# AR registration guard: the catalogued regions must show up as bright pixels
+# AR registration guard: the cataloged regions must show up as bright pixels
 # near their Carrington coordinates.  Measured 2026-08-23 with 4 regions:
 # 2.7-3.6 deg for the two well-placed ones, which is the floor set by SRS's
 # 1 deg rounding + its 00:00 UT epoch + coronal loops being offset from spots.
@@ -221,7 +284,7 @@ DEFAULT_OUT = "dist-data"
 KEEP_FRAME_CACHE_SETS = 2        # prune older seed-set frame caches
 
 # Spacecraft baked from JPL Horizons.  'Earth' is ambiguous in Horizons (it
-# matches several records), so the barycentre-free planet id '399' is used.
+# matches several records), so the barycenter-free planet id '399' is used.
 EPHEM_BODIES = (
     # (horizons target, app id, display name, horizons id (informational), color)
     ("Parker Solar Probe", "psp", "Parker Solar Probe", -96, "#ff8a3d"),

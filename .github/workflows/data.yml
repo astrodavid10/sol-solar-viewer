@@ -59,6 +59,39 @@ jobs:
           restore-keys: |
             sol-cache-
 
+      # LOAD-BEARING, not an optimization. The pipeline's whole failure policy
+      # is written in terms of "what is currently published": a slot with no
+      # GONG file reuses a previously published frame, a failed stage rolls back
+      # to the served copy, and fewer than MIN_FRAMES_TO_PUBLISH freshly traced
+      # frames means "don't publish pfss/ -- the previous frames keep being
+      # served". All of that reads ctx.out, which on a fresh runner checkout is
+      # an EMPTY dist-data. So none of it could ever fire in CI, and worse:
+      # publish_gh_pages.sh rsyncs with --delete, so a run that produced no
+      # pfss/ actively DELETED the published field lines instead of leaving
+      # them alone. That is what happened on 2026-08-23 -- one GONG outage took
+      # the headline product off the live site.
+      #
+      # Seeding dist-data with the published tree makes CI match local dev
+      # (where --out public/data accumulates across runs) and makes the failure
+      # policy real rather than aspirational.
+      - name: Seed dist-data from the currently published tree
+        run: |
+          git fetch --depth=1 origin gh-pages 2>/dev/null             || echo "no gh-pages yet -- first run, nothing to seed"
+          if git rev-parse --verify -q origin/gh-pages >/dev/null; then
+            rm -rf .ghp-seed && mkdir -p .ghp-seed
+            git --work-tree=.ghp-seed checkout origin/gh-pages -- data || true
+            # `checkout -- <path>` also stages into THIS repo's index; undo it
+            # so nothing downstream sees a dirty tree.
+            git reset -q
+            if [ -d .ghp-seed/data ]; then
+              mkdir -p dist-data && cp -a .ghp-seed/data/. dist-data/
+              echo "seeded $(find dist-data -type f | wc -l) file(s) from gh-pages"
+            else
+              echo "gh-pages has no data/ subtree yet"
+            fi
+            rm -rf .ghp-seed
+          fi
+
       - name: Build data products
         # Inputs reach the shell as ENVIRONMENT VARIABLES, never spliced into
         # the script text. ${{ }} is substituted before bash parses the line,

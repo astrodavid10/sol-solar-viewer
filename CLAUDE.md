@@ -243,6 +243,31 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     spots), so a spot COUNT must be summed from `nSpotsRaw`, not `numSpots` —
     the validator asserts `spot_count >= spotted_region_count` to catch it.
 
+31. **CI must seed `dist-data` from the published tree, or `rsync --delete`
+    eats the live product.** Every clause of the pipeline's failure policy is
+    written against `ctx.out` = "what is currently published": reuse a previous
+    frame for an unresolved slot, roll a failed stage back to the served copy,
+    and — the big one — `run_pfss` refusing to publish when fewer than
+    `MIN_FRAMES_TO_PUBLISH` frames traced, on the stated grounds that "previous
+    frames keep being served". On a runner, `--out dist-data` starts EMPTY, so
+    none of that could fire; and `publish_gh_pages.sh` rsyncs **with
+    `--delete`**, so a run that produced no `pfss/` did not leave the published
+    frames alone — it deleted them. Measured 2026-08-23: one GONG outage
+    (0/19 slots) removed `data/pfss/` from gh-pages entirely, leaving the app's
+    headline product 404 while every check reported success. `data.yml` now
+    checks out `origin/gh-pages -- data` into `dist-data` before the build, so
+    CI matches local dev (where `--out public/data` accumulates) and the policy
+    is real. Note `git --work-tree=X checkout ref -- path` also stages into the
+    CURRENT repo's index; the step runs `git reset` afterwards.
+32. **`_scrape_gong` used to swallow every exception into `return []`**, so a
+    blocked runner, a TLS failure and a genuinely empty day directory all
+    reached the log as `GONG listing <date>: 0 file(s)`. It now prints the
+    exception (and, when a fetch succeeds but nothing matches, the byte count,
+    the link count and the regex) — because the alternative is diagnosing an
+    upstream outage that is actually a client-side block. Keep any new
+    swallow-and-continue path equally loud: this pipeline's whole design is
+    "degrade quietly for the guest, never quietly for the operator".
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).

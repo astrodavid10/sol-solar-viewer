@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import re
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
@@ -54,12 +55,27 @@ def _gong_dir_url(dt: datetime) -> str:
 
 def _scrape_gong(dir_url: str, timeout: float = 20.0
                  ) -> List[Tuple[datetime, str]]:
-    """Return [(file_datetime_utc, url)] sorted by time; [] on any failure."""
+    """Return [(file_datetime_utc, url)] sorted by time; [] on any failure.
+
+    A FAILURE IS PRINTED, not swallowed.  This used to be a bare
+    ``except Exception: return []``, so a runner being blocked, a TLS failure
+    and a genuinely empty day directory all reached the log as the same line --
+    ``GONG listing 2026-08-23: 0 file(s)``.  On 2026-08-23 that cost a whole
+    diagnosis cycle: CI reported 0/19 slots resolved while the identical request
+    from a laptop answered 200 in 0.35 s, and the log could not say why.
+    Whatever the reason turns out to be, it should be READABLE from one run.
+    """
     try:
         req = urllib.request.Request(dir_url, headers=HEADERS)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             html = resp.read().decode("utf-8", errors="replace")
-    except Exception:
+    except urllib.error.HTTPError as exc:
+        print("  WARN GONG {0}: HTTP {1} {2}".format(
+            dir_url, exc.code, exc.reason))
+        return []
+    except Exception as exc:                                   # noqa: BLE001
+        print("  WARN GONG {0}: {1}: {2}".format(
+            dir_url, type(exc).__name__, exc))
         return []
     parser = _HrefParser()
     parser.feed(html)
@@ -78,6 +94,13 @@ def _scrape_gong(dir_url: str, timeout: float = 20.0
         full = href if href.startswith("http") else dir_url + fname
         out.append((file_dt, full))
     out.sort(key=lambda x: x[0])
+    if not out:
+        # Fetched fine, but nothing matched. Either a genuinely empty day or
+        # GONG changed its filename convention -- say which by showing what was
+        # actually in the listing.
+        print("  WARN GONG {0}: fetched {1} byte(s), {2} link(s), 0 matched "
+              "{3}".format(dir_url, len(html), len(parser.hrefs),
+                           _FITS_RE.pattern))
     return out
 
 

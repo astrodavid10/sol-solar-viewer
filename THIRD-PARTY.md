@@ -33,10 +33,16 @@ no licence URL (nameID 14)**. Highway Gothic derives from the US FHWA Standard
 Alphabets, which are themselves a US government work, but that says nothing
 about the terms of this particular digitisation.
 
-This file is redistributed here and served from the published site. Before this
-repository is relied on by anyone else, either confirm the terms with the
-digitiser or replace it — [Overpass](https://overpassfont.org/) is an open
-FHWA-derived face under the SIL Open Font License and is a drop-in candidate.
+**This is not specific to Sol.** The file here is byte-identical
+(SHA-256 `7b98172d…`) to the one in `exo-sonification`, and the same font ships
+in at least seven projects in this family — including `minids`, which is already
+published publicly under MIT. Sol therefore introduces no exposure that does not
+already exist, and the question of terms is an organisation-wide one to settle
+once rather than a Sol blocker.
+
+If it is ever settled the other way, [Overpass](https://overpassfont.org/) is an
+open FHWA-derived face under the SIL Open Font License and is a drop-in
+replacement.
 
 ## WorldWide Telescope engine
 
@@ -62,6 +68,7 @@ public, US-government or publicly-funded scientific products:
 ## Institutional mark
 
 `src/assets/ip-ussrc.png` is the mark of the INTUITIVE Planetarium at the U.S.
-Space & Rocket Center, used as a credit. It is not covered by this
-repository's MIT grant, and its presence does not imply the institution
-endorses this software.
+Space & Rocket Center, used as a credit. Its use here is authorised by the
+planetarium's director, who is the author of this proof of concept. The mark
+itself is not covered by this repository's MIT grant — the MIT terms apply to
+the software, not to the institution's trademark.

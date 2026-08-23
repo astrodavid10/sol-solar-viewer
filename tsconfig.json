@@ -14,6 +14,11 @@
     "sourceMap": true,
     "baseUrl": ".",
     "outDir": "dist",
+    // "composite" implies "incremental", whose build-info file defaults to
+    // <outDir>/tsconfig.tsbuildinfo -- i.e. straight into dist/, which is the
+    // directory published to gh-pages. Redirect it into the cache so a compiler
+    // scratch file does not end up served as part of the site.
+    "tsBuildInfoFile": "node_modules/.cache/sol-tsconfig.tsbuildinfo",
     "paths": {
       "@/*": [
         "src/*"

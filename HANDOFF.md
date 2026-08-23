@@ -3,21 +3,23 @@
 **Living document.** Update it at the end of any session that changes project state. It exists
 so a fresh session (human or Claude) can pick the work up without re-deriving context.
 
-- **Last updated:** 2026-08-23 (second session that day)
+- **Last updated:** 2026-08-23 (third session that day)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
   enabled on `gh-pages` / root, and the deployed data tree passes
   `validate --url … --strict` at 0 failed / 0 warnings.
 - **Repo:** `github.com/astrodavid10/sol-solar-viewer`. Actions ENABLED, `gh-pages` carries
   the app at the root and all six data products under `data/`.
-- **Branch:** work is on `feature/unified-sphere-view`, which is well ahead of `main` and
-  carries the single-sphere consolidation (the "Sun Now" disk view was deleted in `a270e5a`).
-  **`main` is stale — do not read it for current state.**
+- **Branch:** `main`. The old note here said work was on `feature/unified-sphere-view` and
+  that main was stale; that branch was **merged in `eeccf06`** and `main` has been ahead ever
+  since. Work on `main`.
 - **Status summary:** feature-complete against the v1 plan, building clean. The remaining
   headline risk is unchanged and is the reason nothing else should be built on top:
   **almost none of the 3D work has been seen in a browser** — see §4.
-- **Current plan:** a four-workstream plan was approved this session — per-frame textures,
-  the §8 design overhaul, public launch, and a set of small corrections. Workstream 4 and the
-  pre-publication half of workstream 3 are DONE (see §3); the rest is not started.
+- **Current plan:** a six-workstream plan was approved in the third session — the pipeline
+  half of time-aligned imagery (**DONE**, §3z), the design system (**partly done**, §3z),
+  responsive overlays, label/render performance, gestures (pinch + twist), and the app half of
+  time-aligned imagery. The plan file lives outside the repo at
+  `~/.claude/plans/review-the-claude-md-and-hidden-rabin.md`.
 
 ### Read these first, in this order
 
@@ -66,25 +68,23 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 
 ## 2. Milestone status
 
-Legend: **DONE** = implemented, builds, passes its own checks · **UNVERIFIED** = same, but
-never seen running · **PARTIAL** · **NOT STARTED**
+Legend: **VERIFIED** = seen working in a browser · **DONE** = implemented, builds, passes its
+own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ### Web track
 
 | ID | Scope | Status |
 |---|---|---|
 | M-W0 | Bootstrap from exo-sonification skeleton | **DONE** |
-| M-W1 | Shell + "Sun Now" disk viewer | **DONE** |
-| M-W2 | Live SWPC stats | **DONE** |
-| M-W3 | WWT 3D boots (`wwt/sunStage.ts`) | **UNVERIFIED** |
-| M-W4 | three.js stage on WWT's canvas (vendored `three-wwt`) | **UNVERIFIED** |
-| M-W5 | PFSS field lines + 72 h scrubber | **UNVERIFIED** |
-| M-W6 | Spacecraft (PSP, SolO, STEREO-A) trails + labels | **UNVERIFIED** |
-| M-W7 | Kiosk mode + polish | **UNVERIFIED** |
-| M-W8 | App consumes `events.json` (flare/CME marks, event card) | **UNVERIFIED** (2026-08-23) |
-
-M-W1/M-W2 are marked DONE rather than UNVERIFIED because the disk view and stats work with
-no WWT at all and the user has been exercising them.
+| M-W1 | Shell + "Sun Now" disk viewer | **REMOVED** — the disk view was deleted in `a270e5a`; one unified sphere view now |
+| M-W2 | Live SWPC stats | **VERIFIED** |
+| M-W3 | WWT 3D boots (`wwt/sunStage.ts`) | **VERIFIED** (2026-08-23) |
+| M-W4 | three.js stage on WWT's canvas (vendored `three-wwt`) | **VERIFIED** — no winding warning, no console errors |
+| M-W5 | PFSS field lines + 72 h scrubber | **VERIFIED** — renders and morphs; scrub interaction not stress-tested |
+| M-W6 | Spacecraft trails + labels | **DONE** — layer now defaults OFF, so it renders only when switched on; not exercised |
+| M-W7 | Kiosk mode + polish | **DONE** — never run with `?kiosk=1` |
+| M-W8 | App consumes `events.json` (flare/CME marks, event card) | **VERIFIED** — marks render on the scrubber track |
+| M-W10 | Mobile layout pass (title pill, button stack, stat grid, label de-collision) | **VERIFIED** (2026-08-23) |
 
 ### Pipeline track
 
@@ -96,74 +96,266 @@ no WWT at all and the user has been exercising them.
 | M-P4 | Binary export + validator | **DONE** |
 | M-P5 | Ephemeris + regions + stats | **DONE** |
 | M-P6 | Outage drills (GONG, SRS, DONKI) | **DONE** |
-| M-P7 | CI end-to-end | **PARTIAL** — `data.yml -f dry_run=true` passed first try on 2026-08-23 (build + validate + artifact green, publish correctly skipped). Publish path still unexercised. |
+| M-P7 | CI end-to-end | **PARTIAL — and the partial half is the important half.** The publish path is now exercised and green, and the deployed tree validates. But **GONG is unreachable from GitHub runners**, so the scheduled pipeline has never once built field lines (§3a). Everything except `pfss` builds in CI. |
 | M-P8 | DONKI source + events product | **DONE** (2026-08-23) |
 | M-P9 | Events validator + outage drill | **DONE** (2026-08-23) |
+| M-P10 | Per-UT-day sunspot history in `ar/regions.json` (`sol.ar/2`) | **VERIFIED** (2026-08-23) — live and feeding the chip |
+| M-P11 | Time-aligned per-slot sphere textures (`sol.texture/3`) | **DONE** (2026-08-23) — 80 of 95 frames built and validating; the other 15 are a real SDO archive gap (§3z) |
+| M-P12 | Per-UT-day region POSITIONS in `ar/regions.json` (`sol.ar/3`) | **DONE** (2026-08-23) — validates; app half is WS5 |
+| M-P13 | GONG relay seam + Cloudflare Worker + docs | **PARTIAL** — code and worker are in and tested; the deploy needs an account holder (§3z) |
 
 ### Phase 2
 
 | ID | Scope | Status |
 |---|---|---|
-| P2.1 | Live AIA texture on the 3D sphere | **DONE**, extended to 3 channels |
+| P2.1 | Live AIA texture on the 3D sphere | **VERIFIED**, extended to **5 channels** at 4096x2048 |
 | P2.2 | PUNCH + Proba-3 markers | **PARTIAL** — `ephem/spacecraft.json` ships the `at_earth` metadata; the app does not render them |
-| P2.3 | LMSAL PFSS fallback (`?pfss=lmsal`) | **NOT STARTED** |
-| P2.4a | Flare markers on the disk view | **NOT STARTED** |
-| P2.4b | Web Share API | **NOT STARTED** |
+| P2.3 | LMSAL PFSS fallback (`?pfss=lmsal`) | **NOT STARTED** — worth reconsidering now that GONG is unreachable from CI |
+| P2.4a | Flare markers on the disk view | **OBSOLETE** — no disk view |
+| P2.4b | Web Share API | **VERIFIED** — in the top-right button stack |
 | P2.4c | "What changed since the show" card | **NOT STARTED** |
-| P2.4d | `prefers-reduced-motion` | **PARTIAL** — referenced in one file, not applied systematically |
+| P2.4d | `prefers-reduced-motion` | **PARTIAL** — one file only, not applied systematically |
 | P2.4e | Audio narration | **NOT STARTED** |
+| — | Per-frame sphere textures | **PIPELINE DONE, APP NOT STARTED** — the data is published and validating; `sunSurface.ts` still loads one texture per channel (§3z) |
 | — | Flare/CME 3D eruption (see §6) | **NOT STARTED** — feasibility study done |
 
-### Integration (M-INT) — all NOT STARTED
+### Integration (M-INT)
 
-Deployed-site load, real-phone QR test, Lighthouse mobile, field-line orientation
-cross-check against GSFC's own PFSS overlay, overnight kiosk soak.
+| Scope | Status |
+|---|---|
+| Deployed-site load | **DONE** — live, validates 0/0 |
+| Real-phone QR test | **NOT STARTED** — the main remaining verification gap (§4) |
+| Lighthouse mobile | **NOT STARTED** |
+| Field-line orientation cross-check vs GSFC's own PFSS overlay | **NOT STARTED** |
+| Overnight kiosk soak | **NOT STARTED** |
 
 ---
 
-## 3a. What changed on 2026-08-23 (SECOND session — most recent)
+## 3z. What changed on 2026-08-23 (THIRD session — most recent)
+
+A six-workstream plan was approved covering everything the user named: the off-brand palette,
+overlays that clip each other, the credit lockup, unreliable pinch zoom plus twist-to-rotate,
+time-aligned SDO imagery, and low label framerate while dragging. **The pipeline half of the
+headline item is done and published; the design system is partly done.** Everything below
+builds clean and `validate --root public/data --strict` reports **0 failed, 0 warnings** over
+1,796 checks.
+
+### The headline item is unblocked: SDO serves a date-addressed archive
+
+Probed live rather than assumed. `https://sdo.gsfc.nasa.gov/assets/img/browse/YYYY/MM/DD/`
+holds **11,026 files per UT day** — every channel at 256/512/1024/2048/3072/4096, AIA at
+288 frames/day (5 min) and HMI at up to 96 (15 min), going back **at least a year**. The
+filenames carry irregular seconds, so URLs cannot be constructed; the day listing has to be
+scraped and nearest-matched. Listing is 1.64 MB in 0.93 s.
+
+Crucially these are the **same renderings** as the `latest_*` stills the pipeline already used,
+so per-slot textures keep color-table parity with the dome show for free. And the pipeline was
+most of the way there already: `browse_candidates` already iterated day directories and parsed
+obstime per filename, and everything geometric already derived from `src.obstime` rather than
+`now` — so a per-timestamp fetch needed **zero maths changes downstream**. No JSOC/Fido path
+was needed.
+
+**What shipped (`sol.texture/3`):**
+
+- `fetch_source_at(target, ...)` picks the frame nearest a slot's target time, walking outward
+  past unusable frames. It never falls back to `latest_*.jpg` — substituting today's Sun for a
+  three-day-old one is the exact dishonesty this feature exists to remove.
+- Frames are keyed on the PFSS timeline's own `slot_targets`, at 2048x1024, named for the
+  **target time** (`sdo0171_carr_2048x1024_20260820T1600Z.jpg`) rather than a frame index.
+  → **footgun 36**: indices shift every run, so an index-keyed name would make all 95 files
+  look new every four hours and re-reproject the whole window forever.
+- The newest slot stays the 4096x2048 map and deliberately carries the **freshest available**
+  image rather than one snapped to the grid — that slot is what "the Sun right now" means.
+- Each layer gained a `frames[]` array; the top-level fields still describe the first channel's
+  newest frame, so a schema-2 reader stays correct (footgun 22's discipline).
+- A day-listing cache means all five channels and all 19 slots come out of the same document:
+  4 HTTP GETs per run instead of 20.
+- `TEX_HIST_TOLERANCE_HOURS` is **half the slot spacing**, derived not typed. Inside it the
+  chosen frame is unambiguously closest to that slot; outside it some other slot is closer, so
+  filling it would show a guest the same picture at two playhead positions.
+- `TEX_HIST_MAX_NEW_PER_RUN = 15` bounds the CI job at ~8 s per new frame; `--max-new-textures`
+  overrides it so a workstation can fill the window in one pass (measured 623 s).
+- Orphan pruning for texture files, which only existed for `pfss/f*.bin` before — visible
+  beforehand as 443 KB of unreferenced schema-1 maps.
+
+**Measured result:** 16 frames per channel, 10.85 MB of history, `public/data` 5.3 MB → **16.79
+MB**, `texture.json` 4.9 KB → 37 KB. Zero extra bytes for a guest who never scrubs.
+
+**A real upstream gap, correctly handled.** The SDO browse archive for **2026-08-21 stops at
+12:42 UT in every channel at every resolution** — verified directly against the listings, not
+inferred. Three slots x five channels are therefore unobtainable for this window, and they are
+**omitted from the manifest** with a per-slot log line rather than filled with the wrong hour.
+The app must fall back to the nearest frame it has. The run log now separates "unavailable
+upstream" from "deferred by the cap": the first will not fix itself and the second will, and
+reporting them as one number tells an operator to wait for something that is not coming.
+
+### Regions can follow the playhead too (`sol.ar/3`)
+
+`ar/regions.json` carried per-day COUNTS but today-only positions, so surface markers pinned
+today's spots onto three-day-old imagery. The upstream data was **already being downloaded**:
+`sources/srs.py:fetch_regions_json` has parsed per-day `latitude` and `carrington_longitude`
+all along (228 records over 31 days, memoized) and `daily_history` simply discarded them.
+
+Each history day now carries its own `regions` array, normalized by one shared
+`_region_entry()` so the top-level list and the per-day lists can never drift apart. History
+entries deliberately carry **no `seed_count`** — the frozen seed set describes today's trace,
+and a number there would imply field lines that were never traced. 1.6 KB → 7 KB.
+
+Physically convenient: in the Carrington frame a region barely moves (measured, `carr_lon` for
+AR 4514 goes 172 → 173 → 174 over three days), which is the point of a co-rotating frame. What
+actually changes across the window is **which** regions exist and how many spots each has.
+
+### GONG: no upstream mirror exists, so the fix is a relay
+
+Researched exhaustively, and the conclusion is that footgun 33 was right rather than incomplete.
+**Every host that serves the mrzqs product resolves to the same blocked address, 146.5.21.69** —
+`gong.nso.edu`, `nispdata`, `magmap`, `solis`, and anonymous FTP (which returns a
+sha256-identical file). sunpy's VSO `GONGClient` is provably a wrapper around that same host.
+JSOC carries **zero** GONG series. Helioviewer has GONG H-alpha, a different physical
+observable. NOAA NCEI's archive is not publicly downloadable. fly.io's free tier is gone.
+
+So the seam is built and tested, and only the deploy is outstanding:
+
+- `SOL_GONG_PROXY_BASE` / `SOL_GONG_PROXY_TOKEN` env vars, wired into `data.yml`'s probe and
+  build steps as repository secrets. Unset, behavior is exactly as today.
+- `sources/gong.py:_relay()` rewrites URLs **at request time only** → **footgun 37**. Cache
+  keys, manifests and logs stay canonical, because `gong_file_key` derives the traced-frame
+  cache key from the URL (a relay change would otherwise invalidate every cached frame) and
+  because crediting our own proxy for NSO's data would be wrong.
+- `scripts/gong-proxy-worker.js` + `wrangler.toml` — a Cloudflare Worker that requires the
+  shared secret and forwards **only** the two URL shapes the pipeline asks for, so it cannot be
+  used to mirror the rest of NSO. Path guards unit-tested against the real URLs and three
+  hostile ones. Edge-cached: 10 min for listings, 1 day for the immutable FITS.
+- `probe-sources` now prints whether a relay is configured and whether the token is set, so a
+  green probe says WHICH path worked.
+- `docs/GONG-RELAY.md` — the deploy steps, and the full ruled-out table so nobody re-derives it.
+
+**Remaining human step:** `wrangler deploy` + two repository secrets. Nothing else blocks it.
+
+### Design system, partly landed
+
+- **`--sol-accent-rgb`.** The gold triplet was retyped as a literal at 19 sites across 7 files,
+  and `common.less` held a **dead copy** that poisoned exactly that find/replace. One token now;
+  all 19 sites route through it, and the dead block is gone.
+- **The chrome is cool.** `--sol-panel-border` was gold, painting every rail panel in the same
+  hue as closed field loops — the chrome competing with the Sun instead of framing it. Now a
+  cool neutral at 22%, which takes gold off every panel with one line. Spaceberry surfaces,
+  Light Speed White text, Spaceship Gray dim text, plus `--sol-ember` and `--sol-violet` as
+  lifted Cosmaroon/Spacebubble (both are too dark at their kit values to work on a dark ground).
+  Four hardcoded `rgba(8, 6, 2, a)` olive-brown plates cooled to the same hue as the tokens.
+  **In-scene physics colors are untouched** — closed loops, open field, wind and glow are the
+  dome show's legend, and a guest may see the dome an hour before the phone.
+- **The credit lockup**, as asked. The WWT emblem was a bare unlinked 64x64 `<img>` whose
+  `max-width: 6rem` was **never binding** (96 px against a 64 px intrinsic), so it rendered
+  full size — which is what made it look big. It and a vendored CosmicDS mark are now two
+  22 px `.im-attr` rows ("Interactive developed using the CosmicDS toolkit" / "Powered by
+  WorldWide Telescope"), both linked, below the IP+USSRC lockup — which stays a single paired
+  image because the brand kit requires it. The duplicate text credit was removed.
+  `src/assets/logo_cosmicds.png` is the spiral device only: the wordmark half is dark navy and
+  would be illegible on these panels, and the caption names CosmicDS anyway. Recorded in
+  `THIRD-PARTY.md`.
+- **`.fade-*` transitions were broken app-wide.** `common.less` used `.fade-enter`, which is
+  **Vue 2** naming; Vue 3 wants `.fade-enter-from`. Every `<transition name="fade">` faded out
+  correctly and snapped in with no transition at all. Four sites.
+- **`KioskStatsPanel.vue`** read *"Exoplanet Sonification Kiosk — Usage Stats"* with the donor
+  project's entire blue palette and zero `--sol-*` usage, on a public site at `?kioskStats=1`.
+  Retitled and rethemed.
+- Dead donor CSS swept (`#modal-loading` — an un-tokenized duplicate of `.sol-spinner` and the
+  second home of the gold literal — `.bottom-sheet`, `.pointer`, `.control-icon`, `.scrollable`,
+  `.pointer-events`, `--default-font-size`/`-line-height`, and the off-palette link color
+  `#aec2fd`, which was the only link color in the app). Added `.sol-num` (tabular figures, so
+  live numbers stop jittering as they refresh) and `.sol-section-head` (the kit's own
+  letterspaced-caps-over-a-rule convention). Favicon moved onto a Spaceberry ground — the disk
+  keeps its solar gold, because that is the Sun.
+
+### One process footgun learned the hard way
+
+**footgun 35: one pipeline run per `--out` at a time.** `Staging` is a FIXED `<out>/.staging`
+path and `reset()` `rmtree`s it. A `regions` run wiped 14 of 18 staged texture files out from
+under a running `texture` run, which then promoted the survivors and wrote a `texture.json`
+naming 15 history frames of which 4 existed. Nothing raised; exit code 0.
+
+### Still not done from the approved plan
+
+WS2 responsive overlays (E1-E7 in the plan file: the scrubber painting over the card, the
+popover's hardcoded button count and missing height cap, `.sv-unobserved` colliding with both
+the button stack and the title pill, the 320 px stat-grid overflow, and the three canvas
+outranking the whole UI on WebGL1 devices) · WS3 label/render performance · WS4 gestures ·
+WS5 the app half of time-aligned imagery · the dismissible back-side tip · `preview.jpg`.
+
+---
+
+## 3a. What changed on 2026-08-23 (second session)
 
 A four-workstream plan was approved: (1) time-aligned per-frame sphere textures, (2) the §8
-design overhaul, (3) commit/merge/publish publicly, (4) a set of small corrections. **Only
-workstream 4 and the pre-publication half of 3 are done.** Workstreams 1 and 2 are not
-started.
+design overhaul, (3) commit/merge/publish publicly, (4) a set of small corrections.
+**Workstreams 3 and 4 are DONE. Workstream 2 is partly done (tokens/chrome landed as part of
+the mobile layout pass; §8.7 has the detail). Workstream 1 has not been started** — it is now
+the largest remaining item, see §5.
 
-**Sunspot count now follows the scrubber.** The chip was labelled "Sunspots" but showed the
-active-region count, and it always showed *today's* while everything beside it scrubbed
-through 72 h. It now shows the real spot total for the day under the playhead, from a new
-per-UT-day `history` array in `ar/regions.json` (schema `sol.ar/2`). No new request and no new
-file — the app already fetched that product. NOAA issues the SRS once a day, so the number
-**steps at UT midnight rather than sliding**; the chip names the date so that cadence is
-visible instead of implied, and the freshness dot is suppressed for a scrubbed day.
+**THE SITE IS LIVE.** https://astrodavid10.github.io/sol-solar-viewer/ — repo made public,
+Pages enabled on `gh-pages` / root. The deployed data tree passes
+`validate --url … --strict` at 0 failed / 0 warnings. → **footgun 34** (a forced orphan push
+can wedge the Pages build; kick it with `POST /pages/builds`).
 
-**`frameTimes` is now shared state** (`useAppState`), with a `sceneUnix` computed beside it.
-It was private to `SolarView3D`, which is why nothing outside the 3D view could follow the
-scrubber: `frameT` alone is a fractional index and cannot be turned into a wall-clock time.
-SolarView3D remains the only writer and its own `sceneUnix()` now reads that one definition.
+**THE 3D VIEW IS CONFIRMED WORKING IN A BROWSER** — the project's headline risk since M-W3,
+now closed. No `assertWinding()` warning, `assertTextureFacing` OK at 7.3°, zero console
+errors. §4 has exactly what was and was not proven, and the iframe-harness technique, which
+is worth reusing.
 
-**→ footgun 30: NOAA's two SRS products are not the same series.** Building the history
-"srs.txt for today, solar_regions.json for older days" reported the Sun losing half its spots
-overnight (34 → 19). Two independent causes: srs.txt's `:Issued:` date describes the PREVIOUS
-UT day, and `parse_srs` reads Section I only so it never sees the spotless plage regions
-(measured 2026-08-22: 4 regions vs 7, the former a strict subset). `daily_history` now uses
-one source for every day; `run_regions` prints the disagreement rather than hiding it.
+**Mobile layout pass (M-W10)** — driven by the user reporting alignment problems, then
+measured rather than eyeballed:
+
+- **Stat chips clipped their own text at 390 px**, the most common phone width. `.ss-grid`
+  jumped to four columns at a `min-width: 381px` breakpoint, giving 87 px tracks that
+  truncated four separate strings. Now `repeat(auto-fit, minmax(150px, 1fr))`: content-driven,
+  cannot clip, no breakpoint to get wrong.
+- **All three surface labels overlapped each other at every viewport tested.** AR 4513,
+  AR 4515 and the sub-Earth marker sit ~12 px apart on screen with 44 px-tall chips. New
+  `src/three/labelLayout.ts` de-collides them (46 px stride, horizontal independence,
+  re-centred on the run's own mean); a moved chip draws a **leader line** back to its true
+  projected point, so the marker stays honest and only the text steps aside. Zero overlaps
+  after.
+- **Title pill + one button stack**, as asked. The banner spent 44 px of a 640 px phone on a
+  wordmark and split four controls across two places. `TopBar.vue` is **deleted**; the title
+  is an overlay in `sol.vue` (so it paints with the entry chunk, before the engine downloads)
+  and recenter/share/info/layers are one vertical stack top-right — four on a phone, two on
+  desktop where the rail already carries info and layers. The wide grid drops four rows to
+  three, so the Sun runs the full window height.
+- **`.solar-view-3d` now has `z-index: 0`.** It had no stacking context, so its descendants
+  competed with siblings in `sol.vue` — the bug that hid the brand mark for a whole session,
+  and the one the title pill would have hit next. Footgun 27 stays: its reasoning is what
+  stops someone deleting the line.
 
 **Defaults changed, per user request.** Field lines start as one electric blue rather than the
-polarity palette; spacecraft start OFF. The two `swhv.oma.be` live-position requests are now
-deferred until the spacecraft layer is switched on.
+polarity palette; spacecraft start OFF, and the two `swhv.oma.be` live-position requests are
+deferred until that layer is switched on.
+
+**Sunspot count now follows the scrubber.** The chip was labelled "Sunspots" but showed the
+active-region count, always for *today*. It now shows the real spot total for the day under
+the playhead, from a new per-UT-day `history` array in `ar/regions.json` (**schema
+`sol.ar/2`**) — no new request, no new file. NOAA issues the SRS once a day, so the number
+**steps at UT midnight rather than sliding**; the chip names the date so the cadence is
+visible, and the freshness dot is suppressed for a scrubbed day.
+→ **footgun 30** (NOAA's two SRS products are different series; mixing them fabricated a
+34 → 19 overnight collapse).
+
+**`frameTimes` and `sceneUnix` are now shared state** in `useAppState`. `frameT` alone is a
+fractional index, so nothing outside the 3D view could turn the playhead into a wall-clock
+time — which is why the sunspot chip could not follow it. SolarView3D remains the only writer.
 
 **American English throughout** — 208 replacements across 44 files, plus three identifiers a
 `` regex could not reach (`_` and camelCase suppress the boundary). Verified safe first: no
 British spelling appears as a key in any published JSON, in any CSS class or `--sol-*` token,
-or in any value that is compared or serialized. `analysis`/`analyst`/`analyses` are identical
-in both dialects and were left alone, as was DONKI's `cmeAnalyses`.
+or in any compared/serialized value. `analysis`/`analyst`/`analyses` are identical in both
+dialects and were left alone, as was DONKI's `cmeAnalyses`.
 
-**Pre-publication hygiene.** Full-history secret scan: clean. No private IPs, personal paths
-or emails in tracked files. Stale "48 h / 13 frames" corrected in fourteen places (SDO's
-*movie* products really are 48 h, so those were left). README described the deleted disk view.
-Footgun 22 was two revisions out of date. The favicon hotlinked
-`worldwidetelescope.org/favicon.ico`. Dead disk-view state (`view`, `channel`, `pfssOverlay`,
-`diskMode`, `diskRes`, `diskSettledAt`) removed — `useDeepLink` was still writing
+**Pre-publication hygiene.** Full-history secret scan clean; no private IPs, paths or emails in
+tracked files. Stale "48 h / 13 frames" corrected in fourteen places (SDO's *movies* really
+are a rolling 48 h, so those were left — that is why it was done by hand). README described
+the deleted disk view. Footgun 22 was two revisions out of date. The favicon hotlinked
+`worldwidetelescope.org`. Dead disk-view state (`view`, `channel`, `pfssOverlay`, `diskMode`,
+`diskRes`, `diskSettledAt`) removed — `useDeepLink` was still writing
 `?view=&wl=&pfss=&movie=&res=` into every shareable URL; those params are still *stripped* on
 write, because a QR printed before the consolidation can carry them.
 
@@ -311,10 +503,34 @@ scheduled `data.yml` publish too — same script.
 
 ## 4. Verification ledger
 
-Being explicit about this, because "it builds" has been doing a lot of work.
+Being explicit about this, because "it builds" did a lot of work here for a long time.
+
+### Proven in a browser (2026-08-23, second session)
+
+**The 3D view works.** This was the project's headline risk from the start and it is now
+closed. Verified against the deployed site and then the dev server, using Chrome automation.
+
+- **Winding (footgun 19) is correct.** `assertWinding()` emitted no warning, and the Sun
+  renders textured, lit and right way round. The determinant reasoning holds in practice.
+- **Surface UV mapping is correct.** `?debug=1` printed
+  `[debug] surface sub-Earth check OK: sub-Earth lon 78.5° is 7.3° from Earth`, inside the
+  < 8° the check allows (|B0| ≤ 7.25°). A 90° or mirrored mapping could not produce that.
+- **The depth-buffer clear (footgun 18) works** — far-side field lines are hidden by the Sun.
+- **Zero console errors** on load, deployed and local.
+- The Earth-facing home camera, the field-line morph, the scrubber, the event marks, the
+  layer panel, the surface channel switcher and the stats row all render and respond.
 
 ### Proven by measurement
 
+- **Layout, at 360x640 / 390x844 / 1100x760** (real viewports via an iframe harness — see
+  the note at the end of this section):
+  - stat chips: 4 columns at 87 px clipped four separate strings at 390 px; after the
+    `auto-fit` fix, zero clipped text at any size.
+  - surface labels: all three overlapped each other at all three sizes; after
+    `labelLayout.ts`, zero overlaps, spaced at exactly the 46 px stride.
+  - the Sun's apparent diameter is 25-31% of canvas width across all three, which is the
+    framing fitting the whole PFSS domain (source surface 2.5 R_sun ≈ 77% of width), not a
+    bug.
 - SDO browse-image framing across all channels and resolutions (sub-pixel limb fits);
   `HMIBpfss` vs `HMIB` confirmed by red/green composite where GSFC's own AR number labels
   coincide at scale 1.0.
@@ -324,50 +540,80 @@ Being explicit about this, because "it builds" has been doing a lot of work.
 - Events `dir_ecl` — negative-tested (a 10° rotation makes the validator fail).
 - HEEQ→ecliptic conversion cross-checked against an independent solar-longitude route.
 - DONKI IPv6 timeout (21.06 s) vs IPv4 (0.03 s), measured directly.
+- **GONG from CI**: connect timeouts on all 12 day-directory scrapes, four runs running,
+  against HTTP 200 in 0.35 s from a workstation. `gong.nso.edu` and `gong2.nso.edu` share
+  one IP (146.5.21.69), so a hostname mirror cannot help.
 - All pipeline outage drills.
+- The deployed data tree: `validate --url https://astrodavid10.github.io/sol-solar-viewer/data/
+  --strict` → 0 failed, 0 warnings.
 
-### Asserted but NOT seen running
+### Still NOT seen running
 
-Everything visual. In particular:
+- **A real phone.** Everything above was a desktop browser at phone-sized viewports, which
+  tests layout and media queries but NOT: device pixel ratio > 1 (footgun 16's regression
+  signature is an overlay offset into the bottom-left quadrant, which only appears on DPR > 1),
+  touch gestures, GPU memory limits, or cellular load time.
+- **Kiosk mode, the attract loop and the QR flow** (`?kiosk=1`).
+- **The reworked solar wind** at various zooms (footgun 20's fix).
+- **Multi-channel texture switching** — the control renders, but switching was not exercised.
+- Lighthouse mobile.
 
-- The winding fix itself. `assertWinding()` will `console.warn` if the constant is wrong —
-  **check the browser console first thing.** If it warns, the Sun renders inside-out.
-- The Earth-facing home camera.
-- The depth-buffer clear (footgun 18) that makes far-side field lines hide behind the Sun.
-- Multi-channel texture switching, the field-color toggle, the reworked solar wind.
-- Kiosk mode, the attract loop, the QR flow.
-- Anything on a real phone.
+### How the browser verification was done — reuse this
 
-**Dev server:** `yarn serve` → `localhost:8080`, or the LAN IP for a phone (`allowedHosts: all`).
+`resize_window` does not change the viewport of a maximized Chrome window, so it cannot test
+breakpoints. What works: navigate to the app's own origin, then replace the document with a
+harness of same-origin iframes at fixed widths —
+
+```js
+document.documentElement.innerHTML = `<body><div style="display:flex;gap:12px">
+  <iframe src="/" width="360" height="640"></iframe>
+  <iframe src="/" width="390" height="844"></iframe>
+  <iframe src="/" width="1100" height="760"></iframe>
+</div></body>`;
+```
+
+Each iframe is a real viewport, so media queries respond correctly, and every breakpoint is
+visible in ONE screenshot. Because they are same-origin, `f.contentDocument` then allows
+measuring overlaps, clipped text (`scrollWidth > clientWidth`) and computed styles
+numerically rather than by eye — which is how all four layout defects were pinned down.
+
+**Dev server:** `yarn serve` → `localhost:8080`, or the LAN IP for a phone (`allowedHosts:
+all`). Note: backgrounding `yarn serve` through a pipe (`| head`) kills it with SIGPIPE —
+redirect to a file instead.
 
 ---
 
 ## 5. Suggested next steps
 
-Ordered by value, with the blocker first.
+Ordered by value. The old blocker ("browser-verify the 3D view") is done; these are what is
+left.
 
-1. **Browser-verify the 3D view.** One session with the dev server open, working through §4's
-   unverified list. Everything else is built on the assumption this works.
-2. **M-W9 — the 3D eruption layer.** M-W8 shipped the marks and cards; the remaining piece
-   is drawing the CME itself (`src/three/cme.ts`). `events.json` already carries `dir_ecl`
-   ready to use. See §6, and **read footgun 25 first** — the CME group must carry no
-   quaternion at all.
-3. **Re-enable Actions, then M-P7 — run CI once.** Actions are off at the repo level; turn
-   them back on under Settings → Actions → General, or:
-
-   ```
-   gh api -X PUT repos/astrodavid10/sol-solar-viewer/actions/permissions -F enabled=true
-   ```
-
-   Then exercise the pipeline without publishing:
-
-   ```
-   gh workflow run data.yml -f dry_run=true
-   ```
-
-   Be aware that enabling Actions also arms `app-deploy.yml` (push to `main`) and the
-   `data.yml` / `keepalive.yml` schedules.
-4. **M-INT** — deploy, then the real-phone and Lighthouse passes.
+1. **Per-frame textures (plan workstream 1) — NOT STARTED, and the largest remaining item.**
+   The sphere carries one Carrington texture (always the newest AIA image) while the field
+   lines morph through 19 frames over 72 h, so scrubbing back three days shows historical
+   field over today's photosphere with the terminator parked at today's sub-Earth longitude.
+   The user chose **2048x1024 history frames for all five channels**, newest frame staying
+   4096x2048: ~15 MB added to the published tree, 0 bytes for a guest who never scrubs.
+   `src/three/sunSurface.ts:726` already anticipates it ("a future per-frame texture sequence
+   gets the sweeping terminator for free"). Ship the pipeline half first and let a couple of
+   runs warm the frame cache before the app half goes live.
+   **Read first:** footgun 22 (channels are not interchangeable), footgun 31 (the CI seeding
+   this depends on), and the GPU budget — 2048x1024 RGBA is 8 MB resident per texture.
+2. **Unblock GONG.** The scheduled pipeline cannot build field lines at all (§3a). Published
+   frames are a workstation build and go stale ~8 h after each hand-publish. A **self-hosted
+   runner** at the planetarium is the only option fully under our control; asking NSO to
+   allow-list GitHub's ranges is the cheapest if it works. A hostname mirror is already
+   disproven.
+3. **A real phone.** The one class of defect the iframe harness cannot see (§4). Load the live
+   URL over cellular, check for the footgun-16 offset signature, and run Lighthouse.
+4. **Design tiers 2-3** (plan workstream 2, partly done — see §8.7). The two highest-value
+   pieces left: fat orbit lines (`Line2`, currently 0.33 CSS px on a DPR-3 phone) and taking
+   gold out of region-label text (1.54:1 on the photosphere). Also: the desktop info panel is
+   a 194 px window onto 1762 px of content at 1100x760 — it scrolls correctly, but the
+   proportion is wrong.
+5. **M-W9 — the 3D eruption layer.** M-W8 shipped the marks and cards; the remaining piece is
+   drawing the CME itself (`src/three/cme.ts`). `events.json` already carries `dir_ecl` ready
+   to use. See §6, and **read footgun 25 first** — the CME group must carry no quaternion.
 
 ---
 
@@ -403,13 +649,78 @@ belongs in `CLAUDE.md`, not here; reference it from §3 by number.
 
 ---
 
-## 8. Design audit — in progress
+## 8. Design audit — PARTLY IMPLEMENTED
 
-**Status: PROPOSAL ONLY. No application source file was modified, and none should be.**
-A visual-design audit + revision proposal was started 2026-08-23 and cut off before the
-deliverable (a design canvas) was built. Everything below is written from the working context so
-a fresh session does not have to re-derive it. The expensive part is §8.1 — recovering it means
-re-reading an 18 MB PDF.
+**Status: §8.1-§8.4 are the audit and remain accurate as a specification. They are no longer
+"proposal only" — some of it has shipped.** Read **§8.0 first**: it says what is done, what is
+not, and which numbers below have been superseded. Everything else in §8 is preserved because
+re-deriving it is expensive (§8.1 means re-reading an 18 MB PDF) and because the contrast
+tables in §8.3 are measured, not estimated.
+
+The original audit was written 2026-08-23 (first session) and cut off before its deliverable
+(a design canvas) was built. The canvas was never built and, given the work has now started
+landing directly in the app and is verifiable in a browser, probably should not be — §8.7.
+
+### 8.0 What has actually SHIPPED — read this before trusting §8.3-§8.5
+
+Second session, 2026-08-23. The user approved implementing **all three tiers**. Tier 0/1 are
+partly done; tiers 2 and 3 are not started.
+
+**Done, and verified in a browser:**
+
+- **The layout half of Tier 1.** Title pill top-centre, one four-button stack top-right,
+  `TopBar.vue` deleted, the wide grid down to three rows, `.solar-view-3d` given its own
+  stacking context. See §3a.
+- **The stat grid** is content-driven (`auto-fit / minmax(150px, 1fr)`) instead of
+  breakpoint-driven — this fixed real text clipping at 390 px, and supersedes §8.3's
+  "StatChip → stat tile" item only in layout, not in styling.
+- **Label de-collision + leader lines** — `src/three/labelLayout.ts`. This is §8.4(c)'s leader
+  line, arrived at from the opposite direction: §8.4 proposed offsetting chips radially so they
+  *prefer the sky*; what shipped nudges them vertically only when they actually collide, and
+  draws the leader then. **The collision case §8.4 did not anticipate** is two active regions
+  near disk centre, which no radial offset separates — measured overlapping at every viewport.
+  If the radial offset is added later, keep the de-collision pass: they solve different halves.
+- **Fonts** — Highway Gothic Narrow (no license record) replaced by **Overpass** (SIL OFL 1.1),
+  and the three orphaned `Roboto*.ttf` deleted. This supersedes §8.3's typography paragraph:
+  the Pirulen / Magistral / Omnes stack is still unlicensed and still aspirational, but the
+  *display* slot is now filled by a properly licensed FHWA-derived face rather than an
+  unlicensed one. `--sol-font-*` tokens do not exist yet.
+
+**NOT done — still exactly as specified:**
+
+- **Tier 0's token set (§8.3).** `sol.less` still carries the OLD palette: `--sol-accent`
+  `#ffc850`, `--sol-surface rgba(20,16,8,.92)`, and `--sol-panel-border` still gold. None of
+  Spaceberry / Spacebubble / ember / violet has landed. The app is still off-brand.
+- **`--sol-accent-rgb`.** Still absent, and still the single highest-leverage fix: the gold
+  triplet `rgba(255, 200, 80, α)` is re-typed at **17 sites across 7 files**
+  (`sol.less`, `common.less`, `LayerPanel.vue:215,286`,
+  `TimeScrubber.vue:389,391,412,413,457,501`, `SolarView3D.vue`, `sol.vue`), so changing the
+  accent today needs a find/replace on the RGB triplet *as well as* the variable — and
+  `common.less` holds a dead copy that will poison exactly that search.
+- **`common.less` cleanup.** Roughly half is still dead donor-project code
+  (`--default-font-size`, `.fade-*`, `#modal-loading` — an un-tokenized duplicate of
+  `.sol-spinner` — `.bottom-sheet`, `.pointer`, `.control-icon`, `.scrollable`), plus the
+  off-palette periwinkle link color `#aec2fd`.
+- **`KioskStatsPanel.vue`** still reads *"Exoplanet Sonification Kiosk — Usage Stats"* and
+  carries an entire unrelated blue palette with zero `--sol-*` usage. It is reachable at
+  `?kioskStats=1` on a now-PUBLIC site.
+- **Tier 2 beyond the leader lines** — the `onDisk` flag from `project.ts` (one gate to drop,
+  §8.4), the `.is-sky` / `.is-disk` adaptive plates, the dual-contrast marker dot, and taking
+  gold out of `RegionLabel`'s text (**still 1.54:1 on the photosphere — the worst contrast in
+  the app**).
+- **Tier 3 entirely.** Orbits are still `LineBasicMaterial`, i.e. one DEVICE pixel — 0.33 CSS
+  px on a DPR-3 phone. `orbitSampleVerticesAU()` in `planets.ts:71` still has zero callers.
+  Read §8.4(e)'s two warnings before starting: `LineMaterial.resolution` must come from
+  `drawingBufferWidth`, and `LineMaterial` needs `FLAT_SIDE` or WWT's reversed winding will
+  cull it exactly as it culled the sun glow.
+- **The design canvas (§8.5).** Not built, and arguably now obsolete: the app is live and
+  every proposal in §8.3/§8.4 can be checked in a real browser at real viewports (§4). Build
+  it only if you want a shareable artifact for review, not as a prerequisite.
+
+**One new finding from the browser session:** at 1100x760 the desktop info panel is a 194 px
+window onto 1762 px of content. It scrolls correctly (footgun 28's `min-height: 0` chain is
+intact) — the proportion is simply wrong. The rail's `1fr auto auto` gives the info panel
+whatever the layer panel and stats leave, which on a short window is very little.
 
 ### 8.1 Brand kit facts — `C:\Users\adavi\Downloads\Planetarium_Brand_Kit_V7.pdf`
 

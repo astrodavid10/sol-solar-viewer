@@ -29,7 +29,8 @@ from typing import List, Optional, Tuple
 import gzip
 import uuid
 
-from ..config import (GONG_BASE, GONG_SCRAPE_TIMEOUT,
+from ..config import (GONG_BASE, GONG_PROXY_BASE, GONG_PROXY_HEADER,
+                      GONG_PROXY_TOKEN, GONG_SCRAPE_TIMEOUT,
                       GONG_TOLERANCE_HOURS, HEADERS)
 from ..io_utils import quiet_unlink
 
@@ -83,6 +84,37 @@ class _HrefParser(HTMLParser):
                     self.hrefs.append(v)
 
 
+def relay_enabled() -> bool:
+    return bool(GONG_PROXY_BASE)
+
+
+def _relay(url: str) -> str:
+    """Rewrite a canonical GONG URL onto the relay, at request time only.
+
+    Deliberately NOT applied where URLs are stored.  ``gong_file_key`` derives
+    the traced-frame cache key from the URL, and the manifest cites it as
+    provenance -- so rewriting at the source would both invalidate every cached
+    frame the moment a relay is added or changed, and credit our proxy for
+    NSO's data.  Canonical in the data model, relayed on the wire.
+    """
+    if not GONG_PROXY_BASE or not url.startswith(GONG_BASE):
+        return url
+    return GONG_PROXY_BASE.rstrip("/") + url[len(GONG_BASE):]
+
+
+def _relay_headers() -> dict:
+    """Request headers, plus the shared secret when a relay is configured.
+
+    The token keeps the relay from being an open proxy that anyone can point at
+    NSO -- which would be a poor way to repay a service that is already
+    rate-limited enough to firewall a cloud provider.
+    """
+    h = dict(HEADERS)
+    if GONG_PROXY_BASE and GONG_PROXY_TOKEN:
+        h[GONG_PROXY_HEADER] = GONG_PROXY_TOKEN
+    return h
+
+
 def _gong_dir_url(dt: datetime) -> str:
     return "{0}/{1}/mrzqs{2}/".format(
         GONG_BASE, dt.strftime("%Y%m"), dt.strftime("%y%m%d"))
@@ -104,7 +136,8 @@ def _scrape_gong(dir_url: str, timeout: float = GONG_SCRAPE_TIMEOUT
     if _breaker_open():
         return []
     try:
-        req = urllib.request.Request(dir_url, headers=HEADERS)
+        req = urllib.request.Request(_relay(dir_url),
+                                    headers=_relay_headers())
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             html = resp.read().decode("utf-8", errors="replace")
         _consecutive_timeouts = 0
@@ -217,7 +250,8 @@ def gong_download(url: str, cache_dir: Path) -> Optional[Path]:
     tmp_gz = cache_dir / "{0}.{1}.part".format(fname, uniq)
     tmp_fits = cache_dir / "{0}.{1}.part".format(fits_path.name, uniq)
     try:
-        req = urllib.request.Request(url, headers=HEADERS)
+        req = urllib.request.Request(_relay(url),
+                                    headers=_relay_headers())
         with urllib.request.urlopen(req, timeout=60) as resp:
             tmp_gz.write_bytes(resp.read())
     except Exception as exc:

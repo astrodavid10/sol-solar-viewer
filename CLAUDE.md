@@ -158,11 +158,17 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     The two drag signs (`AZIMUTH_SIGN` +1, `ELEVATION_SIGN` -1) were settled at the screen and
     cannot be derived from the engine's own `lng -= x` / `lat += y` — different axis, and the
     elevation axis `cross(solar_axis, u)` flips with which side of the Sun you are on.
-27. **`.solar-view-3d` is `position: relative` with `z-index: auto`, so it creates NO stacking
-    context** — its descendants (scrubber at z-index 5, card slot at 20) compete directly with
-    any SIBLING overlay in `sol.vue`. The branding mark sat invisible at z-index 3 for a whole
-    session because of this. Anything placed over the 3D view from outside it must clear the
-    z-indices used INSIDE it, or the 3D view needs its own stacking context.
+27. **`.solar-view-3d` carries `z-index: 0` for one reason: to create a stacking context.**
+    It used to be `position: relative` with `z-index: auto`, which creates NONE — so its
+    descendants (scrubber at 5, card slot at 20) competed directly with any SIBLING overlay in
+    `sol.vue`, and the branding mark sat invisible at z-index 3 for a whole session. With the
+    context in place a sibling only has to clear **0**, which is why `.sol-title` and
+    `.sol-brand` work at 6. Do not "tidy up" the line: deleting it silently restores the old
+    behavior, and the symptom appears on a different element every time.
+    Note the consequence: `.sol-title`/`.sol-brand` at 6 therefore paint OVER `.sv-cover`
+    (z-index 20 inside the context), i.e. on top of the black loading cover. That is
+    intentional — the title is rendered in `sol.vue` so it paints with the entry chunk, before
+    the engine downloads.
 28. **An internally-scrolling flex panel needs `min-height: 0` on the container, the panel AND
     the grid item.** Miss any one and the content sets a floor on the item's height, the `1fr`
     row stops constraining anything, and the panel silently clips mid-content with no
@@ -180,14 +186,16 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     bytes. `half_width_rsun` is DATA (AIA 1.28, HMI 1.09) because it falls out of plate scale.
     The validator asserts the disk center is black — additive blending would otherwise paint a
     second Sun over the sphere and nothing else would catch it.
-22. **The 3D sphere texture is MULTI-CHANNEL and is not all AIA.** `sol.texture/2`,
+22. **The 3D sphere texture is MULTI-CHANNEL and is not all AIA.** `sol.texture/3`,
     `TEX_CHANNELS` in `pipeline/config.py` — FIVE products, default first:
     0171 "Coronal Loops", 0304 "Chromosphere", 0193 "Hot Corona", HMIIC "Visible
     Sun", HMIB "Magnetic Map". `run_texture` loops them and writes one
     `sdo{CODE}_carrington_4096x2048.jpg` each (265-800 KB, ~2.4 MB total) plus a
-    `layers` array in `texture.json`. The top-level fields still describe the
-    FIRST channel, so a schema-1 reader stays correct. A non-default channel
-    that fails is SKIPPED, not fatal; the default failing still propagates.
+    `layers` array in `texture.json`. Each layer also carries a `frames` array
+    of time-aligned history maps at 2048x1024 (footgun 36). The top-level
+    fields still describe the FIRST channel's NEWEST frame, so a schema-1
+    reader stays correct. A non-default channel that fails is SKIPPED, not
+    fatal; the default failing still propagates.
     A channel is NOT just a wavelength, and three per-channel fields exist
     because getting them wrong ships a dishonest map rather than an error:
     `scale` (AIA 0.6009"/px vs HMI 0.5044" — the disk fills 0.7824 of an AIA
@@ -242,6 +250,10 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     floors `numSpots` at 1 (a region that exists deserves a seed even with no
     spots), so a spot COUNT must be summed from `nSpotsRaw`, not `numSpots` —
     the validator asserts `spot_count >= spotted_region_count` to catch it.
+    `sol.ar/3` gives each history day its own `regions` array (positions, not
+    just counts) so the surface markers can follow the playhead. Those entries
+    deliberately carry NO `seed_count`: the frozen seed set describes TODAY's
+    trace, and a number there would imply field lines that were never traced.
 
 31. **CI must seed `dist-data` from the published tree, or `rsync --delete`
     eats the live product.** Every clause of the pipeline's failure policy is
@@ -298,6 +310,38 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     force-pushes a single orphan commit, so the commit Pages was told to build
     stops existing on the next publish. If the site 404s after a publish, ask
     for a build before believing anything is broken.
+
+35. **One pipeline run per `--out` at a time.** `Staging` is `<out>/.staging`, a FIXED path,
+    and `Staging.reset()` `rmtree`s it at the start of every run. So a second `python -m
+    pipeline <stage>` against the same output root deletes the first one's staged files
+    mid-flight — and the first run then promotes whatever survived and writes a manifest
+    referencing files that no longer exist. Measured 2026-08-23: a `regions` run wiped 14 of
+    18 staged texture files out from under a running `texture` run, which then published a
+    `texture.json` naming 15 history frames of which 4 were on disk. Nothing raised; the
+    exit code was 0. If you want parallelism, give each run its own `--out`.
+36. **History texture frames are keyed on the slot's TARGET TIME, never its index — and the
+    PUBLISHED TREE is the only cache.** `sdo0171_carr_2048x1024_20260820T1600Z.jpg`, not
+    `_f04.jpg`. Indices shift every run (slot 18 becomes slot 17 four hours later), so an
+    index-keyed name would make all 95 files look new every four hours and the stage would
+    re-reproject the entire window forever. With a time-keyed name, "already published" is a
+    filename existence check, and "orphan" is exactly "outside the current window".
+    The reuse depends entirely on footgun 31's seeding: CI reads the previous `texture.json`
+    and the existing JPEGs out of `ctx.out`, which is only populated because `data.yml`
+    checks out `origin/gh-pages -- data` first. `pipeline/.cache` does NOT survive a runner.
+    Measured cost per new frame is ~8 s (fetch + limb fit + 3-plane reproject at 2048x1024),
+    so `TEX_HIST_MAX_NEW_PER_RUN` bounds the CI job; net progress is
+    `cap - len(TEX_CHANNELS)` per run, because one new slot per channel scrolls into the
+    window every 4 h just to stand still. A cap at or below the channel count never
+    converges. Locally, `--max-new-textures 200` fills the whole window in one ~13 min pass.
+37. **The GONG relay rewrites URLs at REQUEST TIME ONLY** (`sources/gong.py:_relay`). Every
+    URL stored in a cache key, a manifest, or a log line stays canonical
+    (`gong2.nso.edu`) — two reasons, and both matter. `gong_file_key` derives the traced-frame
+    cache key from the URL, so rewriting at the source would invalidate every cached frame the
+    moment a relay is added, changed or removed; and the published manifest cites that URL as
+    provenance, where crediting our own proxy for NSO's data would be simply wrong. Do not
+    "simplify" this by setting `GONG_BASE` to the relay. See `docs/GONG-RELAY.md` for why a
+    relay is needed at all and what was ruled out by measurement (every host serving the mrzqs
+    product — including anonymous FTP and sunpy's VSO client — is the same blocked IP).
 
 ## Data sources (verified live 2026-08)
 

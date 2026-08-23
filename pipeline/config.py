@@ -8,6 +8,7 @@ sized so a 19-frame 72 h window lands near 2.2 MB total on the wire.
 
 from __future__ import annotations
 
+import os
 from typing import Dict, Tuple
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -27,9 +28,9 @@ HEADERS = {"User-Agent": USER_AGENT}
 SCHEMA_INDEX = "sol.index/1"
 SCHEMA_PFSS = "sol.pfss/1"
 SCHEMA_EPHEM = "sol.ephem/1"
-SCHEMA_AR = "sol.ar/2"        # /2 adds the per-UT-day `history` array
+SCHEMA_AR = "sol.ar/3"        # /2 adds `history`; /3 adds its positions
 SCHEMA_STATS = "sol.stats/1"
-SCHEMA_TEXTURE = "sol.texture/2"
+SCHEMA_TEXTURE = "sol.texture/3"   # /3 adds per-layer `frames`
 SCHEMA_EVENTS = "sol.events/1"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -102,6 +103,27 @@ MAX_FRAME_BYTES = 200_000        # hard fail; target is 110-160 KB
 # ─────────────────────────────────────────────────────────────────────────────
 
 GONG_BASE = "https://gong2.nso.edu/oQR/zqs"
+
+# ── Optional relay for GONG (footgun 33) ────────────────────────────────────
+# gong2.nso.edu drops connections from GitHub Actions runners entirely: connect
+# TIMEOUTS on every request, every run, while the identical request from a
+# workstation answers in 0.35 s.  Researched 2026-08-23 and there is no free
+# upstream alternative -- every hostname that serves the mrzqs product
+# (gong.nso.edu, nispdata, magmap, and anonymous FTP) resolves to the SAME
+# address, 146.5.21.69, so they share one firewall; sunpy's VSO GONGClient is
+# a wrapper around that same host; JSOC carries no GONG series at all;
+# Helioviewer has GONG H-alpha, a different physical observable; and NCEI's
+# archive is not publicly downloadable.  What is left is relaying the request
+# from a network NSO does not block.
+#
+# This is a REQUEST-TIME rewrite only.  Every URL stored in a cache key, a
+# manifest or a log stays canonical (gong2.nso.edu), because NSO is the actual
+# source and should be cited as such -- and because a relay swap must not
+# invalidate the traced-frame cache.  scripts/gong-proxy-worker.js is a
+# ready-to-deploy relay; see docs/GONG-RELAY.md.
+GONG_PROXY_BASE = os.environ.get("SOL_GONG_PROXY_BASE", "").strip()
+GONG_PROXY_TOKEN = os.environ.get("SOL_GONG_PROXY_TOKEN", "").strip()
+GONG_PROXY_HEADER = "X-Sol-Relay-Token"
 SRS_URL = "https://services.swpc.noaa.gov/text/srs.txt"
 SRS_JSON_URL = "https://services.swpc.noaa.gov/json/solar_regions.json"
 SUNSPOTS_URL = "https://services.swpc.noaa.gov/json/solar-cycle/sunspots.json"
@@ -194,6 +216,42 @@ TEX_CHANNELS = (
 TEX_OUT_W, TEX_OUT_H = 4096, 2048
 TEX_JPEG_QUALITY = 82
 TEX_MAX_BYTES = 1_600_000                 # validator ceiling; ~600 KB at 4096x2048
+
+# ── Time-aligned history frames ─────────────────────────────────────────────
+# The sphere used to carry ONE Carrington map -- always the newest -- while the
+# field lines morphed through 19 frames over 72 h.  Scrubbing back three days
+# therefore showed three-day-old magnetic field over TODAY's photosphere, with
+# the terminator parked at today's sub-earth longitude.  Every slot in the PFSS
+# timeline now gets its own map, so the imagery, the sunspots and the field all
+# describe the same hour.
+#
+# Half the linear resolution of the newest frame: 2048x1024 RGBA is 8 MB
+# resident on the GPU against 32 MB, and the app keeps a small ring of them.
+# Measured ~150 KB/frame, so 18 history slots x 5 channels is ~14-18 MB
+# published -- and ZERO bytes for a guest who never touches the scrubber.
+TEX_HIST_W, TEX_HIST_H = 2048, 1024
+TEX_HIST_MAX_BYTES = 500_000
+
+# A slot must be matched by a browse frame this close or it is left UNFILLED
+# rather than shown the wrong hour.  HALF THE SLOT SPACING is the only
+# defensible value: inside it the chosen frame is unambiguously the closest one
+# to this slot, and outside it some OTHER slot is closer, so filling it would
+# show a guest the same picture at two different playhead positions.
+#
+# It has to be this generous because the archive really does have holes.  AIA
+# publishes every 5 min and HMI every 15 (measured: 288 and up to 96 frames per
+# UT day), but HMIB on 2026-08-21 has 51 frames and stops at 12:30 -- a genuine
+# instrument gap, which correctly leaves that day's 16:00 and 20:00 slots empty
+# for that channel rather than substituting a four-hour-old photosphere.
+TEX_HIST_TOLERANCE_HOURS = FRAME_SPACING_HOURS / 2.0
+
+# Cold-start throttle.  A full 18 x 5 rebuild is several minutes of
+# reprojection and the whole CI job has ~9.  Frames already published are
+# REUSED rather than rebuilt (CI seeds `out` from gh-pages -- footgun 31), so
+# steady state is only the 5 slots that scrolled into the window.  This cap
+# bounds the FIRST run; the window then fills over the next few. Newest missing
+# slots are built first, because recent time is what guests actually scrub.
+TEX_HIST_MAX_NEW_PER_RUN = 15
 TEX_MAX_OBS_AGE_HOURS = 24.0              # older than this -> status degraded
 
 # Source browse JPGs.  2048 px frames are the 4096 native downsampled by 2, so

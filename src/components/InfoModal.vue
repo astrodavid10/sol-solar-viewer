@@ -102,12 +102,6 @@
           <a href="https://gong.nso.edu/" target="_blank" rel="noopener"><strong>GONG / NSO</strong></a>
           — the surface magnetic maps behind our field-line model.
         </li>
-        <li>
-          <a href="https://worldwidetelescope.org/" target="_blank" rel="noopener"><strong>WorldWide Telescope</strong></a>
-          and
-          <a href="https://www.cosmicds.cfa.harvard.edu/" target="_blank" rel="noopener"><strong>CosmicDS</strong></a>
-          — the 3D engine and the data-story framework.
-        </li>
       </ul>
 
       <p class="im-fine">
@@ -116,6 +110,10 @@
 
       <p class="im-fine">Created by A. David Weigel.</p>
 
+      <!-- The institutional lockup goes FIRST and stays one unit: the brand kit
+           requires that the planetarium wordmark never appear without the USSRC
+           logo, which is why these two are a single image and not two. See
+           THIRD-PARTY.md. Below it, the toolkit credits get a row each. -->
       <div class="im-logos">
         <a
           class="im-logo-link"
@@ -130,11 +128,26 @@
             alt="INTUITIVE Planetarium at the U.S. Space &amp; Rocket Center"
           >
         </a>
-        <img
-          class="im-logo im-logo-wwt"
-          src="../assets/logo_wwt.png"
-          alt="WorldWide Telescope"
+
+        <a
+          class="im-attr"
+          href="https://www.cosmicds.cfa.harvard.edu/"
+          target="_blank"
+          rel="noopener"
         >
+          <img class="im-attr-mark" src="../assets/logo_cosmicds.png" alt="CosmicDS">
+          <span>Interactive developed using the CosmicDS toolkit</span>
+        </a>
+
+        <a
+          class="im-attr"
+          href="https://worldwidetelescope.org/"
+          target="_blank"
+          rel="noopener"
+        >
+          <img class="im-attr-mark" src="../assets/logo_wwt.png" alt="WorldWide Telescope">
+          <span>Powered by WorldWide Telescope</span>
+        </a>
       </div>
     </div>
   </component>
@@ -274,9 +287,13 @@ export default defineComponent({
 
 .im-logos {
   display: flex;
+  /* A column now: the institutional lockup on its own line, then one credit
+     row per toolkit. Side by side, a 22px mark next to a 160px lockup reads as
+     a sizing mistake rather than a hierarchy. */
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1.2rem;
+  gap: 0.5rem;
   margin-top: 1.1rem;
   padding-top: 0.9rem;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
@@ -302,7 +319,39 @@ export default defineComponent({
   max-width: 10rem;
 }
 
-.im-logo-wwt {
-  max-width: 6rem;
+/* The two toolkit credits: a small mark and a caption, on one tappable row.
+   The WWT emblem used to sit here alone as a bare 64x64 <img> with no link and
+   a `max-width: 6rem` that was NEVER BINDING (96px against a 64px intrinsic),
+   so it rendered full size -- a chunky square with more visual weight than the
+   institutional lockup above it, and the only mark in the app you could not
+   click. Both marks are now height-constrained to the caption's line, which is
+   what actually makes them small. */
+.im-attr {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  /* 44px keeps each row a real touch target on a phone. */
+  min-height: 44px;
+  color: var(--sol-text-dim);
+  font-size: 0.78rem;
+  line-height: 1.3;
+  text-decoration: none;
+  transition: color 0.16s ease;
+}
+
+.im-attr:hover,
+.im-attr:focus-visible {
+  color: var(--sol-text);
+  text-decoration: none;
+}
+
+.im-attr-mark {
+  flex: 0 0 auto;
+  /* Height, not max-width: these marks have different aspect ratios (the WWT
+     orb is square, the CosmicDS spiral is not), and matching their HEIGHT is
+     what makes them read as one row rather than two sizes. */
+  height: 22px;
+  width: auto;
+  opacity: 0.9;
 }
 </style>

@@ -43,7 +43,8 @@ from .config import (CME_MIN_SPEED_KMS, EVENTS_MAX_BYTES,
                      SCHEMA_EPHEM, SCHEMA_EVENTS, SCHEMA_INDEX, SCHEMA_PFSS,
                      SCHEMA_STATS, SCHEMA_TEXTURE, TEX_MAX_BYTES,
                      TEX_MAX_OBS_AGE_HOURS, TEX_OFFLIMB_MAX_BYTES,
-                     TEX_OUT_H, TEX_OUT_W,
+                     TEX_OUT_H, TEX_OUT_W, TEX_HIST_H, TEX_HIST_W,
+                     TEX_HIST_MAX_BYTES, TEX_HIST_TOLERANCE_HOURS,
                      WINDOW_HOURS)
 from .io_utils import age_hours, http_get, parse_iso_z
 from .pfss.export import (MAX_DEQUANT_ERR, dequantize, frame_bytes_expected,
@@ -363,6 +364,70 @@ def _claims_present(idx: Optional[dict], name: str) -> bool:
     return entry.get("status") in ("ok", "degraded")
 
 
+def _check_day_regions(rep: Report, day: dict) -> None:
+    """One history day's region positions (schema sol.ar/3).
+
+    These drive the surface markers and the shader spots once the sphere
+    texture became time-aligned, so a wrong latitude or Carrington longitude
+    draws a sunspot where there was none -- on top of imagery that shows the
+    real one somewhere else. Nothing would raise; a guest would just see the
+    label miss the spot.
+
+    ``region_count`` is asserted against the array's own length because the two
+    come from different code paths: the count is summed in ``sources.srs`` and
+    the array is normalized in ``regions.export``.
+    """
+    date = day.get("date")
+    regs = day.get("regions")
+    if not isinstance(regs, list):
+        rep.check(False, "history {0} regions is a list".format(date),
+                  "got {0}".format(type(regs).__name__))
+        return
+    rep.check(len(regs) == int(day.get("region_count") or -1),
+              "history {0}: regions array matches region_count".format(date),
+              "{0} entries vs {1}".format(len(regs), day.get("region_count")))
+
+    numbers = []
+    for r in regs:
+        if not isinstance(r, dict):
+            rep.check(False, "history {0} region is an object".format(date))
+            continue
+        num = r.get("number")
+        numbers.append(num)
+        tag = "history {0} AR{1}".format(date, num)
+        rep.check(isinstance(num, int) and num > 0,
+                  "{0}: number is a positive int".format(tag),
+                  "got {0!r}".format(num))
+        lat = r.get("lat_deg")
+        # Active regions live inside the activity belts; anything beyond +/-60
+        # would be a parse error, not a sunspot.
+        rep.check(isinstance(lat, (int, float)) and abs(float(lat)) <= 60.0,
+                  "{0}: lat_deg within +/-60".format(tag),
+                  "got {0!r}".format(lat))
+        clon = r.get("carr_lon_deg")
+        rep.check(isinstance(clon, (int, float))
+                  and 0.0 <= float(clon) < 360.0,
+                  "{0}: carr_lon_deg in [0, 360)".format(tag),
+                  "got {0!r}".format(clon))
+        lon = r.get("lon_deg")
+        rep.check(isinstance(lon, (int, float)) and abs(float(lon)) <= 180.0,
+                  "{0}: lon_deg within +/-180".format(tag),
+                  "got {0!r}".format(lon))
+        ns = r.get("n_spots")
+        rep.check(isinstance(ns, int) and ns >= 0,
+                  "{0}: n_spots is a non-negative int".format(tag),
+                  "got {0!r}".format(ns))
+        # A history day carries no seed_count on purpose: the frozen seed set
+        # describes today's trace, and a number here would imply field lines
+        # that were never traced for that day.
+        rep.check("seed_count" not in r,
+                  "{0}: carries no seed_count".format(tag),
+                  "got {0!r}".format(r.get("seed_count")))
+    rep.check(len(set(numbers)) == len(numbers),
+              "history {0}: region numbers are unique".format(date),
+              "got {0}".format(numbers))
+
+
 def _check_region_history(rep: Report, regions: dict) -> None:
     """The per-UT-day counts schema sol.ar/2 added.
 
@@ -408,6 +473,7 @@ def _check_region_history(rep: Report, regions: dict) -> None:
         rep.check(n_spotted <= n_reg,
                   "history {0}: spotted <= total regions".format(h.get("date")),
                   "{0} spotted of {1}".format(n_spotted, n_reg))
+        _check_day_regions(rep, h)
         rep.check(n_spot >= n_spotted,
                   "history {0}: spot count >= spotted regions".format(
                       h.get("date")),
@@ -627,7 +693,8 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
               "missing {0}".format(missing))
 
     w, h = doc.get("width"), doc.get("height")
-    rep.check((w, h) == (TEX_OUT_W, TEX_OUT_H), "texture declared dimensions",
+    rep.check((w, h) == (TEX_OUT_W, TEX_OUT_H),
+              "texture declared dimensions (newest frame)",
               "got {0}x{1}, expected {2}x{3}".format(w, h, TEX_OUT_W,
                                                      TEX_OUT_H))
     rep.check(doc.get("lon_at_u0_deg") == 0.0,
@@ -714,10 +781,122 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
                 continue
             _check_texture_jpeg(rep, get, doc, lay.get("url"), lay)
             _check_offlimb(rep, get, lay)
+            _check_texture_frames(rep, get, doc, lay)
     else:
         rep.check(False, "texture.json has a non-empty layers array",
                   "got {0!r}".format(layers))
         _check_texture_jpeg(rep, get, doc, doc.get("url"), doc)
+
+
+def _check_texture_frames(rep: Report, get, doc: dict, layer: dict,
+                         deep: int = 3) -> int:
+    """One channel's time-aligned frame sequence.
+
+    The point of the sequence is that scrubbing back three days shows the Sun
+    as it was three days ago, so the invariants that matter are all about time:
+    targets strictly increasing on the 4 h grid, each frame's observation
+    actually near its target, and the file name's own stamp agreeing with the
+    target it claims. That last one is what catches a name/target desync, which
+    would otherwise fail silently -- the app would keep rebuilding frames it
+    already has, and nothing would look wrong until the CI job timed out.
+
+    ``deep`` bounds how many frames per channel are downloaded and decoded.
+    Every frame is checked at the manifest level; a sample is checked at the
+    pixel level, because a 19 x 5 tree is 95 files and a --url run would
+    otherwise pull ~15 MB to re-assert the same thing ninety times. The count
+    actually sampled is reported, so the cap is never silent.
+    """
+    from .texture.export import HIST_NAME_RE
+
+    channel = layer.get("channel")
+    frames = layer.get("frames")
+    if not isinstance(frames, list) or not frames:
+        rep.check(False, "{0} has a non-empty frames array".format(channel),
+                  "got {0!r}".format(frames))
+        return 0
+
+    prev = None
+    for i, fr in enumerate(frames):
+        if not isinstance(fr, dict):
+            rep.check(False, "{0} frame {1} is an object".format(channel, i))
+            continue
+        tag = "{0} frame {1}".format(channel, i)
+        rep.check(fr.get("index") == i, "{0} index matches position".format(tag),
+                  "got {0!r}".format(fr.get("index")))
+        tgt = parse_iso_z(fr.get("target_iso") or "")
+        obs = parse_iso_z(fr.get("obs_iso") or "")
+        if not rep.check(tgt is not None and obs is not None,
+                         "{0} target_iso and obs_iso parse".format(tag)):
+            continue
+        if prev is not None:
+            rep.check(tgt > prev, "{0} target is after the previous".format(tag),
+                      "{0} follows {1}".format(fr.get("target_iso"), prev))
+        prev = tgt
+
+        newest = (i == len(frames) - 1)
+        name = fr.get("url")
+        if newest:
+            # The newest slot IS the full-resolution map, and it deliberately
+            # carries the freshest available image rather than one snapped to
+            # the grid -- that slot is what "the Sun right now" means.
+            rep.check(name == layer.get("url"),
+                      "{0} (newest) is the full-resolution map".format(tag),
+                      "got {0!r} vs {1!r}".format(name, layer.get("url")))
+            rep.check((fr.get("width"), fr.get("height"))
+                      == (TEX_OUT_W, TEX_OUT_H),
+                      "{0} (newest) is {1}x{2}".format(tag, TEX_OUT_W,
+                                                       TEX_OUT_H),
+                      "got {0}x{1}".format(fr.get("width"), fr.get("height")))
+        else:
+            rep.check((fr.get("width"), fr.get("height"))
+                      == (TEX_HIST_W, TEX_HIST_H),
+                      "{0} is {1}x{2}".format(tag, TEX_HIST_W, TEX_HIST_H),
+                      "got {0}x{1}".format(fr.get("width"), fr.get("height")))
+            m = HIST_NAME_RE.match(str(name))
+            if rep.check(m is not None,
+                         "{0} url is a history frame name".format(tag),
+                         "got {0!r}".format(name)):
+                want = tgt.strftime("%Y%m%dT%H%MZ")
+                rep.check(m.group("stamp") == want,
+                          "{0} file stamp matches its target".format(tag),
+                          "name says {0}, target is {1}".format(
+                              m.group("stamp"), want))
+                rep.check(m.group("code") == channel,
+                          "{0} file names its own channel".format(tag),
+                          "name says {0}".format(m.group("code")))
+            off = abs(age_hours(obs, tgt))
+            rep.check(off <= TEX_HIST_TOLERANCE_HOURS + 1e-6,
+                      "{0} observation is within {1:.1f} h of its target"
+                      .format(tag, TEX_HIST_TOLERANCE_HOURS),
+                      "{0:.2f} h off".format(off))
+            nb = fr.get("bytes")
+            rep.check(isinstance(nb, int) and 0 < nb < TEX_HIST_MAX_BYTES,
+                      "{0} bytes under {1}".format(tag, TEX_HIST_MAX_BYTES),
+                      "got {0!r}".format(nb))
+
+        lon = fr.get("sub_earth_carr_lon_deg")
+        rep.check(isinstance(lon, (int, float)) and 0.0 <= float(lon) < 360.0,
+                  "{0} sub_earth_carr_lon_deg in [0, 360)".format(tag),
+                  "got {0!r}".format(lon))
+        blat = fr.get("sub_earth_lat_deg")
+        rep.check(isinstance(blat, (int, float)) and abs(float(blat)) <= 7.5,
+                  "{0} sub_earth_lat_deg within +/-7.5".format(tag),
+                  "got {0!r}".format(blat))
+
+    # Pixel-level sample: newest, oldest, and the middle. The newest is already
+    # checked as the layer's own map, so only the history frames are fetched.
+    hist = [fr for fr in frames[:-1] if isinstance(fr, dict)]
+    picks: list = []
+    if hist and deep > 0:
+        want = [0, len(hist) // 2, len(hist) - 1][:max(1, deep)]
+        for j in sorted(set(want)):
+            picks.append(hist[j])
+    for fr in picks:
+        _check_texture_jpeg(rep, get, doc, fr.get("url"), fr,
+                            max_bytes=TEX_HIST_MAX_BYTES)
+    rep.info("{0}: {1} frame(s) checked in the manifest, {2} decoded".format(
+        channel, len(frames), len(picks)))
+    return len(picks)
 
 
 def _check_offlimb(rep: Report, get, layer: dict) -> None:
@@ -782,9 +961,17 @@ def _check_offlimb(rep: Report, get, layer: dict) -> None:
               "center mean {0:.1f}".format(float(core.mean())))
 
 
-def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict) -> None:
-    """One channel's JPEG: fetched, sized, decodable, and not flat."""
-    w, h = doc.get("width"), doc.get("height")
+def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict,
+                        max_bytes: int = TEX_MAX_BYTES) -> None:
+    """One channel's JPEG: fetched, sized, decodable, and not flat.
+
+    The expected pixel size comes from the ENTRY when it declares one, because
+    a history frame is half the linear resolution of the newest map. Falling
+    back to the document's top-level width/height keeps a schema-2 tree (one
+    map per channel, no `frames` array) validating unchanged.
+    """
+    w = entry.get("width", doc.get("width"))
+    h = entry.get("height", doc.get("height"))
     if not rep.check(isinstance(name, str) and name.endswith(".jpg")
                      and "/" not in name, "texture url is a sibling .jpg",
                      "got {0!r}".format(name)):
@@ -792,8 +979,8 @@ def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict) -> None:
     blob = get("texture/" + name)
     if not rep.check(blob is not None, "{0} fetched".format(name)):
         return
-    rep.check(len(blob) < TEX_MAX_BYTES,
-              "{0} under {1} bytes".format(name, TEX_MAX_BYTES),
+    rep.check(len(blob) < max_bytes,
+              "{0} under {1} bytes".format(name, max_bytes),
               "{0} bytes".format(len(blob)))
     if "bytes" in entry:
         rep.check(len(blob) == int(entry["bytes"]),

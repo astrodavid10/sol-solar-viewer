@@ -23,15 +23,6 @@
   -ms-user-select: none;
   user-select: none;
 }
-.pointer-events {
-  pointer-events: auto;
-}
-
-:root {
-  --default-font-size: clamp(0.7rem, min(1.7vh, 1.7vw), 1.1rem);
-  --default-line-height: clamp(1rem, min(2.2vh, 2.2vw), 1.6rem);
-}
-
 /* Overall page styling */
 html {
   height: 100%;
@@ -62,7 +53,9 @@ body {
 
 a {
   text-decoration: none;
-  color: #aec2fd;
+  /* Was #aec2fd, the donor project's periwinkle -- the one off-palette color
+     left in the app, and the only link color it has. Brand violet instead. */
+  color: var(--sol-violet);
   pointer-events: auto;
 
   &:hover {
@@ -106,11 +99,14 @@ a {
   }
 }
 
+/* Vue 3 names the start-of-enter class `-enter-from`. This block said
+   `.fade-enter`, which is the VUE 2 name, so every `<transition name="fade">`
+   in the app faded out correctly and snapped in with no transition at all. */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s;
 }
-.fade-enter,
+.fade-enter-from,
 .fade-leave-to {
   opacity: 0;
 }
@@ -131,41 +127,8 @@ a {
   justify-content: center;
 }
 
-#modal-loading {
-  background-color: #000;
-  .container {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-    .spinner {
-      width: 3rem;
-      height: 3rem;
-      border-radius: 50%;
-      border: 4px solid rgba(255, 200, 80, 0.25);
-      border-top-color: #ffc850;
-      animation: sol-spin 1s linear infinite;
-    }
-    p {
-      margin: 0 0 0 1rem;
-      padding: 0;
-      font-size: 150%;
-    }
-  }
-}
-
 @keyframes sol-spin {
   to { transform: rotate(360deg); }
-}
-
-.bottom-sheet {
-  .v-overlay__content {
-    align-self: flex-end;
-    padding: 0;
-    margin: 0;
-    max-width: 100%;
-    height: 34%;
-  }
 }
 
 /* Miscellaneous class styling */
@@ -183,22 +146,6 @@ a {
     color: white;
     border: 2px solid white;
   }
-}
-
-.pointer {
-  cursor: pointer;
-}
-
-.control-icon {
-  pointer-events: auto;
-
-  &:hover {
-    cursor: pointer;
-  }
-}
-
-.scrollable {
-  overflow-y: auto;
 }
 
 /* Kiosk mode (museum touchscreen). Class toggled by src/kiosk/kiosk.ts. */

@@ -77,5 +77,27 @@ Their use here is authorized by the planetarium's director, who is the author of
 this proof of concept. The marks themselves are not covered by this repository's
 MIT grant — the MIT terms apply to the software, not to the institution's
 trademarks. The brand kit also requires that the planetarium wordmark never
-appear without the USSRC logo, which is why `InfoModal`'s credit row pairs
-them.
+appear without the USSRC logo, which is why `InfoModal`'s credit lockup keeps
+`ip-ussrc.png` as a single paired image rather than two separable marks.
+
+## Toolkit marks
+
+Two more marks ship in the bundle, each used purely as attribution and each
+linking to its owner:
+
+- `src/assets/logo_wwt.png` — WorldWide Telescope, credited as "Powered by
+  WorldWide Telescope". WWT is an open-source project of the American
+  Astronomical Society.
+- `src/assets/logo_cosmicds.png` — the CosmicDS mark, credited as "Interactive
+  developed using the CosmicDS toolkit". CosmicDS (Cosmic Data Stories) is an
+  NSF/NASA-funded program at the Center for Astrophysics | Harvard &
+  Smithsonian; this app is built on its Vue toolkit and its WWT integration.
+  Vendored locally rather than hotlinked from the CosmicDS site so the credit
+  cannot break, and so a kiosk with no internet still shows it. The mark is the
+  spiral device only — the wordmark half of the full logo is dark navy and would
+  be illegible on this app's dark panels, and the caption beside it names
+  CosmicDS anyway.
+
+Neither mark is covered by this repository's MIT grant. Both are reproduced at
+credit size (22 px) in the About panel, in the manner these projects ask to be
+credited; they are not used as branding for this app and imply no endorsement.

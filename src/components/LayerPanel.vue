@@ -212,7 +212,7 @@ export default defineComponent({
   transition: background 160ms ease;
 
   &.is-on {
-    background: rgba(255, 200, 80, 0.55);
+    background: rgba(var(--sol-accent-rgb), 0.55);
   }
 }
 
@@ -223,7 +223,7 @@ export default defineComponent({
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #f5efe2;
+  background: var(--sol-text);
   transition: transform 160ms ease;
 
   .is-on & {
@@ -283,7 +283,7 @@ export default defineComponent({
 
   &.is-on {
     border-color: var(--sol-accent);
-    background: rgba(255, 200, 80, 0.16);
+    background: rgba(var(--sol-accent-rgb), 0.16);
     color: var(--sol-text);
   }
 }

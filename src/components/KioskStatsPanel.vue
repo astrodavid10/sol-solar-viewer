@@ -1,7 +1,7 @@
 <template>
   <div class="kiosk-stats">
     <header class="ks-header">
-      <h1>Exoplanet Sonification Kiosk — Usage Stats</h1>
+      <h1>Sol Kiosk — Usage Stats</h1>
       <p class="ks-sub">Anonymous, local to this device. No personal data, no network.</p>
       <div class="ks-actions">
         <button class="ks-btn" @click="downloadCsv">Download CSV</button>
@@ -189,21 +189,21 @@ export default defineComponent({
   min-height: 100vh;
   box-sizing: border-box;
   padding: 2rem clamp(1rem, 4vw, 3rem);
-  background: #04061a;
-  color: #eee;
+  background: var(--sol-bg);
+  color: var(--sol-text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
-.ks-header h1 { margin: 0; color: #1671e0; font-size: 1.6rem; }
+.ks-header h1 { margin: 0; color: var(--sol-text); font-size: 1.6rem; }
 .ks-sub { margin: 0.3rem 0 1rem; color: rgba(255, 255, 255, 0.6); font-size: 0.9rem; }
 .ks-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
 .ks-btn {
   padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer;
-  background: rgba(4, 6, 24, 0.82); border: 1px solid #1671e0; color: #1671e0;
+  background: var(--sol-surface); border: var(--sol-panel-border); color: var(--sol-text);
   font-size: 0.9rem; font-weight: 600;
 }
-.ks-btn:hover { box-shadow: 0 0 8px #1671e0; }
-.ks-btn-danger { border-color: #ff6b6b; color: #ff6b6b; }
-.ks-btn-danger:hover { box-shadow: 0 0 8px #ff6b6b; }
+.ks-btn:hover { box-shadow: 0 0 0 1px var(--sol-accent); }
+.ks-btn-danger { border-color: var(--sol-ember); color: var(--sol-ember); }
+.ks-btn-danger:hover { box-shadow: 0 0 0 1px var(--sol-ember); }
 .ks-empty { color: rgba(255, 255, 255, 0.6); font-size: 1rem; }
 
 .ks-tiles { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
@@ -212,15 +212,16 @@ export default defineComponent({
   min-width: 6rem; padding: 0.9rem 1.2rem; border-radius: 10px;
   background: rgba(153, 200, 255, 0.06); border: 1px solid rgba(240, 171, 82, 0.3);
 }
-.ks-tile-num { font-size: 1.5rem; font-weight: 700; color: #1671e0; }
+.ks-tile-num { font-size: 1.5rem; font-weight: 700; color: var(--sol-text);
+  font-variant-numeric: tabular-nums; }
 .ks-tile-lbl { font-size: 0.75rem; color: rgba(255, 255, 255, 0.65); margin-top: 0.2rem; }
 
 .ks-section { margin-bottom: 2rem; }
-.ks-section h2 { font-size: 1rem; color: #99c8ff; margin: 0 0 0.7rem; font-weight: 600; }
+.ks-section h2 { font-size: 1rem; color: var(--sol-text-dim); margin: 0 0 0.7rem; font-weight: 600; }
 
 .ks-hours { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
 .ks-hour { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
-.ks-hour-bar { width: 70%; min-height: 2px; background: #1671e0; border-radius: 2px 2px 0 0; }
+.ks-hour-bar { width: 70%; min-height: 2px; background: var(--sol-accent2); border-radius: 2px 2px 0 0; }
 .ks-hour-lbl { font-size: 0.6rem; color: rgba(255, 255, 255, 0.5); margin-top: 0.25rem; height: 0.9rem; }
 
 .ks-table-wrap { overflow-x: auto; }
@@ -234,6 +235,6 @@ export default defineComponent({
 .ks-list { margin: 0; padding-left: 1.2rem; }
 .ks-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
 .ks-list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ks-list-count { color: #1671e0; font-weight: 600; flex: 0 0 auto; }
+.ks-list-count { color: var(--sol-text); font-weight: 600; flex: 0 0 auto; }
 .ks-none { color: rgba(255, 255, 255, 0.4); list-style: none; }
 </style>

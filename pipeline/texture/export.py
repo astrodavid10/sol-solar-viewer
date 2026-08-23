@@ -82,7 +82,9 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       TEX_LIMB_CENTER_TOL_PX, TEX_LIMB_RADIUS_TOL,
                       TEX_MAX_BYTES, TEX_MAX_OBS_AGE_HOURS,
                       TEX_MAX_SOURCE_TRIES, TEX_MIN_DISK_MEAN, TEX_OUT_H,
-                      TEX_OUT_W, TEX_POLE_FADE_DEG, TEX_POLE_FLOOR,
+                      TEX_OUT_W, TEX_HIST_H, TEX_HIST_MAX_BYTES, TEX_HIST_W,
+                      TEX_HIST_TOLERANCE_HOURS,
+                      TEX_POLE_FADE_DEG, TEX_POLE_FLOOR,
                       TEX_QUIET_ANNULUS_DEG, TEX_QUIET_PERCENTILE,
                       TEX_CHANNELS, TEX_OFFLIMB_INNER, TEX_OFFLIMB_QUALITY,
                       TEX_OFFLIMB_SIZE, TEX_SRC_RES, tex_src_scale)
@@ -97,6 +99,29 @@ def jpeg_name(code: str) -> str:
     continuum image.
     """
     return "sdo{0}_carrington_{1}x{2}.jpg".format(code, TEX_OUT_W, TEX_OUT_H)
+
+
+def slot_stamp(target: datetime) -> str:
+    """Compact UTC stamp used in history-frame file names."""
+    return target.astimezone(timezone.utc).strftime("%Y%m%dT%H%MZ")
+
+
+def hist_jpeg_name(code: str, target: datetime) -> str:
+    """File name for one channel at one timeline slot.
+
+    Keyed on the slot's TARGET TIME, never on its index.  Indices shift every
+    run -- slot 18 becomes slot 17 four hours later -- so an index-keyed name
+    would make every file look new and defeat the reuse that keeps this stage
+    inside the CI budget.  A time-keyed name is stable, so "already published"
+    is a filename existence check and pruning is "outside the window".
+    """
+    return "sdo{0}_carr_{1}x{2}_{3}.jpg".format(
+        code, TEX_HIST_W, TEX_HIST_H, slot_stamp(target))
+
+
+HIST_NAME_RE = re.compile(
+    r"^sdo(?P<code>[A-Za-z0-9]+)_carr_\d+x\d+_"
+    r"(?P<stamp>\d{8}T\d{4}Z)\.jpg$")
 
 
 def channel_for(code: str) -> dict:
@@ -135,6 +160,30 @@ def _browse_dir(day: datetime) -> str:
         SDO_BROWSE_BASE, day.year, day.month, day.day)
 
 
+_DAY_LISTING: dict = {}
+
+
+def _day_listing(day: datetime) -> str:
+    """One browse day-directory listing, fetched at most once per process.
+
+    The listing is ~1.6 MB and holds every product at every resolution (11,026
+    files on a measured day), so all five channels and all 19 slots come out of
+    the SAME document.  Without this cache a 72 h window would re-download it
+    5 x 4 = 20 times, 33 MB, for data already in hand.
+    """
+    base = _browse_dir(day)
+    if base not in _DAY_LISTING:
+        try:
+            body, _ = http_get_full(base, timeout=30.0)
+            _DAY_LISTING[base] = body.decode("utf-8", "replace")
+        except Exception as exc:                          # noqa: BLE001
+            # Loud, not silent: a blocked or moved archive must not read the
+            # same as a genuinely empty day (the lesson of footgun 32).
+            print("  browse listing {0}: {1}".format(base, exc))
+            _DAY_LISTING[base] = ""
+    return _DAY_LISTING[base]
+
+
 def browse_candidates(now: datetime, days: int = 2,
                       code: str = None
                       ) -> List[Tuple[datetime, str]]:
@@ -148,12 +197,9 @@ def browse_candidates(now: datetime, days: int = 2,
                                            prod=code or DEFAULT_CODE))
     out: List[Tuple[datetime, str]] = []
     for d in range(days):
-        base = _browse_dir(now - timedelta(days=d))
-        try:
-            body, _ = http_get_full(base, timeout=30.0)
-        except Exception:
-            continue
-        for name in pat.findall(body.decode("utf-8", "replace")):
+        day = now - timedelta(days=d)
+        base = _browse_dir(day)
+        for name in pat.findall(_day_listing(day)):
             try:
                 t = datetime.strptime(name[:15], "%Y%m%d_%H%M%S").replace(
                     tzinfo=timezone.utc)
@@ -163,6 +209,48 @@ def browse_candidates(now: datetime, days: int = 2,
                 out.append((t, base + name))
     out.sort(key=lambda kv: kv[0])
     return out
+
+
+def fetch_source_at(target: datetime, code: str = None,
+                    tolerance_hours: float = TEX_HIST_TOLERANCE_HOURS,
+                    verbose: bool = False) -> SourceImage:
+    """The browse frame closest to ``target``, walking outward on failure.
+
+    Used for the history slots.  Unlike ``fetch_source`` this never falls back
+    to ``latest_*.jpg``: a slot whose own hour cannot be fetched must be left
+    unfilled, because silently substituting today's Sun for a three-day-old one
+    is the exact dishonesty per-frame textures exist to remove.
+    """
+    code = code or DEFAULT_CODE
+    # The target can sit in the previous UT day, so ask for both.
+    cands = [(t, u) for (t, u) in browse_candidates(target, days=2, code=code)
+             if abs((t - target).total_seconds()) <= tolerance_hours * 3600.0]
+    if not cands:
+        raise PipelineError(
+            "no {0} browse frame within {1:.1f} h of {2}".format(
+                code, tolerance_hours, iso_z(target)))
+    cands.sort(key=lambda kv: abs((kv[0] - target).total_seconds()))
+    skipped: List[str] = []
+    for t, url in cands[:TEX_MAX_SOURCE_TRIES]:
+        name = url.rsplit("/", 1)[-1]
+        try:
+            raw, _ = http_get_full(url, timeout=60.0)
+            rgb = _decode(raw)
+        except Exception as exc:                          # noqa: BLE001
+            skipped.append("{0}: {1}".format(name, exc))
+            continue
+        mean = disk_mean(rgb)
+        if mean < TEX_MIN_DISK_MEAN:
+            skipped.append("{0}: disk mean {1:.1f} (eclipse?)".format(
+                name, mean))
+            continue
+        if skipped and verbose:
+            print("      skipped {0}: {1}".format(len(skipped),
+                                                  "; ".join(skipped[:2])))
+        return SourceImage(rgb, t, url, "browse", len(raw))
+    raise PipelineError(
+        "every candidate near {0} was unusable ({1})".format(
+            iso_z(target), "; ".join(skipped[:3]) or "none tried"))
 
 
 def _decode(raw: bytes) -> np.ndarray:
@@ -313,7 +401,8 @@ def input_header(src: SourceImage, obstime, observer,
     return header
 
 
-def output_header(obstime, observer):
+def output_header(obstime, observer, out_w: int = TEX_OUT_W,
+                  out_h: int = TEX_OUT_H):
     """Carrington CAR header with longitude 0 at the LEFT EDGE.
 
     ``make_heliographic_header`` centers the map on ``map_center_longitude``,
@@ -325,16 +414,17 @@ def output_header(obstime, observer):
     import astropy.units as u
     from sunpy.map.header_helper import make_heliographic_header
     return make_heliographic_header(
-        obstime, observer, (TEX_OUT_H, TEX_OUT_W), frame="carrington",
+        obstime, observer, (out_h, out_w), frame="carrington",
         projection_code="CAR", map_center_longitude=180.0 * u.deg)
 
 
-def grid(header) -> Tuple[np.ndarray, np.ndarray]:
+def grid(header, out_w: int = TEX_OUT_W, out_h: int = TEX_OUT_H
+         ) -> Tuple[np.ndarray, np.ndarray]:
     """(lon, lat) in degrees for the OUTPUT array's columns and FITS rows."""
     lon = (header["crval1"]
-           + (np.arange(TEX_OUT_W) + 1.0 - header["crpix1"]) * header["cdelt1"])
+           + (np.arange(out_w) + 1.0 - header["crpix1"]) * header["cdelt1"])
     lat = (header["crval2"]
-           + (np.arange(TEX_OUT_H) + 1.0 - header["crpix2"]) * header["cdelt2"])
+           + (np.arange(out_h) + 1.0 - header["crpix2"]) * header["cdelt2"])
     return lon, lat
 
 
@@ -457,16 +547,17 @@ def compose(near: np.ndarray, valid: np.ndarray, dist: np.ndarray,
     return img, w[..., 0], base
 
 
-def encode_jpeg(img: np.ndarray, quality: int = TEX_JPEG_QUALITY) -> bytes:
+def encode_jpeg(img: np.ndarray, quality: int = TEX_JPEG_QUALITY,
+                max_bytes: int = TEX_MAX_BYTES) -> bytes:
     from PIL import Image
     buf = io.BytesIO()
     Image.fromarray(img, "RGB").save(buf, "JPEG", quality=int(quality),
                                      optimize=True)
     blob = buf.getvalue()
-    if len(blob) > TEX_MAX_BYTES:
+    if len(blob) > max_bytes:
         raise PipelineError(
             "texture JPEG is {0} bytes, over the {1}-byte budget; lower "
-            "TEX_JPEG_QUALITY".format(len(blob), TEX_MAX_BYTES))
+            "TEX_JPEG_QUALITY".format(len(blob), max_bytes))
     return blob
 
 
@@ -607,58 +698,68 @@ def build_offlimb(src: SourceImage, cx: float, cy: float, r_fit: float
     return buf.getvalue(), half / r_fit
 
 
-def build_texture(now: datetime, regions: Optional[List[dict]] = None,
-                  verbose: bool = False, code: str = None
-                  ) -> Tuple[bytes, dict, dict, bytes]:
-    """Fetch, reproject, composite, encode.  Returns (jpeg, doc, info)."""
+def solar_frame(src: "SourceImage"):
+    """(obstime, observer, l0, b0, p_deg) for one source image.
+
+    Everything geometric derives from ``src.obstime``, never from "now" -- which
+    is exactly why a history slot needs no separate maths.
+    """
     import astropy.units as u
     from astropy.time import Time
     from sunpy.coordinates import get_earth, sun
-
-    channel = channel_for(code or DEFAULT_CODE)
-    src = fetch_source(now, verbose=verbose, code=channel["code"])
-    obs_age = age_hours(src.obstime, now)
-    print("  source: {0} ({1}, {2}, obs {3}, age {4:.2f} h)".format(
-        src.url.rsplit("/", 1)[-1], src.kind, human_bytes(src.nbytes),
-        iso_z(src.obstime), obs_age))
-    if obs_age < -0.1:
-        raise PipelineError("source image is {0:.2f} h in the future".format(
-            -obs_age))
-
     obstime = Time(iso_z(src.obstime).replace("Z", ""), scale="utc")
     observer = get_earth(obstime)
-    l0 = float(sun.L0(obstime).to_value(u.deg)) % 360.0
-    b0 = float(sun.B0(obstime).to_value(u.deg))
-    p_deg = float(sun.P(obstime).to_value(u.deg))
+    return (obstime, observer,
+            float(sun.L0(obstime).to_value(u.deg)) % 360.0,
+            float(sun.B0(obstime).to_value(u.deg)),
+            float(sun.P(obstime).to_value(u.deg)))
 
-    # Sanity check the assumed geometry against the image's own limb.
+
+def fit_limb(src: "SourceImage", channel: dict, obstime, quiet: bool = False):
+    """Fit the disk edge and assert the synthesized WCS still applies.
+
+    Returns (cx, cy, r_fit, r_pred, c_off, resid, n_rays).  Raises rather than
+    ship a misregistered map -- see TEX_LIMB_RADIUS_TOL.
+    """
+    import astropy.units as u
+    from sunpy.coordinates import sun
     r_pred = float(sun.angular_radius(obstime).to_value(u.arcsec)
                    ) / tex_src_scale(channel["scale"])
     cx, cy, r_fit, resid, n_rays = measure_limb(src.rgb.mean(axis=-1), r_pred)
     c_off = float(np.hypot(cx - (TEX_SRC_RES - 1) / 2.0,
                            cy - (TEX_SRC_RES - 1) / 2.0))
-    r_err = abs(r_fit / r_pred - 1.0)
-    print("  limb fit: r {0:.1f} px vs {1:.1f} predicted ({2:+.2%}), center "
-          "{3:.1f} px off, scatter {4:.1f} px ({5} rays)".format(
-              r_fit, r_pred, r_fit / r_pred - 1.0, c_off, resid, n_rays))
-    if r_err > TEX_LIMB_RADIUS_TOL or c_off > TEX_LIMB_CENTER_TOL_PX:
+    if not quiet:
+        print("  limb fit: r {0:.1f} px vs {1:.1f} predicted ({2:+.2%}), "
+              "center {3:.1f} px off, scatter {4:.1f} px ({5} rays)".format(
+                  r_fit, r_pred, r_fit / r_pred - 1.0, c_off, resid, n_rays))
+    if abs(r_fit / r_pred - 1.0) > TEX_LIMB_RADIUS_TOL \
+            or c_off > TEX_LIMB_CENTER_TOL_PX:
         raise PipelineError(
             "browse JPG geometry has changed: limb radius {0:.1f} px vs "
             "{1:.1f} predicted ({2:+.1%}, tol {3:.0%}), disk center {4:.1f} "
             "px from the array center (tol {5:.0f}); the synthesized WCS is "
             "no longer valid".format(r_fit, r_pred, r_fit / r_pred - 1.0,
                            TEX_LIMB_RADIUS_TOL, c_off, TEX_LIMB_CENTER_TOL_PX))
+    return cx, cy, r_fit, r_pred, c_off, resid, n_rays
 
+
+def render_map(src: "SourceImage", channel: dict, obstime, observer,
+               l0: float, b0: float, out_w: int = TEX_OUT_W,
+               out_h: int = TEX_OUT_H):
+    """Reproject to Carrington, check the result, composite over the far side.
+
+    Returns (img, w, base, near, valid, lon, lat, frac).  The two checks are
+    the ones that catch a silently wrong map: half of a plate-carree map is the
+    visible hemisphere exactly (whatever B0 is), and the lit polar cap must be
+    the one B0's sign predicts.
+    """
     in_hdr = input_header(src, obstime, observer, channel=channel)
-    out_hdr = output_header(obstime, observer)
+    out_hdr = output_header(obstime, observer, out_w, out_h)
     near = reproject_rgb(src, in_hdr, out_hdr)
-    lon, lat = grid(out_hdr)
+    lon, lat = grid(out_hdr, out_w, out_h)
     dist = sub_earth_distance(lon, lat, l0, b0)
     valid = np.isfinite(near).all(axis=-1)
 
-    # Half of a plate-carree map is the visible hemisphere, exactly, whatever
-    # B0 is.  A fraction near 1 would mean the far side had been aliased onto
-    # the near side (see the module docstring); near 0 means an empty frame.
     frac = float(valid.mean())
     if not 0.40 <= frac <= 0.60:
         raise PipelineError(
@@ -673,11 +774,67 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
             "visible, south {2:.0%}); the output latitude axis is flipped"
             .format(b0, n_cap, s_cap))
 
+    img, w, base = compose(near, valid, dist, lon, lat, channel["farside"])
+    return img, w, base, near, valid, lon, lat, frac
+
+
+def build_history_frame(target: datetime, code: str, verbose: bool = False
+                        ) -> Tuple[bytes, dict]:
+    """One timeline slot's Carrington map, at history resolution.
+
+    No off-limb crop -- the billboard stays newest-only, because the app keys it
+    on URL identity and a per-slot crop would thrash a texture loader on every
+    scrub step.  No AR registration check either: that guard is about whether
+    the newest frame's synthesized geometry still holds, and running it ninety
+    times a run would cost far more than it could tell us.
+    """
+    channel = channel_for(code)
+    src = fetch_source_at(target, code=code, verbose=verbose)
+    obstime, observer, l0, b0, _p_deg = solar_frame(src)
+    fit_limb(src, channel, obstime, quiet=True)
+    img = render_map(src, channel, obstime, observer, l0, b0,
+                     TEX_HIST_W, TEX_HIST_H)[0]
+    blob = encode_jpeg(img, max_bytes=TEX_HIST_MAX_BYTES)
+    meta = {
+        "target_iso": iso_z(target),
+        "url": hist_jpeg_name(code, target),
+        "bytes": len(blob),
+        "width": TEX_HIST_W,
+        "height": TEX_HIST_H,
+        "obs_iso": iso_z(src.obstime),
+        "sub_earth_carr_lon_deg": l0,
+        "sub_earth_lat_deg": b0,
+        "source_url": src.url,
+    }
+    return blob, meta
+
+
+def build_texture(now: datetime, regions: Optional[List[dict]] = None,
+                  verbose: bool = False, code: str = None
+                  ) -> Tuple[bytes, dict, dict, bytes]:
+    """Fetch, reproject, composite, encode.  Returns (jpeg, doc, info)."""
+    channel = channel_for(code or DEFAULT_CODE)
+    src = fetch_source(now, verbose=verbose, code=channel["code"])
+    obs_age = age_hours(src.obstime, now)
+    print("  source: {0} ({1}, {2}, obs {3}, age {4:.2f} h)".format(
+        src.url.rsplit("/", 1)[-1], src.kind, human_bytes(src.nbytes),
+        iso_z(src.obstime), obs_age))
+    if obs_age < -0.1:
+        raise PipelineError("source image is {0:.2f} h in the future".format(
+            -obs_age))
+
+    obstime, observer, l0, b0, p_deg = solar_frame(src)
+
+    # Sanity check the assumed geometry against the image's own limb.
+    cx, cy, r_fit, r_pred, c_off, resid, n_rays = fit_limb(
+        src, channel, obstime)
+
+    img, w, base, near, valid, lon, lat, frac = render_map(
+        src, channel, obstime, observer, l0, b0, TEX_OUT_W, TEX_OUT_H)
+
     # Off-limb crop, from the SAME fitted limb the reprojection trusts, so the
     # billboard and the sphere cannot disagree about where the edge is.
     offlimb, offlimb_half_rsun = build_offlimb(src, cx, cy, r_fit)
-
-    img, w, base = compose(near, valid, dist, lon, lat, channel["farside"])
     blob = encode_jpeg(img)
 
     # Only meaningful in EUV: the check scores by finding BRIGHT pixels near
@@ -815,7 +972,9 @@ def texture_status(obs_age: float) -> str:
 __all__ = [
     "JPEG_NAME", "SourceImage", "browse_candidates", "disk_mean",
     "jpeg_name", "channel_for", "DEFAULT_CODE",
-    "fetch_source",
+    "hist_jpeg_name", "slot_stamp", "HIST_NAME_RE",
+    "fetch_source", "fetch_source_at",
+    "solar_frame", "fit_limb", "render_map", "build_history_frame",
     "measure_limb", "input_header", "output_header", "grid",
     "sub_earth_distance", "reproject_rgb", "quiet_sun_rgb",
     "farside_modulation", "feather_weight", "compose", "encode_jpeg",

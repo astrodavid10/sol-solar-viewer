@@ -392,7 +392,7 @@ export default defineComponent({
   // Thumb-sized: this is the one control every guest is invited to press.
   min-height: 48px;
   padding: 0.5rem 1.15rem;
-  border: 1px solid rgba(255, 200, 80, 0.55);
+  border: 1px solid rgba(var(--sol-accent-rgb), 0.55);
   border-radius: 999px;
   background: var(--sol-surface);
   color: var(--sol-accent);
@@ -418,7 +418,7 @@ export default defineComponent({
     z-index: 30;
     margin: 0;
     padding: 0.7rem 1.2rem;
-    border: 1px solid rgba(255, 200, 80, 0.35);
+    border: 1px solid rgba(var(--sol-accent-rgb), 0.35);
     border-radius: 999px;
     background: var(--sol-surface);
     color: var(--sol-text);

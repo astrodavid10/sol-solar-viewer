@@ -1,0 +1,11 @@
+# Cloudflare Worker config for the GONG relay. See gong-proxy-worker.js for why
+# this exists (CLAUDE.md footgun 33) and docs/GONG-RELAY.md for the deploy.
+#
+#   wrangler deploy
+#   wrangler secret put RELAY_TOKEN
+name = "sol-gong-relay"
+main = "gong-proxy-worker.js"
+compatibility_date = "2026-01-01"
+
+# No KV, no D1, no bindings: this worker holds no state. The only secret is
+# RELAY_TOKEN, set with `wrangler secret put` rather than checked in here.

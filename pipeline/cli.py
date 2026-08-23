@@ -48,10 +48,13 @@ from typing import Dict, List, Optional, Tuple
 
 from . import frames_orient
 from .config import (CACHE_DIR, DEFAULT_OUT, FRAME_SPACING_HOURS,
-                     GONG_TOLERANCE_HOURS, KEEP_FRAME_CACHE_SETS,
+                     GONG_BASE, GONG_TOLERANCE_HOURS,
+                     KEEP_FRAME_CACHE_SETS,
                      MIN_FRAMES_TO_PUBLISH, PIPELINE_VERSION, SCHEMA_INDEX,
                      EVENTS_MAX_BYTES, EVENTS_WINDOW_SLACK_HOURS,
-                     STALE_HOURS, TEX_CHANNELS, WINDOW_HOURS)
+                     STALE_HOURS, TEX_CHANNELS, TEX_HIST_H,
+                     TEX_HIST_MAX_NEW_PER_RUN, TEX_HIST_W,
+                     TEX_OUT_H, TEX_OUT_W, WINDOW_HOURS)
 from .io_utils import (PipelineError, Staging, age_hours, human_bytes, iso_z,
                        json_dumps, parse_iso_z, prune_dirs, read_json, unix_s,
                        utcnow, write_json)
@@ -95,6 +98,7 @@ class Ctx:
     simulate_srs_outage: bool = False
     simulate_donki_outage: bool = False
     with_texture: bool = False
+    max_new_textures: Optional[int] = None
 
     def log(self, msg: str) -> None:
         if self.verbose:
@@ -119,6 +123,7 @@ def make_ctx(args: argparse.Namespace) -> Ctx:
         simulate_donki_outage=bool(
             getattr(args, "simulate_donki_outage", False)),
         with_texture=bool(getattr(args, "with_texture", False)),
+        max_new_textures=getattr(args, "max_new_textures", None),
     )
 
 
@@ -532,6 +537,141 @@ def _regions_for_check(ctx: Ctx) -> List[dict]:
     return []
 
 
+def _published_texture_frames(ctx: Ctx) -> Dict[Tuple[str, str], dict]:
+    """{(channel, target_iso): frame} from the texture.json already on disk.
+
+    In CI ``out`` is seeded from the published gh-pages tree before the build
+    (footgun 31), so this is how a run learns which history frames it does NOT
+    have to rebuild.  Without it every run would re-reproject ninety maps and
+    blow the job's whole time budget.
+    """
+    doc = read_json(ctx.out / "texture/texture.json") or {}
+    found: Dict[Tuple[str, str], dict] = {}
+    for layer in (doc.get("layers") or []):
+        code = layer.get("channel")
+        for fr in (layer.get("frames") or []):
+            tgt, url = fr.get("target_iso"), fr.get("url")
+            if code and tgt and url:
+                found[(code, tgt)] = fr
+    return found
+
+
+def _texture_history(ctx: Ctx, layers: List[dict], primary: dict) -> dict:
+    """Fill each layer's ``frames`` array, building only what is missing.
+
+    The newest slot is the full-resolution map every layer already built, so it
+    is listed rather than rebuilt -- and it deliberately carries the FRESHEST
+    available image rather than one snapped to the 4 h grid, because that slot
+    is what "the Sun right now" means.  Older slots get their own
+    reduced-resolution map, keyed on the slot's target time.
+
+    Slots are filled NEWEST-MISSING-FIRST with the channels interleaved, so a
+    capped run spreads its budget across all five channels near the present
+    rather than completing one channel back to three days ago.
+    """
+    from .texture import export as texture_export
+
+    targets = pfss_timeline.slot_targets(ctx.now)
+    newest = targets[-1]
+    published = _published_texture_frames(ctx)
+    by_code = {ly["channel"]: ly for ly in layers}
+    frames: Dict[str, Dict[str, dict]] = {c: {} for c in by_code}
+
+    # The newest slot: the full-res map, already built and staged.
+    for code, layer in by_code.items():
+        frames[code][iso_z(newest)] = {
+            "target_iso": iso_z(newest),
+            "url": layer["url"],
+            "bytes": layer["bytes"],
+            "width": TEX_OUT_W,
+            "height": TEX_OUT_H,
+            "obs_iso": layer["obs_iso"],
+            "sub_earth_carr_lon_deg": layer["sub_earth_carr_lon_deg"],
+            "sub_earth_lat_deg": layer["sub_earth_lat_deg"],
+            "source_url": layer["source_url"],
+        }
+
+    reused = built = failed = 0
+    cap = (TEX_HIST_MAX_NEW_PER_RUN if ctx.max_new_textures is None
+           else int(ctx.max_new_textures))
+    budget = cap
+    todo: List[Tuple[datetime, str]] = []
+    for target in reversed(targets[:-1]):             # newest history first
+        for code in by_code:
+            key = (code, iso_z(target))
+            have = published.get(key)
+            if have and (ctx.out / "texture" / str(have.get("url"))).exists():
+                frames[code][iso_z(target)] = have
+                ctx.staging.note("texture/" + str(have["url"]))
+                reused += 1
+            else:
+                todo.append((target, code))
+
+    for target, code in todo:
+        if budget <= 0:
+            break
+        try:
+            blob, meta = texture_export.build_history_frame(
+                target, code, verbose=ctx.verbose)
+        except Exception as exc:                          # noqa: BLE001
+            # A slot with no usable source is left OUT of the manifest. The app
+            # falls back to the nearest frame it does have, which is honest;
+            # substituting today's Sun for a three-day-old one is not.
+            print("    {0} {1}: {2}".format(code, iso_z(target), exc))
+            failed += 1
+            budget -= 1
+            continue
+        ctx.staging.write_bytes("texture/" + meta["url"], blob)
+        frames[code][iso_z(target)] = meta
+        built += 1
+        budget -= 1
+
+    hist_bytes = 0
+    for code, layer in by_code.items():
+        ordered = [frames[code][iso_z(t)] for t in targets
+                   if iso_z(t) in frames[code]]
+        for i, fr in enumerate(ordered):
+            fr["index"] = i
+        layer["frames"] = ordered
+        hist_bytes += sum(int(fr.get("bytes") or 0) for fr in ordered[:-1])
+
+    want = len(targets) * len(by_code)
+    have = sum(len(v) for v in frames.values())
+    # Frames the cap stopped us from even attempting. Kept separate from
+    # `failed` on purpose: one is our own throttle and will resolve itself next
+    # run, the other is an upstream gap that may never resolve. Reporting them
+    # as one number tells the operator to wait for something that is not coming.
+    skipped = max(0, len(todo) - built - failed)
+    print("  history: {0} slot(s) x {1} channel(s) = {2}; {3} reused, {4} "
+          "built, {5} unavailable upstream, {6} deferred by the cap ({7} at "
+          "{8}x{9})".format(
+              len(targets), len(by_code), want, reused, built, failed, skipped,
+              human_bytes(hist_bytes), TEX_HIST_W, TEX_HIST_H))
+    if skipped:
+        # Net progress per run is (cap - channels), because one new slot per
+        # channel scrolls into the window every 4 h just to stand still. Say so:
+        # a cap at or below the channel count would never converge.
+        net = cap - len(by_code)
+        print("    capped at {0} new frame(s) this run; net {1:+d}/run, so ~{2} "
+              "more run(s) to fill (or pass --max-new-textures {3} locally)"
+              .format(cap, net,
+                      "?" if net <= 0 else int(-(-skipped // net)),
+                      skipped))
+    if failed:
+        # An archive gap, not a bug and not something a re-run fixes soon. The
+        # app falls back to the nearest frame it does have. Measured 2026-08-23:
+        # the SDO browse archive for 2026-08-21 stops at 12:42 UT in EVERY
+        # channel at every resolution, so three slots x five channels are simply
+        # not obtainable for that window.
+        print("    {0} slot(s) have no source image within {1:.1f} h and are "
+              "omitted from the manifest; the app falls back to the nearest "
+              "frame it has".format(failed, TEX_HIST_TOLERANCE_HOURS))
+    primary["frames"] = by_code[primary["channel"]]["frames"]
+    return {"history_bytes": hist_bytes, "history_reused": reused,
+            "history_built": built, "history_pending": skipped,
+            "history_failed": failed, "slots": len(targets)}
+
+
 def run_texture(ctx: Ctx) -> ProductResult:
     """Publish one Carrington map per TEX_CHANNELS entry.
 
@@ -592,6 +732,8 @@ def run_texture(ctx: Ctx) -> ProductResult:
 
     assert primary_doc is not None and primary_info is not None
     primary_doc["layers"] = layers
+    hist = _texture_history(ctx, layers, primary_doc)
+    total_bytes += hist["history_bytes"]
     ctx.staging.write_json("texture/texture.json", primary_doc)
     print("  {0} layer(s), {1} total, {2:.1f}s".format(
         len(layers), human_bytes(total_bytes), time.perf_counter() - t0))
@@ -607,7 +749,12 @@ def run_texture(ctx: Ctx) -> ProductResult:
                "obs_age_hours": round(primary_info["obs_age_hours"], 3),
                "bytes": total_bytes, "layers": len(layers),
                "width": primary_doc["width"],
-               "height": primary_doc["height"]})
+               "height": primary_doc["height"],
+               "slots": hist["slots"],
+               "history_built": hist["history_built"],
+               "history_reused": hist["history_reused"],
+               "history_pending": hist["history_pending"],
+               "history_unavailable": hist["history_failed"]})
 
 
 def run_events(ctx: Ctx) -> ProductResult:
@@ -837,6 +984,35 @@ def _prune_orphan_frames(ctx: Ctx, results: List[ProductResult]) -> None:
             ctx.log("  removed orphan {0}".format(p.name))
 
 
+def _prune_orphan_textures(ctx: Ctx, results: List[ProductResult]) -> None:
+    """Delete published history frames the new texture.json no longer lists.
+
+    Names are keyed on the slot's target time, so "orphan" is exactly "outside
+    the current window" -- a run publishes 18 history frames per channel and
+    the oldest one falls off every four hours.  Without this the publisher's
+    rsync would carry every frame ever built to gh-pages forever; the 443 KB of
+    stale schema-1 maps this stage left behind before the switch to per-slot
+    names is what that looks like at one file per channel.
+    """
+    res = next((r for r in results if r.name == "texture"), None)
+    if res is None or res.status not in ("ok", "degraded"):
+        return
+    doc = read_json(ctx.out / "texture/texture.json")
+    if not doc:
+        return
+    keep = {str(fr.get("url")) for layer in (doc.get("layers") or [])
+            for fr in (layer.get("frames") or []) if fr.get("url")}
+    keep |= {str(layer.get("url")) for layer in (doc.get("layers") or [])}
+    if not keep:
+        return
+    from .texture.export import HIST_NAME_RE
+    tex_dir = ctx.out / "texture"
+    for f in sorted(tex_dir.glob("*.jpg")):
+        if HIST_NAME_RE.match(f.name) and f.name not in keep:
+            f.unlink(missing_ok=True)
+            ctx.log("  removed orphan texture {0}".format(f.name))
+
+
 def cmd_all(args: argparse.Namespace) -> int:
     ctx = make_ctx(args)
     ctx.staging.reset()
@@ -916,6 +1092,7 @@ def cmd_all(args: argparse.Namespace) -> int:
                                build_index(ctx, results, attempt))
         moved = ctx.staging.promote()
         _prune_orphan_frames(ctx, results)
+        _prune_orphan_textures(ctx, results)
     finally:
         ctx.staging.cleanup()
 
@@ -967,6 +1144,7 @@ def _single(args: argparse.Namespace, which: str) -> int:
                 ctx, results, "ok" if rc == 0 else "partial:" + which))
         moved = ctx.staging.promote()
         _prune_orphan_frames(ctx, results)
+        _prune_orphan_textures(ctx, results)
     finally:
         ctx.staging.cleanup()
     print("[publish] {0} file(s) into {1}".format(len(moved), ctx.out))
@@ -1027,6 +1205,16 @@ def cmd_probe(args: argparse.Namespace) -> int:
             print("    ... {0} more".format(len(regions) - 12))
 
     print("[GONG]")
+    # Say which path is being exercised. Without this, a green probe leaves you
+    # unable to tell whether NSO unblocked us or the relay is doing the work --
+    # and a red one leaves you unable to tell whether the relay is even wired
+    # up (see docs/GONG-RELAY.md and footgun 33).
+    if gong_src.relay_enabled():
+        from .config import GONG_PROXY_BASE, GONG_PROXY_TOKEN
+        print("  via relay {0} (token {1})".format(
+            GONG_PROXY_BASE, "set" if GONG_PROXY_TOKEN else "MISSING"))
+    else:
+        print("  direct to {0} (no relay configured)".format(GONG_BASE))
     cand = gong_src.gong_list(ctx.now)
     if not cand:
         print("  UNAVAILABLE (no listing)")
@@ -1084,6 +1272,15 @@ def _add_common(p: argparse.ArgumentParser, *, pfss_flags: bool = True) -> None:
     p.add_argument("--simulate-donki-outage", action="store_true",
                    help="pretend DONKI is down (exercises the events cache "
                         "and the rollback-to-published path)")
+    # TEX_HIST_MAX_NEW_PER_RUN exists to protect a ~9 minute CI job. A
+    # workstation has no such limit, so warming the whole 72 h window in one
+    # go (95 frames, ~13 min measured) and publishing it is the fast way to
+    # give CI a complete window to seed from.
+    p.add_argument("--max-new-textures", type=int, default=None, metavar="N",
+                   help="override the per-run cap on NEW history texture "
+                        "frames (default {0}; use a large number locally to "
+                        "fill the whole window)".format(
+                            TEX_HIST_MAX_NEW_PER_RUN))
     if not pfss_flags:
         return
     p.add_argument("--max-frames", type=int, default=None,

@@ -1775,7 +1775,7 @@ export default defineComponent({
   justify-content: center;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 11px;
-  background: rgba(8, 6, 2, 0.6);
+  background: rgba(9, 2, 24, 0.6);
   backdrop-filter: blur(6px);
   color: var(--sol-text);
   font-size: 0.95rem;
@@ -1807,7 +1807,7 @@ export default defineComponent({
   max-width: 22rem;
   margin: 0 auto;
   padding: 0.8rem 2.2rem 0.8rem 0.9rem;
-  border: 1px solid rgba(255, 200, 80, 0.3);
+  border: 1px solid rgba(var(--sol-accent-rgb), 0.3);
   border-radius: 12px;
   background: var(--sol-surface);
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
@@ -1861,8 +1861,8 @@ export default defineComponent({
   margin: 0.45rem 0 0;
   padding: 0.35rem 0.45rem;
   border-radius: 8px;
-  background: rgba(255, 160, 64, 0.14);
-  color: #ffc98a;
+  background: rgba(var(--sol-accent-rgb), 0.12);
+  color: var(--sol-accent);
   font-size: 0.76rem;
   line-height: 1.35;
 }
@@ -1879,7 +1879,7 @@ export default defineComponent({
   margin: 0;
   padding: 0.5rem 0.6rem;
   border-radius: 10px;
-  background: rgba(8, 6, 2, 0.7);
+  background: rgba(9, 2, 24, 0.7);
   color: var(--sol-text-dim);
   font-size: 0.75rem;
   text-align: center;
@@ -1896,7 +1896,7 @@ export default defineComponent({
   margin: 0;
   padding: 0.45rem 0.7rem;
   border-radius: 10px;
-  background: rgba(8, 6, 2, 0.78);
+  background: rgba(9, 2, 24, 0.78);
   backdrop-filter: blur(4px);
   color: var(--sol-text-dim);
   font-size: 0.74rem;

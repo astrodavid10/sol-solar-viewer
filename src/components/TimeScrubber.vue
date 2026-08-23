@@ -360,7 +360,7 @@ export default defineComponent({
   gap: 0.35rem;
   padding: 0.4rem 0.6rem 0.5rem;
   border-radius: 12px;
-  background: rgba(8, 6, 2, 0.72);
+  background: rgba(9, 2, 24, 0.72);
   backdrop-filter: blur(6px);
 }
 
@@ -386,9 +386,9 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 200, 80, 0.5);
+  border: 1px solid rgba(var(--sol-accent-rgb), 0.5);
   border-radius: 50%;
-  background: rgba(255, 200, 80, 0.12);
+  background: rgba(var(--sol-accent-rgb), 0.12);
   color: var(--sol-accent);
   font-size: 0.95rem;
   cursor: pointer;
@@ -409,8 +409,8 @@ export default defineComponent({
 }
 
 @keyframes ts-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 200, 80, 0.35); }
-  50% { box-shadow: 0 0 0 8px rgba(255, 200, 80, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--sol-accent-rgb), 0.35); }
+  50% { box-shadow: 0 0 0 8px rgba(var(--sol-accent-rgb), 0); }
 }
 
 .ts-track {
@@ -454,7 +454,7 @@ export default defineComponent({
   -webkit-tap-highlight-color: transparent;
 
   // C flares: quiet amber diamonds.
-  background: rgba(255, 200, 80, 0.55);
+  background: rgba(var(--sol-accent-rgb), 0.55);
 
   &.is-m {
     background: #ffa040;
@@ -483,7 +483,7 @@ export default defineComponent({
     transform: none;
     background: transparent;
     border: 2px solid var(--sol-accent2, #5fb8ff);
-    box-shadow: 0 0 6px rgba(95, 184, 255, 0.55);
+    box-shadow: 0 0 6px rgba(var(--sol-accent2-rgb), 0.55);
   }
 }
 
@@ -498,7 +498,7 @@ export default defineComponent({
   transition: background 200ms ease;
 
   &.is-loaded {
-    background: rgba(255, 200, 80, 0.75);
+    background: rgba(var(--sol-accent-rgb), 0.75);
   }
 }
 

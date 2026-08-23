@@ -100,6 +100,14 @@ jobs:
       # not.
       - name: Probe upstreams (never fatal)
         continue-on-error: true
+        # The relay that gets GONG data past NSO's block on GitHub's address
+        # ranges (footgun 33, docs/GONG-RELAY.md). BOTH are optional: unset, the
+        # pipeline talks to gong2.nso.edu directly, which is exactly today's
+        # behavior. Set, every GONG request is rewritten onto the relay at
+        # request time -- cache keys and published provenance still cite NSO.
+        env:
+          SOL_GONG_PROXY_BASE: ${{ secrets.SOL_GONG_PROXY_BASE }}
+          SOL_GONG_PROXY_TOKEN: ${{ secrets.SOL_GONG_PROXY_TOKEN }}
         run: python -m pipeline probe-sources --out dist-data
 
       - name: Build data products
@@ -112,6 +120,9 @@ jobs:
         env:
           FORCE: ${{ inputs.force }}
           MAX_FRAMES: ${{ inputs.max_frames }}
+          # See the probe step above and docs/GONG-RELAY.md.
+          SOL_GONG_PROXY_BASE: ${{ secrets.SOL_GONG_PROXY_BASE }}
+          SOL_GONG_PROXY_TOKEN: ${{ secrets.SOL_GONG_PROXY_TOKEN }}
         run: |
           # --with-texture is ON here and off by default locally: it costs a
           # 700 KB download plus ~10 s of reprojection, and a failure is soft

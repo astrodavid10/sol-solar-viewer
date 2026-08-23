@@ -188,12 +188,24 @@ def regions_for_date(d: date, timeout: float = 30.0
 
 def daily_history(days: int, now: Optional[datetime] = None,
                   timeout: float = 30.0) -> List[Dict[str, object]]:
-    """Per-UT-day spot and region counts for the last ``days`` days.
+    """Per-UT-day region records for the last ``days`` days.
 
     Returns ``[{"date": "YYYY-MM-DD", "region_count": n, "spot_count": n,
-    "spotted_region_count": n}]``, OLDEST FIRST.  Feeds the app's sunspot chip,
-    which has to answer "how many spots were there at the time under the
-    playhead" rather than "how many are there now".
+    "spotted_region_count": n, "regions": [...]}]``, OLDEST FIRST.  Feeds the
+    app's sunspot chip, which has to answer "how many spots were there at the
+    time under the playhead" rather than "how many are there now", and -- since
+    the sphere texture became time-aligned -- the surface markers too, so the
+    regions a guest sees belong to the same hour as the imagery under them.
+
+    ``regions`` is the raw per-day list; ``regions.export`` normalizes the field
+    names, so there is exactly one place that decides what a region looks like
+    on the wire.
+
+    Carrington longitude barely moves for a given region (measured: the JSON's
+    ``carrington_longitude`` and ``old_carrington_longitude`` differ by at most
+    1 deg across a day), which is the point of the co-rotating frame -- so what
+    actually changes across the window is WHICH regions exist and how many spots
+    each has, not where they are.
 
     Costs NO extra request: ``fetch_regions_json`` memoizes the one ~30-day
     solar_regions.json fetch that ``newest_regions`` already makes, so this is a
@@ -238,6 +250,7 @@ def daily_history(days: int, now: Optional[datetime] = None,
             "spotted_region_count": sum(
                 1 for r in regions if int(r.get("nSpotsRaw") or 0) > 0),
             "spot_count": int(spots),
+            "regions": list(regions),
         })
     return out
 

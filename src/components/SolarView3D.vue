@@ -76,6 +76,16 @@
         </div>
       </transition>
 
+      <!-- The far side is never observed from Earth. The sphere dims it, and
+           this says why once the guest has actually turned it into view --
+           without it the dimming reads as a rendering fault. -->
+      <transition name="fade">
+        <p v-if="unobserved > 0.55" class="sv-unobserved">
+          You're looking at the Sun's far side — no telescope sees this half
+          from Earth, so it isn't a photograph.
+        </p>
+      </transition>
+
       <!-- One card slot, three kinds of subject: a spacecraft, an active
            region, or the sub-Earth marker. `selectedId` says which. -->
       <transition name="fade">
@@ -505,6 +515,8 @@ export default defineComponent({
         visible: false,
       } as RegionChip,
       selectedId: "",
+      /** 0..1 — how much of the hemisphere in view was never observed. */
+      unobserved: 0,
       /** `events/events.json`, or null while it loads / when it is absent. */
       solarEvents: null as SolarEvents | null,
 
@@ -1121,6 +1133,10 @@ export default defineComponent({
         chip.visible = point.visible;
         chip.detail = this.formatDistance(rSunAt(body, ephemeris.epochs, unix));
       });
+
+      // Same cadence as the chips rather than per frame: this drives a piece of
+      // DOM, and 20 Hz is already far more than a fading hint needs.
+      this.unobserved = this.rt.surface?.unobservedFraction() ?? 0;
     },
 
     /** "97 R☉ · 0.45 AU" — solar radii first, because that's the story. */
@@ -1605,6 +1621,26 @@ export default defineComponent({
   color: var(--sol-text-dim);
   font-size: 0.75rem;
   text-align: center;
+}
+
+// Centred near the top, clear of the card slot and the scrubber. Deliberately
+// quiet: it explains the dimming the guest has just caused, it is not an alert.
+.sv-unobserved {
+  position: absolute;
+  top: 3.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(24rem, calc(100% - 2rem));
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  background: rgba(8, 6, 2, 0.78);
+  backdrop-filter: blur(4px);
+  color: var(--sol-text-dim);
+  font-size: 0.74rem;
+  line-height: 1.3;
+  text-align: center;
+  pointer-events: none;
 }
 
 .sv-cover {

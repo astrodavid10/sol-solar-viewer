@@ -99,6 +99,8 @@ export interface SunTextureInfo {
   url: string;
   obsIso: string;
   subEarthCarrLonDeg: number;
+  /** Heliographic latitude of the sub-Earth point (B0) when the map was made. */
+  subEarthLatDeg: number;
   /** How the pipeline filled the hemisphere Earth cannot see ("quiet"). */
   farSide: string;
   generatedUnix: number;
@@ -126,6 +128,13 @@ export interface SunSurface {
   setSpots: (spots: SunSpot[]) => void;
   /** Null until the SDO texture has loaded. */
   textureInfo: () => SunTextureInfo | null;
+  /**
+   * How much of what the guest is looking at was never observed: 0 facing the
+   * Earth-lit hemisphere, 1 facing the far side, feathered across the same band
+   * the shader dims. Null in synthetic mode or before a texture loads, because
+   * then there is no observation to be honest about.
+   */
+  unobservedFraction: () => number | null;
   tick: (dtSeconds: number) => void;
   setVisible: (value: boolean) => void;
   dispose: () => void;
@@ -183,6 +192,28 @@ const DRIFT_AMP_B = 0.5;
 /** Channel painted when nothing asks for another one — the pipeline's own
  *  default layer (config.TEX_CHANNELS[0]). */
 const DEFAULT_CHANNEL = "0171";
+
+/**
+ * Where the observed band ends, in radians. These MIRROR the pipeline's
+ * TEX_FEATHER_DEG = (75, 90): the map itself cross-fades observation into the
+ * far-side fill across that same span, so dimming across it means the darkening
+ * lands exactly where the honesty of the pixels does. Change them together.
+ */
+const OBSERVED_INNER_RAD = (75 * Math.PI) / 180;
+const OBSERVED_OUTER_RAD = (90 * Math.PI) / 180;
+
+/**
+ * How dark the unobserved hemisphere goes. Not to black: the far side still has
+ * to read as part of the same Sun, and a black hemisphere looks like a bug
+ * rather than a statement. 0.45 is enough that the terminator is unmistakable
+ * while the shape stays legible.
+ */
+const FAR_SIDE_DIM = 0.45;
+
+// Reused per call; unobservedFraction runs on the DOM-label cadence (~10 Hz),
+// not per frame, but allocating two vectors for a dot product is still silly.
+const scratchSubEarth = new Vector3();
+const scratchView = new Vector3();
 
 /** How often `texture.json` is re-checked while the 3D view is mounted. */
 const TEXTURE_POLL_MS = 30 * 60 * 1000;
@@ -336,6 +367,7 @@ void main() {
 interface RawLayer {
   channel?: string;
   label?: string;
+  sub_earth_lat_deg?: number;
   wavelength_angstrom?: number | null;
   far_side?: string;
   url?: string;
@@ -361,6 +393,7 @@ interface RawTexture {
   wavelength_angstrom?: number | null;
   channel?: string;
   label?: string;
+  sub_earth_lat_deg?: number;
 }
 
 interface RawRegion {
@@ -459,6 +492,7 @@ async function fetchTextureInfo(
       url: raw.url,
       obs_iso: raw.obs_iso,
       sub_earth_carr_lon_deg: raw.sub_earth_carr_lon_deg,
+      sub_earth_lat_deg: raw.sub_earth_lat_deg,
     }];
   /* eslint-enable @typescript-eslint/naming-convention */
   const available = published
@@ -482,6 +516,9 @@ async function fetchTextureInfo(
     subEarthCarrLonDeg: typeof chosen.sub_earth_carr_lon_deg === "number"
       ? chosen.sub_earth_carr_lon_deg
       : Number.NaN,
+    subEarthLatDeg: typeof chosen.sub_earth_lat_deg === "number"
+      ? chosen.sub_earth_lat_deg
+      : 0,
     farSide: typeof raw.far_side === "string" ? raw.far_side : (raw.far_side ? "present" : ""),
     generatedUnix,
     channel: typeof chosen.channel === "string" ? chosen.channel : "",
@@ -527,12 +564,63 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
 
   // AIA is self-luminous, so the SDO mode is deliberately unlit — a
   // MeshBasicMaterial reproduces the disc view's own look exactly.
+  // Uniforms shared with the injected far-side dimming below. Held here (not
+  // in a ShaderMaterial) because MeshBasicMaterial + onBeforeCompile keeps
+  // three's colour management: the map is an sRGB texture, and a hand-rolled
+  // ShaderMaterial writing gl_FragColor would have to redo the sRGB->linear
+  // sample and the output encoding by hand, which is exactly the kind of thing
+  // that silently ships a washed-out Sun.
+  const farSide = {
+    // (l0 radians, sin(B0), cos(B0)) — everything the spherical law of cosines
+    // needs, precomputed so the shader does no trig on constants.
+    uSubEarth: { value: new Vector3(0, 0, 1) },
+    // Feather half-angles in RADIANS, matching the pipeline's TEX_FEATHER_DEG.
+    uObserved: { value: new Vector3(OBSERVED_INNER_RAD, OBSERVED_OUTER_RAD, 0) },
+    uFarDim: { value: FAR_SIDE_DIM },
+  };
+
   const sdo = new MeshBasicMaterial({
     transparent: false,
     depthTest: true,
     depthWrite: true,
     side: SOLID_SIDE,
   });
+
+  /**
+   * Darken the hemisphere Earth cannot see.
+   *
+   * The map is a Carrington plate carree, so a fragment's heliographic
+   * position falls straight out of its uv: lon = u*360, lat = (v-0.5)*180
+   * (three's default flipY puts v=1 at the image's top row, which the pipeline
+   * writes as +90 lat). The angular distance to the sub-Earth point is then one
+   * spherical law of cosines, with no varying to thread through the vertex
+   * stage and no extra attribute.
+   *
+   * Why do it at all: for the EUV channels the far side is a stylised
+   * quiet-Sun fill, and for the two HMI products a flat neutral one. Neither is
+   * an observation, and at full brightness both read as though they were.
+   * Dimming says "we don't know this half" in the one language a picture has.
+   */
+  sdo.onBeforeCompile = (shader) => {
+    shader.uniforms.uSubEarth = farSide.uSubEarth;
+    shader.uniforms.uObserved = farSide.uObserved;
+    shader.uniforms.uFarDim = farSide.uFarDim;
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>
+        uniform vec3 uSubEarth;
+        uniform vec3 uObserved;
+        uniform float uFarDim;`)
+      .replace("#include <map_fragment>", `#include <map_fragment>
+        {
+          float lon = vMapUv.x * 6.283185307179586;
+          float lat = (vMapUv.y - 0.5) * 3.141592653589793;
+          float cosd = sin(lat) * uSubEarth.y
+                     + cos(lat) * uSubEarth.z * cos(lon - uSubEarth.x);
+          float ang = acos(clamp(cosd, -1.0, 1.0));
+          float far = smoothstep(uObserved.x, uObserved.y, ang);
+          diffuseColor.rgb *= mix(1.0, uFarDim, far);
+        }`);
+  };
 
   // Explicit union: the two modes swap `mesh.material` in place, which is
   // cheaper and simpler than two meshes sharing one geometry.
@@ -601,6 +689,15 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     texture = next;
     info = meta;
     sdo.map = next;
+
+    // Where Earth was when THIS map was made. Per-texture, not per-frame: the
+    // observed band belongs to the image, so a future per-frame texture
+    // sequence gets the sweeping terminator for free.
+    const l0 = Number.isFinite(meta.subEarthCarrLonDeg) ? meta.subEarthCarrLonDeg : 0;
+    const b0 = (meta.subEarthLatDeg * Math.PI) / 180;
+    (farSide.uSubEarth.value as Vector3).set(
+      (l0 * Math.PI) / 180, Math.sin(b0), Math.cos(b0));
+
     sdo.needsUpdate = true;
     previous?.dispose();
     applyMode();
@@ -733,6 +830,28 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     setSpots: applySpots,
 
     textureInfo: () => info,
+
+    unobservedFraction(): number | null {
+      if (effective() !== "sdo" || !info) { return null; }
+      const camera = synthetic.uniforms.uCameraPos.value as Vector3;
+      if (camera.lengthSq() === 0) { return null; }
+      // Sub-Earth direction in the SAME local frame the texture is mapped in,
+      // then carried into world space by the group's Carrington quaternion —
+      // the one the field lines set. Doing it through the group rather than
+      // recomputing an ecliptic vector means this cannot drift out of step
+      // with what is actually drawn.
+      const l0 = (info.subEarthCarrLonDeg * Math.PI) / 180;
+      const b0 = (info.subEarthLatDeg * Math.PI) / 180;
+      scratchSubEarth
+        .set(Math.cos(b0) * Math.cos(l0), Math.cos(b0) * Math.sin(l0), Math.sin(b0))
+        .applyQuaternion(group.quaternion);
+      scratchView.copy(camera).normalize();
+      const angle = Math.acos(
+        Math.min(1, Math.max(-1, scratchSubEarth.dot(scratchView))));
+      const t = (angle - OBSERVED_INNER_RAD) / (OBSERVED_OUTER_RAD - OBSERVED_INNER_RAD);
+      const clamped = Math.min(1, Math.max(0, t));
+      return clamped * clamped * (3 - 2 * clamped);
+    },
 
     tick(dtSeconds: number): void {
       if (!Number.isFinite(dtSeconds)) { return; }

@@ -343,6 +343,38 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     relay is needed at all and what was ruled out by measurement (every host serving the mrzqs
     product — including anonymous FTP and sunpy's VSO client — is the same blocked IP).
 
+38. **The engine's touch AND pointer handlers must be no-opped at IMPORT TIME**, exactly
+    like `onGesture*` (footgun 10) — `WWTControl.setup` binds them with
+    `ss.bind('onTouchStart', this)`, capturing the method reference, so a patch applied after
+    `initControl` is never seen. `src/wwt/gestures.ts` owns touch input instead, and the
+    reasons are in its header with engine line numbers: the engine ships TWO independent
+    two-finger implementations bound to the same canvas (`touch*` and `pointer*`) and BOTH
+    call `zoom()`, so a pinch applied roughly the SQUARE of the intended ratio — and because
+    the two have different gates (`_twoTouchEvents > 10` vs. none) the gain also changed
+    abruptly mid-gesture. `_rotating` and `_dragging` both latch for the rest of a gesture,
+    and two-finger mode is decided from `targetTouches`, which EXCLUDES any finger that
+    landed on an overlay element — which is why a pinch starting on a 44 px region chip
+    silently became an orbit. Do not try to fix these in place; four faults compound.
+    Two consequences worth keeping: our module listens on the **stage root in the capture
+    phase** (that is what lets a finger on a chip count toward a pinch), and it claims a
+    pointer for the camera only when a SECOND one arrives — claiming the first would break
+    every button on the stage. Two-finger twist goes through `sunStage.addUserRoll()`, which
+    is separate state, because `orbitByPixels` recomputes `camera.rotation` from scratch every
+    drag step to keep solar north up and would otherwise erase a roll on the next pan.
+    `TWIST_SIGN` is a named constant and is UNVERIFIED on a touch device, for the same reason
+    `AZIMUTH_SIGN`/`ELEVATION_SIGN` are named: the sign cannot be derived reliably through a
+    left-handed view matrix and a y-down screen.
+39. **`backdrop-filter` over the shared canvas costs a blur EVERY FRAME, moving or not.** A
+    backdrop-filter is recomputed whenever its backdrop changes, and the backdrop here is a
+    WebGL canvas repainting at the full frame rate — so a static blurred panel is not free,
+    and a blurred panel that also MOVES every frame (the label chips did) is the reported
+    "framerate feels low on the labels as we drag around the sun". HANDOFF §8.4 already
+    specified "NO backdrop-filter — a solid plate doesn't need it" and flagged the risk at
+    20 Hz; the shipped code had it at 60. Raise the plate alpha instead. Blur is affordable
+    only where it is NOT over the canvas (the kiosk QR modal) — and if you add one, add the
+    `-webkit-` prefix too, or older Safari silently skips it and the page looks fine on the
+    one device you tested.
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).

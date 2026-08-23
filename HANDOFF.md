@@ -181,6 +181,12 @@ was needed.
 **Measured result:** 16 frames per channel, 10.85 MB of history, `public/data` 5.3 MB → **16.79
 MB**, `texture.json` 4.9 KB → 37 KB. Zero extra bytes for a guest who never scrubs.
 
+**The reuse path is PROVEN, not assumed** — the mechanism the CI budget depends on.
+A second run against the same tree reported `75 reused, 0 built, 15 unavailable
+upstream, 0 deferred by the cap`: only the five full-resolution newest maps were
+rebuilt. Cold build was 623 s for 80 frames (~8 s each); warm is the five newest
+maps alone.
+
 **A real upstream gap, correctly handled.** The SDO browse archive for **2026-08-21 stops at
 12:42 UT in every channel at every resolution** — verified directly against the listings, not
 inferred. Three slots x five channels are therefore unobtainable for this window, and they are
@@ -275,13 +281,169 @@ path and `reset()` `rmtree`s it. A `regions` run wiped 14 of 18 staged texture f
 under a running `texture` run, which then promoted the survivors and wrote a `texture.json`
 naming 15 history frames of which 4 existed. Nothing raised; exit code 0.
 
+### Overlays, gestures, performance — the rest of the session
+
+**All seven measured overlay defects fixed at the cause.** The arithmetic for each
+is in the code comments; the headline ones: the scrubber painted over the card
+whenever the stale banner showed (a fixed `bottom` cannot see +18 px of banner
+coming — both now live in one flex column); the layer popover hung off a
+hardcoded button count of `4` despite a comment claiming it was derived, and had
+no `max-height`, so on a landscape phone it clipped mid-content with no
+scrollbar (footgun 28's exact failure mode); the far-side note overlapped the
+button stack below ~416 px AND was covered entirely by the title pill on any
+notched phone, because it had no `env(safe-area-inset-top)` while the title
+does. **E7 is the one worth remembering:** in overlay mode the three.js canvas
+sits at `z-index: 10` inside `.solar-view-3d` and outranked the whole UI at 5 —
+and that is not just `?three=overlay`, because `stage.ts` falls back to overlay
+mode **automatically on WebGL1-only devices**, i.e. exactly the cheap phone a
+guest is likely to have. Field lines painted over the scrubber, the card and the
+labels on those devices.
+
+**Gestures: the app now owns touch input.** The engine's two-finger handling was
+not fixable in place — four independent faults, each sufficient on its own,
+every one read out of the engine source and recorded in `src/wwt/gestures.ts`:
+two competing implementations (`touch*` AND `pointer*` bound to the same canvas,
+both calling `zoom()`, so the applied ratio was roughly SQUARED — and with
+different gates, so the gain changed abruptly mid-gesture); `_rotating` latching
+and blocking zoom for the rest of a gesture; `_dragging` latching because
+`onTouchEnd` returns early without clearing it; and two-finger mode being decided
+from `targetTouches`, which excludes any finger that landed on an overlay
+element. That last one is the user's actual complaint, and it is why the new
+module listens on the **stage root in the capture phase** — a second finger
+landing on a label chip is seen before the chip sees it.
+
+Twist needed new state: `orbitByPixels` recomputes `camera.rotation` from
+scratch every drag step to keep solar north up, so a roll written into the camera
+survived only until the next pan. `sunStage` now owns `userRollRad` that the
+framing is ADDED to; recenter is the only thing that clears it.
+→ **footgun 38** (these patches must be installed at import time, like
+`onGesture*`) and **footgun 39** (`backdrop-filter` over the shared canvas costs
+a blur every frame whether the element moves or not).
+
+**`TWIST_SIGN` is UNVERIFIED.** It is a named constant for the same reason
+`AZIMUTH_SIGN`/`ELEVATION_SIGN` are: the sign cannot be derived reliably through
+a left-handed view matrix and a y-down screen. If twist rotates the wrong way,
+flip one character in `gestures.ts`.
+
+**Label framerate — the reported symptom, root-caused.** The GPU is not the
+problem: the scene is ~15 draw calls and ~23k vertices. Three CPU/compositor
+costs that all scale with camera motion:
+
+- **`backdrop-filter` on the four chips that move every frame**, over a canvas
+  that repaints every frame. A backdrop-filter is recomputed whenever its
+  backdrop changes, so they were re-blurring at 60 Hz. HANDOFF §8.4 had already
+  specified "NO backdrop-filter — blur is the most expensive thing in the
+  overlay" and estimated the risk at 20 Hz; the shipped code had it at 60.
+  Removed from the chips and from the far-side note; a higher plate alpha does
+  the legibility job for nothing.
+- **`solarWind.tick()` ran a 3,000-particle loop and re-uploaded 48 KB of
+  attributes every frame, outside every throttle in the app** (it is reached
+  from `updateSun`, not from the projection block). Now a fixed 30 Hz cadence
+  with time ACCUMULATED rather than dropped, so the wind still travels at the
+  speed the solar-wind reading implies.
+- **Per-frame allocation.** `project.ts` claimed "nothing is allocated per
+  call" — true of its vectors, false of its output (one object literal per
+  target per call, ~1,080/s during a drag). `deCollideLabels` allocated ~5 arrays
+  and 2 closures per invocation. Both zero now. The solar axis was also being
+  re-derived from the Julian date on every pointer event and twice per frame in
+  `clampCameraLat`, for a value that moves 1e-5 deg/minute — cached.
+
+Drag input is also coalesced now: deltas accumulate and apply once per animation
+frame, because a museum touchscreen fires several `pointermove` events per
+rendered frame (`kiosk.ts:67` already said so) and `orbitByPixels` does real
+trigonometry.
+
+### A real bug found by measurement: label de-collision was wrong in the common case
+
+The old algorithm closed a "run" whenever a chip cleared the **previous** one in
+y, so chip A and chip C could land in different runs because B separated them —
+and then still overlap each other. Fuzzed over 20,000 layouts, that left an
+overlap in **3.67% of realistic phone layouts and 33.95% when the chips cluster
+near disk centre**. Clustering near disk centre is not the unusual case: active
+regions live in the activity belts, which is exactly where they bunch up. §8.0
+had already flagged "two active regions near disk centre" as the case §8.4 did
+not anticipate — this is that case, quantified.
+
+Now every chip clears the stride against every already-placed chip it overlaps
+horizontally, and independent groups (union-find over the x-overlap graph) are
+shifted rigidly back onto their own mean — safe precisely because chips in
+different groups provably do not overlap in x. **0.00% overlaps** at every
+viewport tested.
+
+**`scripts/check_label_layout.mjs` is the app's first test.** It asserts what has
+to hold rather than what the code does: no overlapping pair inside the stride, `x`
+never mutated, and the caller's array order preserved (that order IS the chip
+identity — the template renders `chips[i]`, so a reorder would relabel every
+marker). It earned its keep immediately: my first version of the grouping cached
+a group id that a merge could invalidate, leaving 38 bad pairs in 20,000 — rare
+enough to look like it worked, and only the fuzz found it.
+
+### App half of time-aligned imagery
+
+`sunSurface.ts` reads `sol.texture/3`'s per-slot frames and `setFrameTime(unix)`
+snaps to the nearest 4 h slot, driven from the playhead on the chip cadence.
+Snapping rather than cross-fading follows the **solar wind's** precedent (rebuild
+on integer frame change) rather than the field lines' GPU `uMix` blend: a
+cross-fade needs a second sampler and twice the resident memory to smooth
+something the 4 h data cadence does not support.
+
+Residency became a **byte budget (40 MB), not "exactly one texture"**. The newest
+map is 4096x2048 (32 MB as RGBA) and history frames are 2048x1024 (8 MB), so a
+frame COUNT would either allow four newest maps or discard three history frames
+per newest one. A plain LRU means scrubbing back naturally evicts the big one and
+buys four history frames instead; the frame on screen is never evicted; both
+neighbours are prefetched, because a dragging playhead reverses constantly.
+**Not yet measured on a phone** — that number is the one to lower if a mid-range
+device runs out of texture memory.
+
+The terminator came free exactly as the old comment promised: `adoptTexture`
+rewrites the info's sub-Earth fields, so `subEarthFrame()` and
+`unobservedFraction()` follow the pixels without knowing frames exist.
+
+**The off-limb billboard is hidden while scrubbed.** It is a photograph of the
+corona as seen from Earth RIGHT NOW and the pipeline publishes exactly one, so
+wrapping it around a three-day-old photosphere would pair today's prominences
+with an older Sun. The sphere is time-aligned; this one layer is honest about
+only having "now".
+
+### The far-side tip closes now
+
+Dismissal is sticky for the session — it is the same sentence every time. Two
+things fixed with it: hysteresis (show above 0.58, hide below 0.50), because a
+single threshold meant a drag hovering near it mounted and unmounted a
+transition-wrapped element several times a second; and its fraction is no longer
+reactive state, because it was a reactive write per frame dirtying the whole
+overlay's render effect to move a hint that only appears or disappears.
+
+### ⚠ NOT VERIFIED IN A BROWSER
+
+**This session had no browser automation available.** Everything above passes
+`yarn lint`, `yarn typecheck` and `yarn build`, the pipeline validates 0/0, and
+the label-layout invariants are proven by test — but **none of the visual or
+touch work has been seen running.** Specifically unverified:
+
+- every overlay fix at every viewport (the §4 iframe harness is the tool; add
+  **812x375 landscape**, which is the case E4 breaks in, and **320 px**, which is
+  E6's);
+- the whole gesture module: pinch, twist, `TWIST_SIGN`, one-finger orbit, and
+  whether a first finger on a label chip still taps it;
+- the texture sequence actually swapping as the scrubber moves, and whether the
+  snap reads as a jump;
+- the cooled palette and the new credit rows;
+- GPU memory under a real scrub on a real phone.
+
+`preview.jpg` was NOT regenerated — it needs a screenshot of the running app, so
+it is still the pre-redesign image.
+
 ### Still not done from the approved plan
 
-WS2 responsive overlays (E1-E7 in the plan file: the scrubber painting over the card, the
-popover's hardcoded button count and missing height cap, `.sv-unobserved` colliding with both
-the button stack and the title pill, the 320 px stat-grid overflow, and the three canvas
-outranking the whole UI on WebGL1 devices) · WS3 label/render performance · WS4 gestures ·
-WS5 the app half of time-aligned imagery · the dismissible back-side tip · `preview.jpg`.
+**Browser and phone verification of everything this session touched** (see the
+warning above — this is now the single biggest gap) · `preview.jpg` ·
+deploying the GONG relay (`wrangler deploy` + two repo secrets; the code is
+ready) · the remaining design tiers: fat orbit lines (`Line2`, §8.4e — still
+0.33 CSS px on a DPR-3 phone) and taking gold out of `RegionLabel`'s text
+(§8.4d, still the worst contrast in the app) · a texture cross-fade, if the
+4 h snap reads badly · M-W9's CME eruption layer.
 
 ---
 

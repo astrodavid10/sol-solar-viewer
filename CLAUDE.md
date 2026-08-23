@@ -147,6 +147,39 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     same photospheric limb HMI sees) is 0.7711 vs HMI 0.9168 = 0.8411, within 0.2% of the
     0.5044/0.6009 plate-scale ratio. The EUV channels' limb really is ~1.5% larger — emission
     above the photosphere, not a framing error. Do not "correct" it away.
+26. **WWT's camera lat/lng has its poles at +/-Y — an arbitrary pair of points IN the
+    ecliptic plane** (ecliptic longitude 90 and 270), NOT at the ecliptic or solar poles.
+    `cameraPosition = d*(-cos(lat)sin(lng), sin(lat), cos(lat)cos(lng))`, derived from
+    `setupMatricesSolarSystem` + `_rotationX/_rotationY/transform/_multiply`. Near those
+    points `lng` does nothing, so horizontal drag goes dead, and clamping `lat` to guard the
+    degeneracy reads as an invisible wall in a direction unrelated to anything on screen.
+    `sunStage.orbitByPixels` therefore REPLACES the engine's solar-system `move()` and orbits
+    about the SUN's axis instead; `clampCameraLat` now bounds the angle to that axis.
+    The two drag signs (`AZIMUTH_SIGN` +1, `ELEVATION_SIGN` -1) were settled at the screen and
+    cannot be derived from the engine's own `lng -= x` / `lat += y` — different axis, and the
+    elevation axis `cross(solar_axis, u)` flips with which side of the Sun you are on.
+27. **`.solar-view-3d` is `position: relative` with `z-index: auto`, so it creates NO stacking
+    context** — its descendants (scrubber at z-index 5, card slot at 20) compete directly with
+    any SIBLING overlay in `sol.vue`. The branding mark sat invisible at z-index 3 for a whole
+    session because of this. Anything placed over the 3D view from outside it must clear the
+    z-indices used INSIDE it, or the 3D view needs its own stacking context.
+28. **An internally-scrolling flex panel needs `min-height: 0` on the container, the panel AND
+    the grid item.** Miss any one and the content sets a floor on the item's height, the `1fr`
+    row stops constraining anything, and the panel silently clips mid-content with no
+    scrollbar while its neighbour draws over the top. Also: `grid-template-rows` and
+    `grid-template-areas` must declare the SAME number of rows — four sizes against a two-row
+    map put the stage in an `auto` row and the WebGL canvas, which has no intrinsic height,
+    collapsed to nothing.
+29. **Off-limb structure cannot go on the sphere.** A disk image records the corona's
+    PROJECTION from Earth and carries no depth, so `texture/*_offlimb_*.jpg` is drawn as a
+    camera-facing billboard (`src/three/offLimb.ts`) and FADES OUT with the angle from the
+    sub-Earth direction — past ~25-55 deg it would be a flat photograph pasted across a Sun
+    seen from the side. The crop is centred on the FITTED disk centre, not the array centre
+    (`measure_limb` reports 12-14 px offsets on AIA frames). Black, not alpha: the billboard
+    is additive, so black already contributes nothing and a PNG would cost several times the
+    bytes. `half_width_rsun` is DATA (AIA 1.28, HMI 1.09) because it falls out of plate scale.
+    The validator asserts the disk centre is black — additive blending would otherwise paint a
+    second Sun over the sphere and nothing else would catch it.
 22. **The 3D sphere texture is MULTI-CHANNEL** (`sol.texture/2`). `TEX_WAVELENGTHS =
     (171, 304, 193)` in `pipeline/config.py`; `run_texture` loops them and writes one
     `aia{wwww}_carrington_2048x1024.jpg` each (~110-180 KB, 432 KB total, ~38 s) plus a

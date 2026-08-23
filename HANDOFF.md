@@ -188,9 +188,15 @@ hand; CI now preserves them and marks `pfss` stale rather than deleting them. Tr
 `pfss` entry in `index.json` as expected. Do NOT "fix" it by lowering
 `MIN_FRAMES_TO_PUBLISH`.
 
-**Options, none tried yet:** ask NSO to allow-list GitHub's ranges; find a GONG mirror
-(JSOC/Stanford carries the same synoptic products); run the data job on a self-hosted runner
-at the planetarium; or proxy the fetch. Diagnostics are now in place either way — `_scrape_gong`
+**Options.** One is already ruled out by measurement: `gong.nso.edu` and `gong2.nso.edu`
+resolve to the **same IP** (146.5.21.69), so switching hostname mirrors cannot help — any
+allow-listing or blocking applies to both. (`nso.edu` itself is on 50.6.111.190 and is
+reachable from CI, but serves no data.) What is left: ask NSO to allow-list GitHub's ranges;
+run the data job on a **self-hosted runner** at the planetarium, which is the only option
+fully under our control and also removes the 25-minute job cap; substitute a different
+synoptic magnetogram source (JSOC's HMI synoptic Carrington maps are the obvious candidate,
+but that changes the model input and breaks parity with the dome show, so it is not a casual
+swap); or proxy the fetch through a host NSO does not block. Diagnostics are now in place either way — `_scrape_gong`
 prints the actual exception (footgun 32), `data.yml` runs `probe-sources` every run, and a
 circuit breaker stops asking after two consecutive timeouts (which also gave back ~4 minutes
 of every run).

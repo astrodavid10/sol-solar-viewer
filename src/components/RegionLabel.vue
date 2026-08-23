@@ -103,9 +103,19 @@ export default defineComponent({
   min-height: 44px;
   margin: -22px 0 0 -11px;
   padding: 0 0.5rem 0 0.35rem;
-  border: 1px solid transparent;
+  border: 1px solid rgba(245, 244, 240, 0.22);
   border-radius: 999px;
-  background: transparent;
+  // These chips sit ON the photosphere, which is the brightest thing on screen.
+  // Measured against WCAG 2.1 relative luminance, NOTHING survives naked there:
+  // the app's text at 1.10:1, gold at 1.54:1, dim text at 2.22:1. Legibility
+  // over the Sun has to come from a PLATE, never from a colour choice — the
+  // whole argument of HANDOFF §8.3's last table. This plate composites to
+  // #241E33 over a white disk, where the text below measures 14.6:1.
+  //
+  // A solid plate on purpose rather than a blurred one: the backdrop is a canvas
+  // repainting every frame and these chips MOVE every frame, so a
+  // backdrop-filter here costs a blur per chip per frame (footgun 39).
+  background: rgba(9, 2, 24, 0.86);
   color: var(--sol-text);
   text-align: left;
   white-space: nowrap;
@@ -140,10 +150,19 @@ export default defineComponent({
   text-shadow: 0 0 4px rgba(0, 0, 0, 0.85), 0 1px 2px rgba(0, 0, 0, 0.9);
 }
 
-// Active regions are content: accent ring, full-strength label.
+// Active regions are content: accent RING, full-strength label.
+//
+// The label text used to be gold, which measured **1.54:1 on the photosphere** —
+// the worst contrast anywhere in the app, and by definition sitting exactly
+// where it was worst. Gold now lives in the ring only, where it is a 2 px shape
+// against a dark halo rather than 11 px letterforms against the Sun.
+//
+// This also takes colour out of the role of sole carrier, which it should never
+// have had: the RING means "active region" and the ⊕ GLYPH means "sub-Earth", so
+// the two chip kinds are distinguishable without seeing hue at all.
 .is-region {
   .rl-text {
-    color: var(--sol-accent);
+    color: var(--sol-text);
   }
 }
 

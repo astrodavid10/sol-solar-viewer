@@ -415,6 +415,42 @@ transition-wrapped element several times a second; and its fraction is no longer
 reactive state, because it was a reactive write per frame dirtying the whole
 overlay's render effect to move a hint that only appears or disappears.
 
+### Design tiers 2-3: the two items §8.0 called highest-value are done
+
+**`RegionLabel`'s gold text is gone** — it measured **1.54:1 on the photosphere**,
+the worst contrast anywhere in the app, sitting by definition exactly where it
+was worst. The chip had no background at all, so the text sat naked on the
+brightest thing on screen; nothing survives there (app text 1.10:1, gold 1.54:1,
+dim text 2.22:1), which is the whole argument of §8.3's last table. The chip now
+carries a solid plate (14.6:1) and gold lives in the ring only. Colour also stops
+being the sole carrier: the ring means "active region", the ⊕ glyph means
+"sub-Earth".
+
+**Fat orbit lines shipped.** §8.2 named 1-device-pixel trails as the root cause
+of "the planet orbits don't pop very well", and it was never a colour problem:
+`LineBasicMaterial` renders exactly one DEVICE pixel on WebGL whatever
+`linewidth` says, so on a DPR-3 phone each orbit was **0.33 CSS px**. The
+opacities had already been lifted once without helping, which is the tell. Now
+`Line2`/`LineGeometry`/`LineMaterial` (already in three 0.185; nothing in `src/`
+had imported them) with a two-pass road casing. Both of §8.4(e)'s warnings
+observed and commented: `side: FLAT_SIDE`, or WWT's reversed winding culls every
+quad (footgun 19); and `resolution` from `stage.bufferSize()`, never
+`gl.canvas.width` (footgun 16) — plus a CSS-to-device scale, without which a
+"2 px" line draws 0.67 CSS px on DPR 3 and the original bug returns in disguise.
+Cost +29.5 KiB raw / +9.3 KiB gzipped, in the async 3D chunk, so first paint is
+unaffected.
+
+Planet orbits (§8.4f, `solarSystemOrbits = false` plus our own from
+`orbitSampleVerticesAU()`) are still NOT done — those are WWT's and remain
+unstyleable.
+
+### Verified end to end over HTTP
+
+Through the dev server, so the data contract is proven rather than assumed:
+`sol.texture/3` serves 5 layers x 16 frames (oldest 2048x1024, newest
+4096x2048), an individual history frame returns as a 150 KB JPEG, and `sol.ar/3`
+serves 4 history days each carrying its regions' positions.
+
 ### ⚠ NOT VERIFIED IN A BROWSER
 
 **This session had no browser automation available.** Everything above passes
@@ -429,7 +465,9 @@ touch work has been seen running.** Specifically unverified:
   whether a first finger on a label chip still taps it;
 - the texture sequence actually swapping as the scrubber moves, and whether the
   snap reads as a jump;
-- the cooled palette and the new credit rows;
+- the cooled palette, the new credit rows, the region-label plate and the fat
+  orbit lines (the last is the one most likely to need tuning by eye — the
+  casing/core widths were taken from the design spec, not from a screen);
 - GPU memory under a real scrub on a real phone.
 
 `preview.jpg` was NOT regenerated — it needs a screenshot of the running app, so
@@ -440,10 +478,8 @@ it is still the pre-redesign image.
 **Browser and phone verification of everything this session touched** (see the
 warning above — this is now the single biggest gap) · `preview.jpg` ·
 deploying the GONG relay (`wrangler deploy` + two repo secrets; the code is
-ready) · the remaining design tiers: fat orbit lines (`Line2`, §8.4e — still
-0.33 CSS px on a DPR-3 phone) and taking gold out of `RegionLabel`'s text
-(§8.4d, still the worst contrast in the app) · a texture cross-fade, if the
-4 h snap reads badly · M-W9's CME eruption layer.
+ready) · our own planet orbits (§8.4f) · a texture cross-fade, if the 4 h snap
+reads badly · M-W9's CME eruption layer · Lighthouse mobile · kiosk soak.
 
 ---
 

@@ -61,6 +61,7 @@
         <button
           type="button"
           class="sv-icon-btn"
+          v-if="!wide"
           :class="{ 'is-active': sheet === 'layers' }"
           aria-label="Layers"
           title="Layers"
@@ -71,7 +72,7 @@
       </div>
 
       <transition name="fade">
-        <div v-if="sheet === 'layers'" class="sv-layer-popover">
+        <div v-if="!wide && sheet === 'layers'" class="sv-layer-popover">
           <layer-panel />
         </div>
       </transition>
@@ -232,6 +233,7 @@ import {
   surfaceMode,
   textureChannel,
   view,
+  wide,
 } from "../state/useAppState";
 import { boolParam, stringParam } from "../urlParams";
 
@@ -487,7 +489,7 @@ export default defineComponent({
     const { stats } = useSolarStats();
     return {
       frameT, layers, playing, resetToken, sheet, surfaceMode, fieldColorMode,
-      textureChannel, view, solarStats: stats,
+      textureChannel, view, wide, solarStats: stats,
     };
   },
 

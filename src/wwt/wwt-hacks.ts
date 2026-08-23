@@ -10,6 +10,8 @@
 
 import { WWTControl } from "@wwtelescope/engine";
 
+import { orbitByPixels } from "./sunStage";
+
 // Minimal view of the engine internals we patch; the official .d.ts does not
 // expose these members.
 interface PatchableControl {
@@ -40,15 +42,25 @@ proto.onGestureStart = function () { /* no-op: iOS double-applies zoom */ };
 proto.onGestureChange = function () { /* no-op: see modify_index.py rationale */ };
 proto.onGestureEnd = function () { /* no-op */ };
 
-// --- Swipe sensitivity in solar-system mode ----------------------------------
-// The engine's solar-system move() works out to ~0.378°/px — a full-width
-// phone swipe would spin the Sun ~147°. Scale it down for touch comfort.
-export const SOLAR_MOVE_SCALE = 0.3; // ~0.11°/px ⇒ full-width swipe ≈ 45°
+// --- Orbit in solar-system mode ----------------------------------------------
+// Sensitivity now lives with the orbit model it belongs to
+// (sunStage.ORBIT_DEG_PER_PX), rather than as a scale factor on an engine
+// behaviour we no longer use.
 
 const origMove = proto.move;
 proto.move = function (this: PatchableControl, x: number, y: number) {
-  const k = this.get_solarSystemMode() ? SOLAR_MOVE_SCALE : 1;
-  origMove.call(this, x * k, y * k);
+  if (this.get_solarSystemMode()) {
+    // Our own orbit model, not a scaled version of the engine's. WWT's
+    // lat/lng sphere has its poles at +/-Y — an arbitrary pair of points in
+    // the ecliptic plane — so near them horizontal drag went dead and the
+    // latitude guard read as an invisible wall. sunStage.orbitByPixels turns
+    // about the SUN's axis instead, so the only place the controls converge is
+    // the Sun's own poles, which is where a person expects a globe to
+    // converge. See the comment on that function.
+    orbitByPixels(x, y);
+    return;
+  }
+  origMove.call(this, x, y);
 };
 
 // --- Disable two-finger roll --------------------------------------------------

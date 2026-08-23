@@ -20,7 +20,9 @@
         <font-awesome-icon :icon="copied ? 'check' : 'share-nodes'" />
       </button>
 
+      <!-- Redundant on desktop: the rail keeps the info panel open. -->
       <button
+        v-if="!wide"
         type="button"
         class="tb-icon-btn"
         aria-label="About this app"
@@ -36,14 +38,14 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 
-import { kiosk } from "../state/useAppState";
+import { kiosk, wide } from "../state/useAppState";
 
 export default defineComponent({
   name: "TopBar",
   emits: ["info"],
 
   setup() {
-    return { kiosk };
+    return { kiosk, wide };
   },
 
   data() {

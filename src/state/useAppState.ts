@@ -82,6 +82,18 @@ export const DEFAULT_TEXTURE_CHANNEL: TextureChannel = "0171";
 export const textureChannel = ref<TextureChannel>(DEFAULT_TEXTURE_CHANNEL);
 
 /**
+ * True on a screen wide enough for the desktop rail (>= 900 px).
+ *
+ * Shared rather than local to sol.vue because it changes WHERE panels live,
+ * not just how they look: on a phone the info sheet and the layer popover are
+ * overlays opened from a button, and on a desktop they are permanent columns
+ * in the right-hand rail. Both the owner of the rail (sol.vue) and the owner
+ * of the buttons (SolarView3D, TopBar) have to agree on which world they are
+ * in, or the guest gets two copies of the same panel.
+ */
+export const wide = ref(false);
+
+/**
  * How the field lines are coloured. "polarity" is the dome show's own palette
  * (gold closed arcades, blue outbound open field, orange inbound) and carries
  * real information; "blue" paints every line one electric blue, which reads as

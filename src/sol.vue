@@ -4,36 +4,31 @@
       <div class="sol-root" :class="{ 'is-wide': wide, 'is-kiosk': kioskMode }">
         <top-bar class="sol-area-top" @info="sheet = 'info'" />
 
-        <view-switcher class="sol-area-switch" />
-
         <main class="sol-area-stage">
-          <!-- Kept mounted: switching to 3D and back must not re-download the
-               still or lose the guest's zoom. -->
-          <disk-viewer v-show="view === 'disk'" />
+          <!-- The whole app. Async because the WWT engine + three.js live only
+               in this chunk, and its module scope installs wwtPinia on the app
+               instance stashed by setAppHandle() below — main.ts must never
+               import the engine (CLAUDE.md "Entry chunk must stay
+               engine-free"). Mounted immediately now that there is nothing
+               else to look at; never unmounted, because tearing down
+               <WorldWideTelescope> leaves the engine's global texture caches
+               pointing at a destroyed GL context and the Sun comes back black
+               (footgun 17). -->
+          <solar-view-3d />
 
-          <!-- Async: the WWT engine + three.js live only in this chunk, and its
-               module scope installs wwtPinia on the app instance stashed by
-               setAppHandle() below — main.ts must never import the engine.
-               v-if, not v-show: leaving WWT mounted would keep its
-               requestAnimationFrame loop (and the GPU) busy on a phone that is
-               looking at the flat disk view. -->
-          <!-- Mounted ONCE on first visit, then hidden with v-show: tearing
-               down <WorldWideTelescope> leaves the engine's global texture
-               caches pointing at the destroyed GL context, so a remounted Sun
-               renders black (user-reported). SolarView3D pauses its own
-               rendering while hidden. -->
-          <solar-view-3d v-if="threeVisited" v-show="view === '3d'" />
+          <brand-mark class="sol-brand" />
         </main>
 
-        <div v-show="view === 'disk'" class="sol-area-controls">
-          <channel-picker />
-          <disk-controls />
-        </div>
+        <!-- Desktop rail. On a phone these are overlays the guest opens from
+             a button (see SolarView3D / TopBar); here there is room to leave
+             them open, so the buttons that would duplicate them are hidden. -->
+        <info-modal v-if="wide" inline class="sol-area-info" />
+        <layer-panel v-if="wide" class="sol-area-layers" />
 
         <sun-stats class="sol-area-stats" :layout="wide ? 'two' : 'auto'" />
       </div>
 
-      <info-modal v-if="sheet === 'info'" @close="sheet = null" />
+      <info-modal v-if="!wide && sheet === 'info'" @close="sheet = null" />
 
       <!-- Kiosk only. Bottom right, inside the strip `.sol-root.is-kiosk`
            reserves, so the pill can never cover the stats bar (portrait) or
@@ -62,18 +57,16 @@
 <script lang="ts">
 import { defineAsyncComponent, defineComponent, getCurrentInstance, h } from "vue";
 
-import ChannelPicker from "./components/ChannelPicker.vue";
-import DiskControls from "./components/DiskControls.vue";
-import DiskViewer from "./components/DiskViewer.vue";
+import BrandMark from "./components/BrandMark.vue";
 import InfoModal from "./components/InfoModal.vue";
+import LayerPanel from "./components/LayerPanel.vue";
 import SunStats from "./components/SunStats.vue";
 import TopBar from "./components/TopBar.vue";
-import ViewSwitcher from "./components/ViewSwitcher.vue";
 import { attractActive, initAttract, stopAttract } from "./kiosk/attract";
 import { KIOSK_RELOAD_HOUR, installKioskGuards, scheduleDailyReload } from "./kiosk/kiosk";
 import { statsTrack } from "./kiosk/kioskStats";
 import { takeHomeUrl } from "./kiosk/takeHome";
-import { channel, kiosk, pfssOverlay, setAppHandle, sheet, view } from "./state/useAppState";
+import { kiosk, setAppHandle, sheet, textureChannel, wide } from "./state/useAppState";
 import { initDeepLink } from "./state/useDeepLink";
 
 /** Above this width the stage moves left and the controls become a right rail. */
@@ -136,15 +129,13 @@ export default defineComponent({
   name: "SolApp",
 
   components: {
-    "channel-picker": ChannelPicker,
-    "disk-controls": DiskControls,
-    "disk-viewer": DiskViewer,
+    "brand-mark": BrandMark,
     "info-modal": InfoModal,
     "kiosk-qr-modal": kioskQrModal,
+    "layer-panel": LayerPanel,
     "solar-view-3d": solarView3d,
     "sun-stats": SunStats,
     "top-bar": TopBar,
-    "view-switcher": ViewSwitcher,
   },
 
   props: {
@@ -162,17 +153,14 @@ export default defineComponent({
     // Read the incoming QR/deep link before the first render, then keep the
     // URL in step with the state (replaceState, debounced).
     initDeepLink();
-    return { attractActive, sheet, view };
+    return { attractActive, sheet, wide };
   },
 
   data() {
     return {
-      wide: false,
       mediaQuery: null as MediaQueryList | null,
 
-      // Latches true the first time the guest opens the 3D view; the component
-      // then stays mounted for the life of the page (see template note).
-      threeVisited: false,
+
 
       // Kiosk: the QR modal is open exactly while qrUrl is non-empty.
       qrUrl: "",
@@ -188,12 +176,6 @@ export default defineComponent({
       if (active) { this.closeQr(); }
     },
 
-    view: {
-      handler(value: string) {
-        if (value === "3d") { this.threeVisited = true; }
-      },
-      immediate: true,
-    },
   },
 
   mounted() {
@@ -212,7 +194,7 @@ export default defineComponent({
     }
 
     this.mediaQuery = window.matchMedia(WIDE_QUERY);
-    this.wide = this.mediaQuery.matches;
+    wide.value = this.mediaQuery.matches;
     this.mediaQuery.addEventListener("change", this.onWideChange);
   },
 
@@ -226,7 +208,7 @@ export default defineComponent({
 
   methods: {
     onWideChange(event: MediaQueryListEvent): void {
-      this.wide = event.matches;
+      wide.value = event.matches;
     },
 
     // --- kiosk (lobby touchscreen) ----------------------------------------
@@ -275,12 +257,13 @@ export default defineComponent({
 
     /**
      * The take-home pill: a QR of exactly what's on the screen right now, so
-     * the guest's phone opens this channel in this view (M-W7 / "Dome to
-     * Phone"). Counted by channel, which is the interesting question.
+     * the guest's phone opens the Sun painted the way the lobby screen had it
+     * (M-W7 / "Dome to Phone"). Counted by channel, which is the interesting
+     * question.
      */
     showTakeHomeQr(): void {
-      const url = takeHomeUrl(this.kioskHomeUrl, view.value, channel.value, pfssOverlay.value);
-      this.showQr(url, "Take it with you", channel.value);
+      const url = takeHomeUrl(this.kioskHomeUrl, textureChannel.value);
+      this.showQr(url, "Take it with you", textureChannel.value);
       statsTrack("takeHome");
     },
 
@@ -307,18 +290,25 @@ export default defineComponent({
 }
 
 .sol-area-top,
-.sol-area-switch,
-.sol-area-controls,
 .sol-area-stats {
   flex: 0 0 auto;
 }
 
-// The disk gets every pixel the chrome doesn't need.
+// The Sun gets every pixel the chrome doesn't need.
 .sol-area-stage {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+}
+
+// Bottom-left of the stage: the top-right is the info button, the bottom-right
+// is the kiosk take-home pill, and the scrubber owns the bottom-centre.
+// Above the safe-area inset so it clears a phone's home indicator.
+.sol-brand {
+  left: 0.75rem;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  z-index: 3;
 }
 
 .sol-area-stage > * {
@@ -401,11 +391,19 @@ export default defineComponent({
 .sol-root.is-wide {
   display: grid;
   grid-template-columns: 65fr 35fr;
-  grid-template-rows: auto auto 1fr auto;
+  // Two rows, matching grid-template-areas below. These MUST stay the same
+  // length: leaving four row sizes here against a two-row area map put the
+  // stage in an `auto` row, and the 3D canvas has no intrinsic height, so it
+  // collapsed to nothing.
+  // info takes the slack and scrolls; layers and stats keep their height.
+  grid-template-rows: auto 1fr auto auto;
+  // One view now, so the right-hand rail carries only the stats. The Sun
+  // spans the full height beside them rather than sharing the column with a
+  // view switcher and disk controls that no longer exist.
   grid-template-areas:
     "top    top"
-    "stage  switch"
-    "stage  controls"
+    "stage  info"
+    "stage  layers"
     "stage  stats";
   column-gap: 0.5rem;
 
@@ -418,16 +416,16 @@ export default defineComponent({
     min-width: 0;
   }
 
-  .sol-area-switch {
-    grid-area: switch;
-    justify-self: center;
-    margin-top: 0.6rem;
+  .sol-area-info {
+    grid-area: info;
+    min-height: 0;
+    padding: 0.6rem 0.6rem 0;
   }
 
-  .sol-area-controls {
-    grid-area: controls;
-    align-self: center;
-    min-width: 0;
+  .sol-area-layers {
+    grid-area: layers;
+    align-self: start;
+    margin: 0.6rem 0.6rem 0;
   }
 
   .sol-area-stats {

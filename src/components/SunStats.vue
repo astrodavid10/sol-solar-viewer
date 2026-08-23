@@ -278,6 +278,23 @@ export default defineComponent({
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
+// Two 150px columns cost 150*2 + the 0.4rem gap + `.sun-stats`'s own
+// 0.75rem*2 side padding = 330.4px of viewport (E6). Below that -- an
+// iPhone SE 1st gen (320px) or a Galaxy Fold's cover screen (~280px) --
+// there is nowhere left for a second column to shrink to: 150px is already
+// the measured floor for THIS content (comment above -- "876,904 mph" and
+// "5 spotted regions · today" both need it), so lowering the floor would
+// bring back the exact clipping bug that comment describes. `.sol-root`'s
+// `overflow: hidden` (sol.vue) then clips the row instead of scrolling it,
+// silently. A single column below the breakeven point costs vertical
+// space, never truncated text -- the floor stays exactly where the comment
+// above says it has to.
+@media (max-width: 340px) {
+  .ss-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 // The desktop rail is a fixed narrow column, so it always wants 2x2 -- there
 // auto-fit would give 2 anyway, but saying so keeps the rail stable while the
 // window is dragged rather than flipping to 4 at some incidental width.

@@ -172,10 +172,18 @@ export default defineComponent({
 </script>
 
 <style lang="less" scoped>
+// `min-height: 0` is cheap insurance in the spirit of footgun 28: the
+// wrapper this panel sits in now caps its own height with `max-height` +
+// `overflow-y: auto` (`.sv-layer-popover`, SolarView3D.vue -- E4), a hard
+// length rather than a flexible track share, so the cap holds regardless of
+// this flex column's own content height. Kept anyway so this panel matches
+// the rest of the codebase's scrollable-panel pattern, in case that wrapper
+// is ever changed to a flexible (`1fr`/`flex: 1`) allocation instead.
 .layer-panel {
   display: flex;
   flex-direction: column;
   min-width: 15rem;
+  min-height: 0;
   padding: var(--sol-panel-pad);
   border: var(--sol-panel-border);
   border-radius: var(--sol-panel-radius);

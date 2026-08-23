@@ -7,11 +7,25 @@
                spent 44 px of a 640 px screen on a wordmark; now it floats over
                the Sun, and the Sun got the row back. Rendered HERE rather than
                inside SolarView3D so it paints with the entry chunk, before the
-               engine has downloaded. -->
-          <p class="sol-title no-select" aria-label="Sol — the Sun right now">
-            <span class="sol-title-name">Sol</span>
-            <span class="sol-title-sub">the Sun right now</span>
-          </p>
+               engine has downloaded.
+
+               Brand mark and title share one row (E5): they used to be
+               positioned completely independently (brand pinned top-left,
+               title centered with a max-width guessing how much room the
+               brand needed) and at the title's max-width they collided
+               exactly -- see the arithmetic on `.sol-topbar` in <style>
+               below. A grid row reserves the brand's column structurally, so
+               the title can't advance into it no matter how long the
+               subtitle string or how large the guest's font size gets. -->
+          <div class="sol-topbar">
+            <div class="sol-topbar-brand">
+              <brand-mark class="sol-brand" />
+            </div>
+            <p class="sol-title no-select" aria-label="Sol — the Sun right now">
+              <span class="sol-title-name">Sol</span>
+              <span class="sol-title-sub">the Sun right now</span>
+            </p>
+          </div>
 
           <!-- The whole app. Async because the WWT engine + three.js live only
                in this chunk, and its module scope installs wwtPinia on the app
@@ -23,8 +37,6 @@
                pointing at a destroyed GL context and the Sun comes back black
                (footgun 17). -->
           <solar-view-3d />
-
-          <brand-mark class="sol-brand" />
         </main>
 
         <!-- Desktop rail. On a phone these are overlays the guest opens from
@@ -299,24 +311,77 @@ export default defineComponent({
   flex: 0 0 auto;
 }
 
-// Top centre, over the canvas. `pointer-events: none` because it is a label,
-// not a control -- a guest dragging the Sun must not have the drag swallowed by
-// the wordmark sitting on top of it.
+// One row, over the canvas: the brand mark's column and the title pill.
+// `pointer-events: none` on the row because neither is a drag control --
+// a guest dragging the Sun must not have the drag swallowed by chrome
+// floating on top of it (the brand mark opts itself back in; see its own
+// comment in BrandMark.vue).
 //
-// The max-width keeps it clear of the four-button stack on the right and the
-// brand mark on the left: at 360 px the pill is ~170 px wide, centred, so it
-// spans 95-265 against buttons at 306-350 and the mark at 12-56.
-.sol-title {
+// TOP-left is genuinely free (the reset button owns top-right, the scrubber
+// the whole bottom edge). The whole 3D view is `position: relative` /
+// `z-index: 0` (its own footgun 27 comment), so `z-index: 6` here only has
+// to clear that single number to sit over everything the 3D view draws
+// except the card slot (SolarView3D.vue, z-index 20 -- a deliberate
+// modal-ish overlay).
+//
+// Column 1 reserves EXACTLY the brand mark's box: 0.75rem inset + 48px
+// (3rem) width = 3.75rem, plus 0.5rem of designed margin = 4.25rem. The
+// right padding reserves `.sv-buttons`' column the same approximate way
+// SolarView3D.vue's own `.sv-unobserved` does (44px + 0.5rem inset ~= 3.25rem,
+// rounded up to 3.75rem) -- E5 only ever measured a problem on the LEFT.
+// The title, centered WITHIN the remaining column (`justify-self: center`
+// below), can therefore never reach into either reserved area no matter how
+// long the subtitle string or how large the guest's font size is --
+// structural, unlike the old `left: 50%` + `max-width: calc(100% - 7.5rem)`,
+// which applied ONE symmetric inset to two obstacles that are NOT symmetric
+// distances from their own edges (52px vs 60px): the smaller one (the
+// button stack) had slack, the larger one (the brand mark) had none, so the
+// title's max-width case touched the brand mark exactly (E5, measured at
+// 320/360px: brand mark 12-60, title's maxed-out box starting at 60 too).
+.sol-topbar {
   position: absolute;
-  top: calc(env(safe-area-inset-top) + 0.5rem);
-  left: 50%;
-  transform: translateX(-50%);
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 6;
+  display: grid;
+  grid-template-columns: 4.25rem 1fr;
+  padding-right: 3.75rem;
+  pointer-events: none;
+}
+
+// Purely a positioning anchor: `brand-mark`'s own root is `position:
+// absolute` (BrandMark.vue), so it needs a positioned ancestor to anchor
+// `.sol-brand`'s top/left against. This box's top-left corner coincides
+// with `.sol-topbar`'s (first grid column, no row/column gap before it),
+// which is the same point `.sol-area-stage` used to be for the same
+// purpose -- so `.sol-brand`'s top/left values below are unchanged.
+.sol-topbar-brand {
+  position: relative;
+}
+
+.sol-brand {
+  top: calc(env(safe-area-inset-top) + 0.75rem);
+  left: 0.75rem;
+}
+
+.sol-title {
+  justify-self: center;
+  align-self: start;
+  // Grid items default to `min-width: auto`, which -- unlike a plain
+  // `overflow: hidden` block -- can force the 1fr TRACK wider than the
+  // column's share if the title's min-content width (e.g. "Sol") needed it,
+  // pushing the whole grid wider than the row. `min-width: 0` lets the
+  // existing `overflow: hidden` + `.sol-title-sub`'s `text-overflow:
+  // ellipsis` do the clipping instead, the horizontal analogue of the
+  // `min-height: 0` chain in CLAUDE.md footgun 28.
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  margin-top: calc(env(safe-area-inset-top) + 0.5rem);
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
-  max-width: calc(100% - 7.5rem);
-  margin: 0;
   padding: 0.28rem 0.85rem;
   border: var(--sol-panel-border);
   border-radius: 999px;
@@ -350,21 +415,6 @@ export default defineComponent({
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-}
-
-// TOP-left of the stage. It started bottom-left and was invisible: the 3D
-// view is `position: relative` with `z-index: auto`, so it creates NO stacking
-// context and its descendants compete directly with this sibling — the time
-// scrubber (z-index 5) and its play button simply painted over the top of a
-// z-index 3 mark sitting in the same corner.
-//
-// Top-left is genuinely free (the reset button owns top-right, the scrubber the
-// whole bottom edge), and the z-index clears everything the 3D view uses except
-// the card slot at 20, which is a deliberate modal-ish overlay.
-.sol-brand {
-  top: calc(env(safe-area-inset-top) + 0.75rem);
-  left: 0.75rem;
-  z-index: 6;
 }
 
 .sol-area-stage > * {

@@ -128,9 +128,19 @@
            this says why once the guest has actually turned it into view --
            without it the dimming reads as a rendering fault. -->
       <transition name="fade">
-        <p v-if="unobserved > 0.55" class="sv-unobserved">
-          You're looking at the Sun's far side — no telescope sees this half
-          from Earth, so it isn't a photograph.
+        <p v-if="showUnobserved" class="sv-unobserved">
+          <span class="sv-unobserved-text">
+            You're looking at the Sun's far side — no telescope sees this half
+            from Earth, so it isn't a photograph.
+          </span>
+          <button
+            type="button"
+            class="sv-unobserved-close"
+            aria-label="Dismiss"
+            @click="unobservedDismissed = true"
+          >
+            <font-awesome-icon icon="times" />
+          </button>
         </p>
       </transition>
 
@@ -279,6 +289,7 @@ import {
   refitFraming,
   solarSystemModeActive,
 } from "../wwt/sunStage";
+import { installSunGestures, type SunGestures } from "../wwt/gestures";
 import {
   FieldColorMode,
   SurfaceMode,
@@ -485,6 +496,10 @@ interface Runtime {
   widthCss: number;
   heightCss: number;
   observer: ResizeObserver | null;
+  /** Touch/pinch/twist handling; disposed on unmount (see gestures.ts). */
+  gestures: SunGestures | null;
+  /** Far-side fraction; non-reactive, see `unobservedShown`. */
+  unobservedFrac: number;
   positions: Map<string, Vector3>;
   targets: ProjectTarget[];
   projected: Projected[];
@@ -538,6 +553,8 @@ function makeRuntime(): Runtime {
     widthCss: 0,
     heightCss: 0,
     observer: null,
+    gestures: null,
+    unobservedFrac: 0,
     positions: new Map(),
     targets: [],
     projected: [],
@@ -618,7 +635,6 @@ export default defineComponent({
       } as RegionChip,
       selectedId: "",
       /** 0..1 — how much of the hemisphere in view was never observed. */
-      unobserved: 0,
       /** `events/events.json`, or null while it loads / when it is absent. */
       solarEvents: null as SolarEvents | null,
       /** Share button feedback on the clipboard-fallback path. */
@@ -628,10 +644,33 @@ export default defineComponent({
       leaders: [] as { id: string; style: Record<string, string> }[],
 
       rt: markRaw(makeRuntime()),
+      /**
+       * Whether the far-side note is up.
+       *
+       * A BOOLEAN in reactive state, with the underlying fraction kept on the
+       * non-reactive runtime. It used to be the float, written on every
+       * projection pass — and since the projection throttle is short-circuited
+       * whenever the camera moves, that was a reactive write per frame during a
+       * drag, dirtying the whole overlay's render effect to move a hint that
+       * only ever appears or disappears.
+       */
+      unobservedShown: false,
+      /**
+       * The guest closed the note.
+       *
+       * Sticky for the session rather than per-turn: someone who has read it
+       * once does not want it again every time they spin the Sun round, and it
+       * is the same sentence every time.
+       */
+      unobservedDismissed: false,
     };
   },
 
   computed: {
+    showUnobserved(): boolean {
+      return this.unobservedShown && !this.unobservedDismissed;
+    },
+
     selectedBody(): CardInfo | null {
       if (!this.selectedId) { return null; }
       const eph = this.rt.ephemeris;
@@ -833,6 +872,15 @@ export default defineComponent({
     }, MODE_TIMEOUT_MS);
 
     if (!this.createStage()) { return; }
+
+    // Touch input. Bound to the STAGE ROOT rather than the canvas, and in the
+    // capture phase, so a finger that lands on a label chip still counts toward
+    // a pinch — see src/wwt/gestures.ts for the four engine faults this
+    // replaces. The engine's own touch and pointer handlers are already no-ops
+    // (wwt-hacks.ts), so nothing competes with it.
+    const stageRoot = this.$refs.root as HTMLElement | undefined;
+    if (stageRoot) { this.rt.gestures = installSunGestures(stageRoot); }
+
     this.measure();
     this.observeSize();
     window.addEventListener("resize", this.onResize);
@@ -853,6 +901,7 @@ export default defineComponent({
     window.removeEventListener("orientationchange", this.onResize);
     window.clearTimeout(this.copiedTimer);
     rt.observer?.disconnect();
+    rt.gestures?.dispose();
     rt.abort?.abort();
     playing.value = false;
 
@@ -1284,9 +1333,28 @@ export default defineComponent({
         chip.detail = this.formatDistance(rSunAt(body, ephemeris.epochs, unix));
       });
 
-      // Same cadence as the chips rather than per frame: this drives a piece of
-      // DOM, and 20 Hz is already far more than a fading hint needs.
-      this.unobserved = this.rt.surface?.unobservedFraction() ?? 0;
+      // The imagery follows the playhead, so the photosphere, the sunspots and
+      // the field lines all describe the same hour. Without this the sphere
+      // carried the NEWEST map while the field lines morphed through three days
+      // -- historical magnetic field over today's Sun, with the terminator
+      // parked at today's sub-earth longitude.
+      //
+      // setFrameTime snaps to the nearest 4 h slot and no-ops when that is
+      // already the frame on screen, so calling it on the chip cadence costs a
+      // comparison per pass and only does work at a slot boundary.
+      this.rt.surface?.setFrameTime(unix);
+
+      // HYSTERESIS, not a single threshold. `unobservedFraction` is a smooth
+      // function of camera angle, so one threshold means a drag that hovers near
+      // it mounts and unmounts a <transition>-wrapped, backdrop-filtered element
+      // several times a second. Show above 0.58, hide below 0.50, and in the
+      // band between keep doing whatever it was doing.
+      const frac = this.rt.surface?.unobservedFraction() ?? 0;
+      this.rt.unobservedFrac = frac;
+      const shown = this.unobservedShown ? frac > 0.50 : frac > 0.58;
+      // Guarded because this is the only reactive write left in the per-frame
+      // path here, and it must stay a no-op unless the note actually changes.
+      if (shown !== this.unobservedShown) { this.unobservedShown = shown; }
       this.updateOffLimb();
     },
 
@@ -1303,6 +1371,17 @@ export default defineComponent({
       const offLimb = rt.offLimb;
       const surface = rt.surface;
       if (!offLimb || !surface) { return; }
+
+      // The off-limb crop is a photograph of the corona AS SEEN FROM EARTH RIGHT
+      // NOW (footgun 29), and the pipeline publishes exactly one of them --
+      // per-frame crops would thrash a TextureLoader on every scrub step for a
+      // band the guest is barely looking at. So while the playhead is in the
+      // past, hide it rather than wrap today's prominences around a three-day-
+      // old photosphere. The sphere itself is time-aligned; this one layer is
+      // honest about only having "now".
+      const atNow = surface.atNewestFrame();
+      offLimb.setVisible(atNow);
+      if (!atNow) { return; }
 
       const info = surface.textureInfo();
       if (info && info.offLimbUrl && info.offLimbUrl !== rt.offLimbUrl) {
@@ -1762,16 +1841,32 @@ export default defineComponent({
   touch-action: none;
 }
 
+// z-index 11: this only ever had to clear `.solar-view-3d`'s own z-index 0
+// (footgun 27) until three.js needed a fallback canvas. `three-wwt/utils.ts`
+// (`src/three/`, off limits to this file) creates that overlay canvas with
+// `style.zIndex = "10"` and appends it as a SIBLING of the WWT canvas --
+// i.e. INSIDE this stacking context, above the z-index 5 this used to be.
+// That path isn't only the `?three=overlay` URL flag: `src/three/stage.ts`
+// falls back to it automatically on WebGL1-only devices, exactly the cheap
+// phone a guest is likely holding. Below 10, field lines / solar wind /
+// spacecraft sprites painted OVER the scrubber, the card and the labels
+// (E7). Do not lower this back under 10 without also changing that canvas's
+// z-index, which lives in a file this component may not edit.
 .sv-overlay {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: 11;
   pointer-events: none;
 }
 
 .sv-labels {
   position: absolute;
   inset: 0;
+  // Explicit rather than `auto` (E7): every direct child of `.sv-overlay`
+  // gets one of these now, so paint order among them is a choice, not an
+  // accident of DOM order -- which is exactly how the scrubber ended up
+  // covering the card (E1) with nothing here to say it shouldn't.
+  z-index: 1;
 }
 
 // From a marker's true projected point to the chip de-collision moved. Dark
@@ -1795,6 +1890,7 @@ export default defineComponent({
   position: absolute;
   top: calc(env(safe-area-inset-top) + 0.5rem);
   right: 0.5rem;
+  z-index: 3; // see the z-index note on `.sv-labels` above (E7)
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -1822,23 +1918,63 @@ export default defineComponent({
   }
 }
 
-// Below the whole stack. Four 44 px buttons with 0.4rem gaps under the inset;
-// derived rather than typed as a magic number, because the stack's length
-// changes with `wide` and the kiosk flag.
+// Below the whole stack. `--sv-btn-count` (set on `.solar-view-3d`'s root
+// `:style` from the `visibleButtonCount` computed) is the ACTUAL number of
+// 44px buttons `.sv-buttons` is rendering right now -- recenter always,
+// share unless `kiosk`, info+layers unless `wide`. This used to be a
+// literal `4`, and the comment here claimed it was "derived rather than
+// typed as a magic number" -- it was not. In narrow+kiosk only 3 buttons
+// render (no share button), and the popover floated ~48px below the real
+// stack it was meant to hang off (E2).
 .sv-layer-popover {
   position: absolute;
-  top: calc(env(safe-area-inset-top) + 0.5rem + (4 * 44px) + (3 * 0.4rem) + 0.4rem);
+  top: calc(
+    env(safe-area-inset-top) + 0.5rem
+      + (var(--sv-btn-count) * 44px) + ((var(--sv-btn-count) - 1) * 0.4rem)
+      + 0.4rem
+  );
   right: 0.5rem;
+  z-index: 4; // above `.sv-buttons` (E7) -- it's the popover FROM that stack
+
+  // `.layer-panel` alone runs ~400px tall (6 rows * ~48px + the Surface
+  // `.lp-group` block's ~78px + 2rem of panel padding) with no cap of its
+  // own, and on a landscape phone (e.g. 812x375 -- still `!wide`, since
+  // 812 < 900) the stage is only 375px tall with `.solar-view-3d`'s
+  // `overflow: hidden` (above) clipping whatever doesn't fit -- silently,
+  // with no scrollbar (E4). `max-height` reuses the exact formula `top`
+  // uses above: whatever room `top` doesn't take, minus 1rem of breathing
+  // room at the bottom of the stage. Unlike footgun 28's `1fr`-row case,
+  // this cap is a hard length (not a flexible track share `.layer-panel`'s
+  // own content size could inflate), so `max-height` + `overflow-y: auto`
+  // alone are enough to turn "clipped with no scrollbar" into "scrollable" --
+  // the `min-height: 0` on `.layer-panel` (LayerPanel.vue) is kept anyway,
+  // as cheap insurance matching this codebase's usual pattern for a
+  // scrollable panel, in case that ever changes to a flexible allocation.
+  max-height: calc(
+    100% - (
+      env(safe-area-inset-top) + 0.5rem
+        + (var(--sv-btn-count) * 44px) + ((var(--sv-btn-count) - 1) * 0.4rem)
+        + 0.4rem
+    ) - 1rem
+  );
+  overflow-y: auto;
   pointer-events: auto;
 }
 
+// No longer independently positioned (E1) -- it is the first flex item in
+// `.sv-bottom-stack` below, which is what now supplies the bottom/left/right
+// anchoring for the pair. `align-self: center` + `max-width` reproduce the
+// old centered-and-capped look; `width: 100%` is what lets it actually
+// reach that cap on a narrow phone instead of shrink-wrapping its text.
+// `position: relative` stays -- not for this box's own placement (the flex
+// column handles that now), but because `.sv-card-close` below anchors
+// itself to it with `position: absolute; top; right`, and a `static` box
+// is not a containing block for that.
 .sv-card {
-  position: absolute;
-  left: 0.5rem;
-  right: 0.5rem;
-  bottom: 5.2rem;
+  position: relative;
+  align-self: center;
+  width: 100%;
   max-width: 22rem;
-  margin: 0 auto;
   padding: 0.8rem 2.2rem 0.8rem 0.9rem;
   border: 1px solid rgba(var(--sol-accent-rgb), 0.3);
   border-radius: 12px;
@@ -1900,11 +2036,30 @@ export default defineComponent({
   line-height: 1.35;
 }
 
-.sv-bottom {
+// Card and scrubber's shared positioning (E1). Was two independent
+// `position: absolute` boxes: the card at a fixed `bottom: 5.2rem`, sized
+// for `TimeScrubber`'s height WITHOUT its `.ts-banner` (TimeScrubber.vue
+// ~3-6, shown while `stale`) -- the banner adds ~18px a constant can't see
+// coming, so the scrubber's top edge rose above the card's bottom edge and,
+// with nothing here carrying a z-index, painted over the card's last line
+// (DOM order = paint order) AND stole its taps. A flex column removes the
+// arithmetic: the card sits directly above whatever the scrubber's real
+// rendered height is, recomputed by the browser on every layout, so no
+// future change to the scrubber's content (banner, a wrapped label, a
+// guest's larger font) can reopen this collision.
+.sv-bottom-stack {
   position: absolute;
   left: 0.4rem;
   right: 0.4rem;
   bottom: 0.4rem;
+  z-index: 5; // topmost of `.sv-overlay`'s children (E7) -- card + controls
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none; // children opt back in, same contract as .sv-overlay
+}
+
+.sv-bottom {
   pointer-events: auto;
 }
 
@@ -1918,24 +2073,92 @@ export default defineComponent({
   text-align: center;
 }
 
-// Centered near the top, clear of the card slot and the scrubber. Deliberately
-// quiet: it explains the dimming the guest has just caused, it is not an alert.
+// Clear of the button column and the title pill. Deliberately quiet: it
+// explains the dimming the guest has just caused, it is not an alert.
+//
+// Horizontal (E3a): was centered edge-to-edge (`left: 50%` + translateX), so
+// at 360px its ~328px width spanned x 16-344 while `.sv-buttons` (right:
+// 0.5rem, 44px wide) occupies x 308-352 -- they overlapped on any phone
+// narrower than ~416px, and the backdrop-filter blur made the overlap
+// visible. Anchoring BOTH edges instead of centering a computed width makes
+// the box "whatever room is left after clearing the button column," by
+// construction, on every viewport -- the same idea `.sol-title` uses now
+// (E5) -- rather than a symmetric inset that only happens to clear an
+// asymmetric obstacle. `margin: 0 auto` still recenters the (possibly
+// narrower) box once `max-width` caps it clear of both edges on a wide
+// screen.
+//
+// Vertical (E3b): was a flat `3.6rem` with NO safe-area term, tuned to clear
+// `.sol-title`'s bottom edge on a device with no notch. `.sol-title` (a
+// SIBLING of the entire 3D view, at z-index 6 outside a view that is
+// z-index 0 -- footgun 27) DOES add the inset, so on a notched phone
+// (safe-area-inset-top ~= 47px) the title moved down while this note held
+// still, and the title covered it completely. Adding the same inset term
+// keeps the SAME buffer under the title on every device, not only the one
+// this constant happened to be tuned for.
 .sv-unobserved {
   position: absolute;
-  top: 3.6rem;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(24rem, calc(100% - 2rem));
-  margin: 0;
-  padding: 0.45rem 0.7rem;
+  top: calc(env(safe-area-inset-top) + 3.6rem);
+  left: 0.5rem;
+  right: 3.75rem; // clears .sv-buttons (44px + 0.5rem inset ~= 3.25rem) with margin to spare
+  max-width: 24rem;
+  margin: 0 auto;
+  padding: 0.45rem 0.5rem 0.45rem 0.7rem;
   border-radius: 10px;
-  background: rgba(9, 2, 24, 0.78);
-  backdrop-filter: blur(4px);
+  // Was rgba(...,0.78) plus blur(4px). The blur is gone for the same reason it
+  // left the label chips: a backdrop-filter is recomputed whenever its BACKDROP
+  // changes, and the backdrop here is a canvas repainting at the full frame
+  // rate — so this note cost a full-width blur every frame merely by existing.
+  // A higher alpha is what actually makes the text readable.
+  background: rgba(9, 2, 24, 0.92);
+  border: var(--sol-panel-border);
   color: var(--sol-text-dim);
   font-size: 0.74rem;
   line-height: 1.3;
-  text-align: center;
-  pointer-events: none;
+  text-align: left;
+  // Was `none`. The note now carries a close button, so it has to take taps —
+  // but only the button does anything, and the note sits clear of the button
+  // column (see the E3 note above), so this cannot swallow a camera gesture.
+  // A two-finger gesture starting here still reaches the camera anyway:
+  // gestures.ts listens on the stage root in the capture phase.
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  z-index: 2; // see the z-index note on `.sv-labels` above (E7)
+}
+
+.sv-unobserved-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sv-unobserved-close {
+  flex: 0 0 auto;
+  // 28px, not the 44px a primary control gets: this is a dismiss affordance on
+  // an advisory note, and a 44px square next to two lines of 0.74rem text would
+  // outweigh the sentence it is attached to. The whole note is only reachable
+  // deliberately, so the smaller target is the right trade.
+  width: 28px;
+  height: 28px;
+  margin: -0.15rem -0.15rem 0 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sol-text-quiet);
+  font-size: 0.8rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--sol-text);
+    background: var(--sol-surface-raised);
+  }
 }
 
 .sv-cover {

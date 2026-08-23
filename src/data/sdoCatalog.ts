@@ -79,7 +79,7 @@ export interface Product {
    * So the overlay magnetogram needs NO correction — applying diskScale to it
    * rendered the Magnetic Map ~18 % undersized, which is the one channel whose
    * blurb invites guests to turn the overlay on. Cross-checked by compositing
-   * `0171pfss` and `HMIBpfss` into separate colour channels: at scale 1.0 the
+   * `0171pfss` and `HMIBpfss` into separate color channels: at scale 1.0 the
    * limbs AND GSFC's own active-region number labels coincide exactly.
    */
   diskScalePfss?: number;

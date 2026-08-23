@@ -78,7 +78,7 @@ export const surfaceMode = ref<SurfaceMode>(DEFAULT_SURFACE);
  * Which SDO product the 3D sphere is painted with, as the product CODE — the
  * same identifiers `sdoCatalog` uses, so one table names them for both the
  * chips and the sphere. Not a wavelength: HMIB is a magnetogram and HMIIC a
- * colourised continuum image, and neither has one.
+ * colorized continuum image, and neither has one.
  *
  * Must be a channel the pipeline publishes (config.TEX_CHANNELS); sunSurface
  * falls back to the manifest's default layer if this run did not publish it.
@@ -102,7 +102,7 @@ export const textureChannel = ref<TextureChannel>(DEFAULT_TEXTURE_CHANNEL);
 export const wide = ref(false);
 
 /**
- * How the field lines are coloured. "polarity" is the dome show's own palette
+ * How the field lines are colored. "polarity" is the dome show's own palette
  * (gold closed arcades, blue outbound open field, orange inbound) and carries
  * real information; "blue" paints every line one electric blue, which reads as
  * a single structure and photographs better on a dome.
@@ -111,7 +111,7 @@ export type FieldColorMode = "polarity" | "blue";
 
 /**
  * Blue, not polarity, is the resting state. Polarity encodes real information
- * but it is a three-colour legend a guest has not been given yet; one electric
+ * but it is a three-color legend a guest has not been given yet; one electric
  * blue reads immediately as a single structure wrapped around the Sun, and the
  * legend is one tap away in the layer panel. `?fieldcolor=polarity` is now the
  * non-default value useDeepLink writes.
@@ -179,14 +179,14 @@ export const kiosk = ref(boolParam("kiosk"));
 export const attractDrift = ref(false);
 
 /**
- * Bumped by resetView(). Viewers watch it to re-centre: the disk viewer drops
+ * Bumped by resetView(). Viewers watch it to re-center: the disk viewer drops
  * its pinch-zoom transform, the 3D view will re-frame the camera.
  */
 export const resetToken = ref(0);
 
 /**
  * Timestamp of the last successful disk-image load. ChannelPicker watches it
- * to start prefetching neighbouring channels only once the image the guest
+ * to start prefetching neighboring channels only once the image the guest
  * actually asked for has settled.
  */
 export const diskSettledAt = ref(0);

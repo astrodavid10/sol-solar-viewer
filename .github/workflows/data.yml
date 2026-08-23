@@ -24,7 +24,7 @@ on:
 permissions:
   contents: write
 
-# Serialised with app-deploy.yml: both force-push a single orphan commit to
+# Serialized with app-deploy.yml: both force-push a single orphan commit to
 # gh-pages, so they must never interleave their checkouts.
 concurrency:
   group: gh-pages-publish

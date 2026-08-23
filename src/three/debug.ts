@@ -7,7 +7,7 @@
 //
 //   - wireframe slightly larger/smaller than WWT's Sun  → units bug
 //     (R_SUN_AU wrong, or solarSystemScale ≠ 1 — footgun 2)
-//   - wireframe SLIDES off centre while orbiting        → tracked-object bug
+//   - wireframe SLIDES off center while orbiting        → tracked-object bug
 //     (something called setTrackedObject — footgun 1)
 //   - wireframe drifts on window resize                 → sizing bug in the
 //     three-wwt drawing-buffer sync

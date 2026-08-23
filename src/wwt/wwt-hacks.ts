@@ -45,7 +45,7 @@ proto.onGestureEnd = function () { /* no-op */ };
 // --- Orbit in solar-system mode ----------------------------------------------
 // Sensitivity now lives with the orbit model it belongs to
 // (sunStage.ORBIT_DEG_PER_PX), rather than as a scale factor on an engine
-// behaviour we no longer use.
+// behavior we no longer use.
 
 const origMove = proto.move;
 proto.move = function (this: PatchableControl, x: number, y: number) {

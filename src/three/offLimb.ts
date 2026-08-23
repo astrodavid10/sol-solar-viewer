@@ -9,8 +9,8 @@
 // model of its depth.
 //
 // So it comes back as what it actually is: a picture, on a flat plane, correct
-// from one viewpoint. The pipeline ships a square crop centred on the fitted
-// disk centre with the disk itself blacked out (pipeline/texture/export.py,
+// from one viewpoint. The pipeline ships a square crop centered on the fitted
+// disk center with the disk itself blacked out (pipeline/texture/export.py,
 // build_offlimb), and this draws it as a camera-facing billboard sized so the
 // blacked-out hole lands exactly on the sphere's silhouette.
 //
@@ -158,7 +158,7 @@ export function createOffLimb(options: OffLimbOptions): OffLimbLayer {
       const previous = texture;
       texture = next;
       material.uniforms.uMap.value = next;
-      // The crop spans +/- halfWidthRSun from Sun centre, and the quad is 2
+      // The crop spans +/- halfWidthRSun from Sun center, and the quad is 2
       // units across, so this scale puts the blacked-out hole exactly on the
       // sphere's silhouette.
       mesh.scale.setScalar(halfWidthRSun * options.rSunAu);

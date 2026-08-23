@@ -102,7 +102,7 @@ XRAY_FLARES_URL = (
     "https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json")
 F107_URL = "https://services.swpc.noaa.gov/products/summary/10cm-flux.json"
 
-# CCMC DONKI -- flare and CME event catalogue.  No API key, and it answers with
+# CCMC DONKI -- flare and CME event catalog.  No API key, and it answers with
 # Access-Control-Allow-Origin: * (verified 2026-08-23), but we digest it
 # server-side anyway: it sends Cache-Control: no-store, so every browser hit
 # would go to origin, and CLAUDE.md's rule is "tiny endpoints only in the
@@ -152,15 +152,15 @@ TEX_WAVELENGTH = 171                      # the app's default channel
 #             measured 2026-08, the solar disk fills 0.7824 of an AIA frame and
 #             0.9184 of an HMI one, a ratio of 1.174. Getting this wrong by more
 #             than TEX_LIMB_RADIUS_TOL aborts the run rather than shipping a
-#             misregistered map, which is the behaviour we want.
+#             misregistered map, which is the behavior we want.
 #   farside   how the hemisphere Earth cannot see is filled. "quiet" adds the
 #             band-limited mottling + polar darkening of farside_modulation,
-#             which is a defensible stylisation for EUV. "flat" is a plain
+#             which is a defensible stylization for EUV. "flat" is a plain
 #             quiet-Sun fill with NO invented structure -- mandatory for HMIB,
 #             where mottling would be fabricated magnetic field, and right for
 #             HMIIC, where the polar ramp (tuned to coronal holes) is wrong.
 #   ar_check  run the active-region registration check. It scores by locating
-#             BRIGHT pixels near each catalogued region, which only means
+#             BRIGHT pixels near each cataloged region, which only means
 #             anything in EUV: sunspots are DARK in HMIIC, and bright in HMIB
 #             just means positive polarity.
 TEX_CHANNELS = (
@@ -210,7 +210,7 @@ TEX_LIMB_RADIUS_TOL = 0.03                # warn if the fitted limb is >3% off
 # also the only part of a solar image that is genuinely three-dimensional and
 # that we have no model for, so it cannot go on the sphere at all.
 #
-# Instead it ships as a square crop centred on the disk with the disk itself
+# Instead it ships as a square crop centered on the disk with the disk itself
 # blacked out, drawn in the app as a camera-facing billboard around the sphere.
 # Black rather than an alpha channel because the billboard is ADDITIVELY
 # blended, so black already contributes nothing -- an alpha channel would cost
@@ -228,7 +228,7 @@ TEX_OFFLIMB_MAX_BYTES = 400_000
 # sphere's own edge is drawn by the surface texture, and overlapping slightly
 # hides any sub-pixel disagreement between the two.
 TEX_OFFLIMB_INNER = (0.985, 1.02)
-TEX_LIMB_CENTRE_TOL_PX = 25.0             # warn if the disk is not centred
+TEX_LIMB_CENTER_TOL_PX = 25.0             # warn if the disk is not centered
 
 # SDO has two eclipse seasons a year (mid-Feb to mid-Mar, mid-Aug to mid-Sep)
 # with a daily blackout of up to ~72 min, so near-black browse frames are
@@ -254,7 +254,7 @@ TEX_FEATHER_DEG = (75.0, 90.0)
 # nothing the app cares about is lost.
 TEX_LAT_FADE_DEG = (72.0, 88.0)
 
-# Quiet-sun base colour: median of the near side between these angular
+# Quiet-sun base color: median of the near side between these angular
 # distances, below this percentile (excludes limb brightening and AR cores).
 TEX_QUIET_ANNULUS_DEG = (20.0, 60.0)
 TEX_QUIET_PERCENTILE = 80.0
@@ -268,7 +268,7 @@ TEX_FARSIDE_NOISE_TERMS = 12
 TEX_POLE_FADE_DEG = (55.0, 90.0)
 TEX_POLE_FLOOR = 0.55
 
-# AR registration guard: the catalogued regions must show up as bright pixels
+# AR registration guard: the cataloged regions must show up as bright pixels
 # near their Carrington coordinates.  Measured 2026-08-23 with 4 regions:
 # 2.7-3.6 deg for the two well-placed ones, which is the floor set by SRS's
 # 1 deg rounding + its 00:00 UT epoch + coronal loops being offset from spots.
@@ -284,7 +284,7 @@ DEFAULT_OUT = "dist-data"
 KEEP_FRAME_CACHE_SETS = 2        # prune older seed-set frame caches
 
 # Spacecraft baked from JPL Horizons.  'Earth' is ambiguous in Horizons (it
-# matches several records), so the barycentre-free planet id '399' is used.
+# matches several records), so the barycenter-free planet id '399' is used.
 EPHEM_BODIES = (
     # (horizons target, app id, display name, horizons id (informational), color)
     ("Parker Solar Probe", "psp", "Parker Solar Probe", -96, "#ff8a3d"),

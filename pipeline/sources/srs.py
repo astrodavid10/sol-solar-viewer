@@ -195,7 +195,7 @@ def daily_history(days: int, now: Optional[datetime] = None,
     which has to answer "how many spots were there at the time under the
     playhead" rather than "how many are there now".
 
-    Costs NO extra request: ``fetch_regions_json`` memoises the one ~30-day
+    Costs NO extra request: ``fetch_regions_json`` memoizes the one ~30-day
     solar_regions.json fetch that ``newest_regions`` already makes, so this is a
     dictionary lookup per day.
 

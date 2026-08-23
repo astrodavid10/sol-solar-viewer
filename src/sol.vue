@@ -453,7 +453,7 @@ export default defineComponent({
     padding-bottom: var(--sol-rail-gutter);
 
     // SunStats carries its own gutter for the phone layout; the rail owns it
-    // here, so the two must not add up to a wider inset than its neighbours.
+    // here, so the two must not add up to a wider inset than its neighbors.
     :deep(.sun-stats) {
       padding-right: 0;
       padding-left: 0;

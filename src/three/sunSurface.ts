@@ -103,7 +103,7 @@ export interface SunTextureInfo {
   subEarthLatDeg: number;
   /** Absolute URL of this channel's off-limb crop, or "" when absent. */
   offLimbUrl: string;
-  /** How far the crop reaches from Sun centre, in R_sun. */
+  /** How far the crop reaches from Sun center, in R_sun. */
   offLimbHalfWidthRSun: number;
   /** How the pipeline filled the hemisphere Earth cannot see ("quiet"). */
   farSide: string;
@@ -167,7 +167,7 @@ const MAX_SPOTS = 8;
 
 /**
  * Granulation cell size, in degrees of heliographic arc. Real granules are
- * ~1 arcsec (0.03 deg) and would alias into grey mush on a phone, so this is a
+ * ~1 arcsec (0.03 deg) and would alias into gray mush on a phone, so this is a
  * deliberate stylization: 2.1 deg puts ~85 cells across the visible disc, which
  * reads as "boiling surface" at both phone and dome scale.
  */
@@ -596,7 +596,7 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
   // MeshBasicMaterial reproduces the disc view's own look exactly.
   // Uniforms shared with the injected far-side dimming below. Held here (not
   // in a ShaderMaterial) because MeshBasicMaterial + onBeforeCompile keeps
-  // three's colour management: the map is an sRGB texture, and a hand-rolled
+  // three's color management: the map is an sRGB texture, and a hand-rolled
   // ShaderMaterial writing gl_FragColor would have to redo the sRGB->linear
   // sample and the output encoding by hand, which is exactly the kind of thing
   // that silently ships a washed-out Sun.
@@ -626,7 +626,7 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
    * spherical law of cosines, with no varying to thread through the vertex
    * stage and no extra attribute.
    *
-   * Why do it at all: for the EUV channels the far side is a stylised
+   * Why do it at all: for the EUV channels the far side is a stylized
    * quiet-Sun fill, and for the two HMI products a flat neutral one. Neither is
    * an observation, and at full brightness both read as though they were.
    * Dimming says "we don't know this half" in the one language a picture has.
@@ -808,7 +808,7 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       spotDir[i * 3 + 2] = Math.sin(lat);
       spotShape[i * 2] = (spotRadiusDeg(spot.areaUh) * Math.PI) / 180;
       // Complex (beta-gamma-delta) groups are the big ragged dark ones; a
-      // simple alpha spot is small and grey, so it darkens less.
+      // simple alpha spot is small and gray, so it darkens less.
       spotShape[i * 2 + 1] = spot.isComplex ? 1 : 0.8;
     });
     // No uniformsNeedUpdate: three-wwt calls renderer.resetState() before every

@@ -6,7 +6,7 @@
 //
 //   position  → frame A vertex positions (normalized uint16, Carrington R_sun)
 //   aPosB     → frame B vertex positions
-//   aMetaA/B  → per-vertex RGBA: rgb = topology colour, a = validity + class
+//   aMetaA/B  → per-vertex RGBA: rgb = topology color, a = validity + class
 //   uMix      → 0..1 within the pair
 //
 // Advancing a frame is therefore four setAttribute() calls and a uniform write —
@@ -90,7 +90,7 @@ export interface FieldLines {
    * changes — NOT per uMix tick.
    */
   openLinePaths: () => OpenLinePath[];
-  /** Paint every line one flat colour instead of the polarity palette. */
+  /** Paint every line one flat color instead of the polarity palette. */
   setMonochrome: (on: boolean) => void;
   setTime: (frames: number) => void;
   /** Advance the playhead by `dtSec` of wall clock, looping. */
@@ -129,7 +129,7 @@ interface GpuFrame {
 // formula is already done by the GPU: only scale + offset remain.
 
 /**
- * The single colour used when the polarity palette is switched off — the app's
+ * The single color used when the polarity palette is switched off — the app's
  * own --sol-accent2 "open-field blue" (#5fb8ff), so the monochrome field reads
  * as the same blue the rest of the UI uses for open field.
  */
@@ -173,8 +173,8 @@ void main() {
   vec4 meta = mix(aMetaA, aMetaB, uMix);
   float closed = step(0.7, meta.a / max(vis, 1e-3));
 
-  // Polarity palette (dome colours, baked per vertex) or one flat colour.
-  // A uniform mix rather than a rebuilt attribute: the colour lives in a
+  // Polarity palette (dome colors, baked per vertex) or one flat color.
+  // A uniform mix rather than a rebuilt attribute: the color lives in a
   // NORMALIZED uint8 vertex attribute shared by both frames of the pair, so
   // re-baking it would mean re-uploading every vertex on a toggle.
   vColor = mix(meta.rgb, uMonoColor, uMono);
@@ -192,7 +192,7 @@ void main() {
   if (vAlpha < 0.01) { discard; }
   // Premultiplied — see material.premultipliedAlpha. Dead vertices contribute
   // nothing even before the discard, so a padded seed can never draw a ray to
-  // the Sun's centre.
+  // the Sun's center.
   gl_FragColor = vec4(vColor * vAlpha, vAlpha);
 }
 `;
@@ -307,7 +307,7 @@ export function createFieldLines(options: FieldLinesOptions): FieldLines {
     depthWrite: false,
     blending: AdditiveBlending,
     // REQUIRED, and easy to miss: the fragment shader below already multiplies
-    // colour by alpha. three picks the blend function from THIS flag — true
+    // color by alpha. three picks the blend function from THIS flag — true
     // gives glBlendFunc(ONE, ONE), false gives (SRC_ALPHA, ONE), which would
     // multiply by alpha a second time. The visible symptom of getting it wrong
     // is an alpha-squared falloff: the closed-line floor renders at 0.0625

@@ -141,7 +141,7 @@ now mirrors `stillUrl` exactly. Plain-HMI's 0.8395 was measured to be *correct* 
 one Carrington map each (432 KB total, 38.5 s), `layers` array in `texture.json`. Surface
 control is now Coronal Loops / Chromosphere / Hot Corona / Artist. → footgun 22.
 
-**Field-line colour toggle** — Polarity vs Electric blue, as a shader uniform. `?fieldcolor=blue`.
+**Field-line color toggle** — Polarity vs Electric blue, as a shader uniform. `?fieldcolor=blue`.
 
 **Events pipeline (M-P8/M-P9)** — `sources/donki.py` + `events/export.py` + validator +
 outage drill. Produces `data/events/events.json` (~4 KB). → footgun 23 (DONKI AR numbers are
@@ -217,7 +217,7 @@ Everything visual. In particular:
   **check the browser console first thing.** If it warns, the Sun renders inside-out.
 - The Earth-facing home camera.
 - The depth-buffer clear (footgun 18) that makes far-side field lines hide behind the Sun.
-- Multi-channel texture switching, the field-colour toggle, the reworked solar wind.
+- Multi-channel texture switching, the field-color toggle, the reworked solar wind.
 - Kiosk mode, the attract loop, the QR flow.
 - Anything on a real phone.
 
@@ -264,7 +264,7 @@ A feasibility study was run (2026-08-23). Summary so it does not get re-litigate
   no run API (CCMC Runs-on-Request is a human-mediated order form), it is retrospective
   (recent solar runs simulate 2011–2013 events), and CCMC's publication policy asks for
   developer contact and co-authorship consideration rather than granting redistribution.
-- **Recommended instead:** a stylised parametric eruption driven by real DONKI numbers
+- **Recommended instead:** a stylized parametric eruption driven by real DONKI numbers
   (~8 days of work). The events pipeline built today is step one of this.
 - **Optional Phase 2:** one *generic* precomputed MHD eruption, traced offline to ~200
   fixed-topology field lines × 24 frames and baked into the existing `SOLPFRM1`-shaped format
@@ -299,7 +299,7 @@ re-reading an 18 MB PDF.
 4 pages, 792×612 pt (landscape Letter), 18 MB. Page 1 is the **master INTUITIVE Planetarium
 brand**; pages 2–4 are show sub-brands (Our Place in Space, JWST, Black Holes).
 
-**Colours (page 1, verbatim including the kit's own casing):**
+**Colors (page 1, verbatim including the kit's own casing):**
 
 | Name | Hex | RGB | CMYK |
 |---|---|---|---|
@@ -336,17 +336,17 @@ Bold / Bold Italic (Omnes is listed Light / Regular / Bold rather than Book):
 
 **Wordmark rules (page 1), quoted/paraphrased:**
 
-- Exists in two colours: **White** and **Spaceberry**. *"Except for B&W printing, spaceberry is
+- Exists in two colors: **White** and **Spaceberry**. *"Except for B&W printing, spaceberry is
   an appropriate choice anywhere black could be chosen, and should be regarded as the default."*
 - *"Outer Glow may be applied to the white version of the wordmark, though legibility is key and
   the effect should be slight."*
 - *"The Intuitive Planetarium wordmark cannot exist where the USSRC logo does not."*
 - *"The wordmark's primary rule is that it must always be legible."* On print items where the
-  logo acts alone it must not be modified from the showcased versions; **recolouring or
+  logo acts alone it must not be modified from the showcased versions; **recoloring or
   modifying it to integrate with a graphic or artwork by the planetarium team for marketing
   purposes IS appropriate** (see: Spectra Billboard).
 - **Icon & Complete Logo:** the complete Logo = Icon + Wordmark. The Icon may appear in
-  spaceberry, white, or coloured. *"The icon can appear as one with the title, approximately
+  spaceberry, white, or colored. *"The icon can appear as one with the title, approximately
   where the ends of the two shooting stars are placed evenly following the line of the Intuitive
   'I', or to the left of the wordmark."*
 - Wordmark forms shown: stacked two-line `INTUITIVE / PLANETARIUM` and single-line
@@ -356,7 +356,7 @@ Bold / Bold Italic (Omnes is listed Light / Regular / Bold rather than Book):
 **Design Elements (page 1, right column) — the brand's visual motifs:**
 
 1. Four-point **sparkle stars**, white, varied sizes, scattered with small circles on a
-   Spaceship-Gray/blue-grey rounded panel.
+   Spaceship-Gray/blue-gray rounded panel.
 2. A **maroon gradient panel** (Cosmaroon → Midnight Cherry) with a *stepped/notched* rounded
    corner and pink pixel/square speckle.
 3. A **hexagon tessellation** strip, gradient from near-black through Spaceberry to Spacebubble
@@ -365,7 +365,7 @@ Bold / Bold Italic (Omnes is listed Light / Regular / Bold rather than Book):
 **Layout / grid convention of the kit itself** (worth copying — it is how the brand presents
 information): section headers set in **letterspaced caps at roughly 0.2em+ tracking**
 (`W o r d m a r k s`, `T y p o g r a p h y`, `C o l o r s`), each followed by a **thin
-horizontal rule spanning the column**. Page ground is a light grey (~`#E3E5E9`) carrying faint
+horizontal rule spanning the column**. Page ground is a light gray (~`#E3E5E9`) carrying faint
 sparkle stars. IP wordmark top-left, USSRC lock-up top-right.
 
 **Show sub-brands (pages 2–4) — not the master brand, but recorded so the PDF need not be
@@ -375,8 +375,8 @@ reopened:**
   `#335494 #243870 #1c264d #141436`. Type: **Gotham** (Book/Bold + italics); Gotham Bold full
   caps is the full title in the inline logo and the word "Space" in the standard logo.
   **Nimbus Sans Light at tracking value 350** for the "you are here" portion. Two logo
-  variations × four colour options (Full colour with gradients whose epicentres sit at each
-  planet, Earth's Moon and the Sun, plus a gradient overlay on the text; Partial colour with
+  variations × four color options (Full color with gradients whose epicenters sit at each
+  planet, Earth's Moon and the Sun, plus a gradient overlay on the text; Partial color with
   planet gradients and white text; White; Black). The inline logo is the only use case for the
   complete inner-solar-system icon; default to the multi-line wordmark when possible.
 - *JWST: The Story Unfolds* — design-element hexes `#f3ecae #e8ce73 #bf7f2e` /
@@ -384,11 +384,11 @@ reopened:**
   variations) for "James Webb Space Telescope"; **Good Times Book** for "The story unfolds".
   Logo may appear white or Spaceberry; the white version may drop a black shadow. The Northrop
   Grumman Foundation logo must appear wherever this logo does.
-- *Black Holes: Cosmic Abyss* — wordmark in White, Black, and a main coloured version with a
+- *Black Holes: Cosmic Abyss* — wordmark in White, Black, and a main colored version with a
   peach-to-white gradient; in every variation except Black the black-hole icon serving as the
-  "o" is filled black. Every colourway except black also has a glowing option (the main coloured
-  wordmark has two glow colours); on dark backgrounds use the coloured-aura variant
-  `Black_Hole_Logo_[format]_Full_Color.png`. Prioritise the two-line standard version. Type:
+  "o" is filled black. Every colorway except black also has a glowing option (the main colored
+  wordmark has two glow colors); on dark backgrounds use the colored-aura variant
+  `Black_Hole_Logo_[format]_Full_Color.png`. Prioritize the two-line standard version. Type:
   **Fino Sans** (Regular/Bold + italics); Fino Sans Bold is the title face except the first "O".
 
 **Logo assets** — `C:\Data\IP-Logos\IP_Icon_1\` holds
@@ -411,24 +411,24 @@ Read: `src/assets/sol.less`, `src/sol.vue`, `LayerPanel.vue`, `StatChip.vue`, `B
 
 1. **Everything is one temperature — warm.** `--sol-accent #ffc850` gold, `--sol-surface
    rgba(20,16,8,.92)` (a muddy olive-brown), `--sol-text #f5efe2` warm cream, `--sol-text-dim
-   #b8b0a0` warm grey. Nothing can pop against neighbours of its own temperature. *This is the
-   real answer to "the yellow on grey is just OK"* — the fix is to cool the neutrals, not to
+   #b8b0a0` warm gray. Nothing can pop against neighbors of its own temperature. *This is the
+   real answer to "the yellow on gray is just OK"* — the fix is to cool the neutrals, not to
    find a better yellow.
-2. **The chrome wears the data's colour.** `--sol-panel-border: 1px solid rgba(255,200,80,0.3)`
+2. **The chrome wears the data's color.** `--sol-panel-border: 1px solid rgba(255,200,80,0.3)`
    is gold, so every rail panel is painted in the same hue as closed field loops. The chrome
    competes with the Sun instead of framing it.
 3. **Nothing in the app uses the brand palette at all.** No Spaceberry, no Spacebubble, no
    Cosmaroon anywhere. The app is currently off-brand.
 
-**In-scene colours inventoried (dome-shared — do NOT recolour):** `pfss.ts` manifest fallbacks
+**In-scene colors inventoried (dome-shared — do NOT recolor):** `pfss.ts` manifest fallbacks
 `closed [1,0.85,0.2]` ≈ `#FFD933`, `open_pos [0.3,0.55,1]` ≈ `#4C8CFF`, `open_neg [1,0.4,0.1]`
 ≈ `#FF6619` (render hints in the manifest can override these); `fieldLines.ts` `MONO_COLOR
 [0.373,0.722,1.0]` = `#5FB8FF`; `solarWind.ts` `COLOR [0.70,0.83,1.0]` ≈ `#B3D4FF`;
 `sunGlow.ts` radial stops `rgba(255,246,224,.30) → (255,232,175,.26) → (255,198,110,.11) →
 (255,165,66,.035) → (255,150,50,0)`.
 
-**Spacecraft colours** (`public/data/ephem/spacecraft.json`): psp `#ff8a3d`, solo `#5fb8ff`,
-stereoa `#c77dff`, earth `#7de08a`. Note solo's colour is *exactly* `--sol-accent2`, and
+**Spacecraft colors** (`public/data/ephem/spacecraft.json`): psp `#ff8a3d`, solo `#5fb8ff`,
+stereoa `#c77dff`, earth `#7de08a`. Note solo's color is *exactly* `--sol-accent2`, and
 stereoa's violet collides with any violet chrome accent.
 
 **Surprises — the load-bearing finds:**
@@ -442,7 +442,7 @@ stereoa's violet collides with any violet chrome accent.
   `Line2.js`, `LineGeometry.js`, `LineMaterial.js`, `LineSegments2.js`,
   `LineSegmentsGeometry.js`. **Nothing in `src/` imports them.** No new dependency needed.
 - **Planet orbits are WWT's, not ours.** `layers.orbits` → `host.applySetting(["solarSystemOrbits",
-  value])` (`SolarView3D.vue` ~line 720). The engine's orbit colour is
+  value])` (`SolarView3D.vue` ~line 720). The engine's orbit color is
   `this._orbitColor = Colors.get_white()` (`@wwtelescope/engine/src/index.js` ~line 37874) —
   internal per-`Orbit` state, **not exposed through the Settings API**. The app therefore cannot
   restyle, thicken or fade planet orbits at all. To make them pop you must set
@@ -457,7 +457,7 @@ stereoa's violet collides with any violet chrome accent.
   position, `sunAngle = asin(occluderRadius / cameraDistance)`, and the per-target test
   `acos(cosAngle) < sunAngle`, currently gated on `bodyDistance > cameraDistance` to produce
   `occluded`. **Dropping that gate yields an `onDisk` boolean for free.** Projecting
-  `Vector3(0,0,0)` once per frame gives the Sun's screen centre for leader-line angles.
+  `Vector3(0,0,0)` once per frame gives the Sun's screen center for leader-line angles.
 - **BrandMark collision (new in 49e06cd).** `.sol-brand` is now `top: 0.75rem; left: 0.75rem;
   z-index: 6` on the stage — directly under `TopBar`'s own left-aligned "Sol / the Sun right
   now". Two brand marks stacked on the same left edge ~50 px apart. Also, the stage BrandMark
@@ -465,9 +465,9 @@ stereoa's violet collides with any violet chrome accent.
 - **`backdrop-filter` over the WebGL canvas is already proven here** — `SpacecraftLabel` uses
   `blur(4px)`, `TimeScrubber` `blur(6px)`.
 - `StatChip`'s freshness dot (`#58d68d` / `#f0b429` / `#6b6b6b`) puts the actual time only in a
-  `title` attribute — inaccessible on touch, and colour is the sole carrier.
+  `title` attribute — inaccessible on touch, and color is the sole carrier.
 - `TimeScrubber` event marks already carry meaning by **shape** (diamond = flare, circle = CME)
-  independent of colour. Keep that; it satisfies the "not colour alone" rule for free.
+  independent of color. Keep that; it satisfies the "not color alone" rule for free.
 
 ### 8.3 Decisions reached, with settled numbers
 
@@ -494,8 +494,8 @@ Proposed token set (all contrast-verified — see the table below):
 ```
 
 `--sol-bg` stays `#000` deliberately: it must match the WebGL sky exactly or a seam appears at
-the canvas edge. WWT owns the sky colour and the canvas is shared, so changing the three.js
-clear colour is risky — flagged as **not verified feasible**.
+the canvas edge. WWT owns the sky color and the canvas is shared, so changing the three.js
+clear color is risky — flagged as **not verified feasible**.
 
 `--sol-panel-border` is the single highest-leverage line in the whole proposal: one token takes
 gold off every rail panel at once.
@@ -519,7 +519,7 @@ L70 `#f66f9c` 7.18. violet L62 `#6265da` 4.11 · **L68 `#7b7ee0` 5.53** · L74 `
 | **`#FFF` bare disk, NO plate** | **1.10** | **2.22** | 3.62 | **1.54** | **2.15** | 3.45 | 3.56 |
 
 The last row is the whole argument: **nothing survives naked on the photosphere.** Legibility
-over the Sun must come from a plate or a casing, never from a colour choice. `--sol-text-quiet`
+over the Sun must come from a plate or a casing, never from a color choice. `--sol-text-quiet`
 is the floor of the system — keep it to 12 px+ short strings, never a sentence.
 
 **Ember guard-rail.** Ember sits at hue 340°; the inbound-field orange is at 20° and the X-flare
@@ -532,7 +532,7 @@ never a severity, never a legend swatch.
 below that), Magistral for all UI including section heads at `0.22em` tracking, Omnes for body
 copy at small sizes. **None of the three is on Google Fonts, and licensing is blocking:** Pirulen
 (Typodermic) is free for personal use only; Magistral (ParaType) and Omnes (Darden / Adobe
-Fonts) need webfont licences. The app already bundles local TTFs so the mechanism exists — the
+Fonts) need webfont licenses. The app already bundles local TTFs so the mechanism exists — the
 rights do not. Ship this stack meanwhile (it is also what the drafted artboards are drawn in):
 
 ```
@@ -560,17 +560,17 @@ that, used at legibility strength.
 One rule, applied everywhere: **every mark carries a dark contour inside a light edge, and DOM
 labels additionally switch to a solid plate when `project.ts` reports they are over the disk.**
 The dark half wins over the bright photosphere; the light half wins over the black sky; one
-treatment therefore works on both backgrounds, which no single colour can.
+treatment therefore works on both backgrounds, which no single color can.
 
 **(a) Dual-contrast marker dot** — replaces `.sl-dot`'s current 8 px + `box-shadow: 0 0 6px
-currentColor`, a coloured glow that vanishes over the photosphere:
+currentColor`, a colored glow that vanishes over the photosphere:
 
 ```css
-width: 11px; height: 11px; border-radius: 50%; background: <mission colour>;
+width: 11px; height: 11px; border-radius: 50%; background: <mission color>;
 box-shadow:
   0 0 0 2px   rgba(5,1,15,0.92),        /* dark contour — wins on the bright disk */
   0 0 0 3.5px rgba(245,244,240,0.62),   /* light ring   — wins on the black sky   */
-  0 0 12px 1px <mission colour @ 55%>;  /* glow, cosmetic only */
+  0 0 12px 1px <mission color @ 55%>;  /* glow, cosmetic only */
 ```
 
 **(b) Adaptive label plate** — `project.ts` returns `onDisk` per target (see §8.2):
@@ -591,7 +591,7 @@ Name 13 px / 0.8125rem / 700; detail 11 px / 500 / `#A6AEC4`. Selected state:
 `border-color: var(--sol-accent)` — gold stays the app's word for "on".
 
 **(c) Leader line, so labels prefer the sky.** Offset the chip radially outward from the
-projected Sun centre by ~26 px and draw a 1.5 px leader from marker to chip:
+projected Sun center by ~26 px and draw a 1.5 px leader from marker to chip:
 
 ```css
 .sl-leader { position: absolute; height: 1.5px; transform-origin: 0 50%;
@@ -605,19 +605,19 @@ most framings, and the marker stays on the true position while only the text mov
 **(d) `RegionLabel` — take the gold out of the text.** Gold text on the photosphere is 1.54:1
 today. Text goes `#F5F4F0` (14.58:1 on the on-disk plate); gold stays in the **ring only**:
 12 px, `2px solid #FFC850`, `box-shadow: 0 0 0 1.5px rgba(5,1,15,0.9), 0 0 0 3px
-rgba(255,200,80,0.22)`. Colour is then not the sole carrier — ring = active region, ⊕ glyph =
+rgba(255,200,80,0.22)`. Color is then not the sole carrier — ring = active region, ⊕ glyph =
 sub-Earth.
 
 **(e) Orbits — replace `LineBasicMaterial` with `Line2` / `LineGeometry` / `LineMaterial`**
 (already in three 0.185.1, no new dependency). Two-pass casing per arc, the cartographic
 road-casing trick and the same dual-contrast idea as the labels:
 
-| pass | width (screen px) | colour | opacity | notes |
+| pass | width (screen px) | color | opacity | notes |
 |---|---|---|---|---|
 | casing, past | 5.0 | `#05010F` | 0.55 | `renderOrder` 10 |
-| core, past | 2.0 | mission colour | 0.90 | `renderOrder` 11; vertex-colour ramp 0.35 → 1.0 toward "now" |
+| core, past | 2.0 | mission color | 0.90 | `renderOrder` 11; vertex-color ramp 0.35 → 1.0 toward "now" |
 | casing, future | 4.0 | `#05010F` | 0.40 | |
-| core, future | 1.6 | mission colour | 0.55 | `dashed: true` |
+| core, future | 1.6 | mission color | 0.55 | `dashed: true` |
 
 `depthWrite: false` on all four.
 
@@ -633,10 +633,10 @@ existing `0.012 / 0.012` must be **retuned, not copied**.
 **(f) Planet orbits.** Set `solarSystemOrbits = false` permanently and draw our own from the
 already-present `orbitSampleVerticesAU()`: casing 3.0 px `#05010F` @ 0.45 + core 1.4 px
 `#7B7EE0` (brand violet) @ 0.42. Cool violet reads as reference furniture, clearly not one of
-the four physics colours. **Caution:** `#7B7EE0` vs STEREO-A's `#c77dff` — keep planet orbits
+the four physics colors. **Caution:** `#7B7EE0` vs STEREO-A's `#c77dff` — keep planet orbits
 well below spacecraft-trail brightness so the two never read as the same class.
 
-**(g) In-scene physics colours are NOT changed.** Gold (closed loops), blue (outbound open),
+**(g) In-scene physics colors are NOT changed.** Gold (closed loops), blue (outbound open),
 orange (inbound open) and pale blue-white (solar wind) are the dome show's legend, and a guest
 may see the dome an hour before the phone. The apparent lift comes entirely from taking gold
 *out of the chrome*, which raises the field lines' perceived saturation without touching a
@@ -647,7 +647,7 @@ single data value.
 - **LayerPanel** — switch off-track `rgba(148,155,175,0.20)`, on-track `rgba(255,200,80,0.55)`,
   knob `#F5F4F0`. Segments stay 44 px; border `rgba(148,155,175,0.22)`; on-state
   `border-color #FFC850`, `background rgba(255,200,80,0.14)`, `color #F5F4F0`. Add a 14 px
-  inline-SVG glyph per layer row (loops / streaming dots / craft / ring / halo) for non-colour
+  inline-SVG glyph per layer row (loops / streaming dots / craft / ring / halo) for non-color
   redundancy at 90-second glance. Do **not** add a left-border accent bar — that is an AI-slop
   trope the design skill calls out.
 - **StatChip → stat tile** — larger value with `tabular-nums`; label in Magistral small caps at
@@ -673,7 +673,7 @@ single data value.
    then `--check`, then publish with the `Artifact` tool at `contract: "0.1.31"`.
 3. **Deliberate departures to write up on the Rationale artboard:** (i) `--sol-bg` stays `#000`
    rather than Spaceberry, because it must match the WebGL sky; (ii) gold and the in-scene
-   physics colours are kept even though they are not brand colours, because they are dome-show
+   physics colors are kept even though they are not brand colors, because they are dome-show
    semantics; (iii) the aurora callout stays green for the same reason; (iv) ember is a *lifted*
    Cosmaroon, not Cosmaroon itself, because `#821036` at 28.6% lightness cannot function as an
    accent on a dark ground.

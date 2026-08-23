@@ -85,7 +85,7 @@ function num(value: unknown, fallback = 0): number {
  * Fetch and normalize `ar/regions.json`.
  *
  * A 404 is a NORMAL condition, not an error: the product is optional (a plain
- * `yarn serve` with no `public/data/ar/` is a Sun with no labelled regions,
+ * `yarn serve` with no `public/data/ar/` is a Sun with no labeled regions,
  * which is also what a genuinely spotless Sun looks like). Resolves to an empty
  * array on any failure and never throws — the caller checks its own destroyed
  * flag rather than distinguishing an abort from a bad gateway.
@@ -152,7 +152,7 @@ export function regionVector(region: SolarRegion, radius: number, out: Vec3 = [0
  * Absent (`sol.ar/1`, or a run whose SRS history was unavailable) resolves to
  * an empty array, and the caller falls back to the live count. That is exactly
  * what the chip showed before this existed, so an old data tree served to a new
- * app degrades to the old behaviour rather than to a blank.
+ * app degrades to the old behavior rather than to a blank.
  */
 export async function loadRegionHistory(
   baseUrl: string,
@@ -192,7 +192,7 @@ export function utDate(unixSeconds: number): string {
  *
  * Nearest rather than exact because a day NOAA issued no report for is omitted
  * from the array rather than written as zero (the pipeline cannot tell that
- * case from a genuinely spotless Sun). Showing the neighbouring day, dated,
+ * case from a genuinely spotless Sun). Showing the neighboring day, dated,
  * beats showing "0 sunspots" or a blank.
  */
 export function regionDayAt(history: RegionDay[], unixSeconds: number): RegionDay | null {

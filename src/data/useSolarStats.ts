@@ -8,7 +8,7 @@
 //    the others; a 6-second AbortController keeps a hung endpoint from holding
 //    the row empty; and the last good values are written through to
 //    localStorage so a returning guest sees numbers on the FIRST frame, dimmed
-//    and honestly labelled "as of 3:20 AM" when they're stale.
+//    and honestly labeled "as of 3:20 AM" when they're stale.
 //  * Total transfer budget is single-digit KB — all five endpoints are tiny.
 //  * TTLs match how fast each number actually moves: wind/flare 5 minutes,
 //    Kp and the NOAA scales 30 minutes, the pipeline's daily snapshot 6 hours.

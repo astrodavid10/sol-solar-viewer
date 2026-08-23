@@ -90,8 +90,8 @@ interface Tick {
  * The 48-hour time control.
  *
  * A native `<input type="range">` on purpose: it is the only slider that gets
- * touch, keyboard and screen-reader behaviour right on every phone for free.
- * Everything below is styling and honest labelling.
+ * touch, keyboard and screen-reader behavior right on every phone for free.
+ * Everything below is styling and honest labeling.
  *
  * The default resting state is PAUSED at the newest frame, because the app is
  * fundamentally an answer to "what is the Sun doing right now" — the animation
@@ -471,7 +471,7 @@ export default defineComponent({
   }
 
   // CMEs: a circle in the open-field blue, deliberately NOT a diamond and
-  // deliberately not on the flare colour ramp. A flare is a flash on the Sun;
+  // deliberately not on the flare color ramp. A flare is a flash on the Sun;
   // a CME is something leaving it, and the two must not read as degrees of the
   // same thing even when DONKI links them.
   &.is-cme {

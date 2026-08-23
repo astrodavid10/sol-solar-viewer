@@ -1,7 +1,7 @@
 // =====================================================================
 // Flares and CMEs — the moments something happened
 // =====================================================================
-// `data/events/events.json` is CCMC's DONKI catalogue digested by the pipeline
+// `data/events/events.json` is CCMC's DONKI catalog digested by the pipeline
 // (see pipeline/events/export.py). It is the only source that gives an
 // eruption a PLACE and a DIRECTION: NOAA's `xray-flares-latest.json`, which
 // this app already shows in the stats row, reports class and timing but has no
@@ -245,7 +245,7 @@ export function eventTitle(event: SolarEvent): string {
 }
 
 /**
- * Speed in the units a guest thinks in. Kilometres per second is the number
+ * Speed in the units a guest thinks in. Kilometers per second is the number
  * scientists use and is meaningless to most people, so it is followed by
  * something with a scale they own — million mph.
  */

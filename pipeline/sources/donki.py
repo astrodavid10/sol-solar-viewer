@@ -1,4 +1,4 @@
-"""CCMC DONKI flare and CME catalogue.
+"""CCMC DONKI flare and CME catalog.
 
 DONKI is the only source we have found that gives a flare or CME a PLACE and a
 DIRECTION.  NOAA's `xray-flares-latest.json` (already used by the app) reports

@@ -190,14 +190,14 @@ export function solarSystemModeActive(): boolean {
 // ---------------------------------------------------------------------
 
 /**
- * Pin the world origin to the Sun's CENTRE.
+ * Pin the world origin to the Sun's CENTER.
  *
  * NEVER `setTrackedObject(0)` instead: `getPlanetTargetPoint` adds a
  * lat/lng-dependent SURFACE offset, so the origin slides by ~1 R_sun as the
  * guest orbits and the whole three.js overlay detaches from the sphere
  * (CLAUDE.md footgun 1). `target = custom` keeps our viewTarget verbatim.
  */
-function pinToSunCentre(camera: MutableCamera): void {
+function pinToSunCenter(camera: MutableCamera): void {
   camera.target = SS_CUSTOM;
   camera.targetReferenceFrame = "";
   camera.viewTarget.x = 0;
@@ -421,12 +421,12 @@ export function orbitByPixels(dxPx: number, dyPx: number): void {
   cam.lng = lngDeg;
   cam.rotation = rollFor(latDeg, lngDeg, up);
   cam.angle = 0;
-  pinToSunCentre(cam);
+  pinToSunCenter(cam);
   // Both cameras: the engine eases viewCamera toward targetCamera, and a drag
   // should track the finger rather than lag it.
   rc.targetCamera = cam;
   const view = cam.copy();
-  pinToSunCentre(view);
+  pinToSunCenter(view);
   rc.viewCamera = view;
 }
 
@@ -444,7 +444,7 @@ export function homeCamera(instant = false): void {
 
   const framing = earthFacingCamera();
   const target = rc.targetCamera.copy();
-  pinToSunCentre(target);
+  pinToSunCenter(target);
   target.lat = framing.latDeg;
   target.lng = framing.lngDeg;
   target.rotation = framing.rotationRad;
@@ -454,11 +454,11 @@ export function homeCamera(instant = false): void {
 
   // Harmless when already set, and it guarantees the origin stays pinned even
   // if something else in the engine reset the target between frames.
-  pinToSunCentre(rc.viewCamera);
+  pinToSunCenter(rc.viewCamera);
 
   if (instant) {
     const view = target.copy();
-    pinToSunCentre(view);
+    pinToSunCenter(view);
     rc.viewCamera = view;
   }
 }

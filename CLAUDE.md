@@ -166,7 +166,7 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
 28. **An internally-scrolling flex panel needs `min-height: 0` on the container, the panel AND
     the grid item.** Miss any one and the content sets a floor on the item's height, the `1fr`
     row stops constraining anything, and the panel silently clips mid-content with no
-    scrollbar while its neighbour draws over the top. Also: `grid-template-rows` and
+    scrollbar while its neighbor draws over the top. Also: `grid-template-rows` and
     `grid-template-areas` must declare the SAME number of rows — four sizes against a two-row
     map put the stage in an `auto` row and the WebGL canvas, which has no intrinsic height,
     collapsed to nothing.
@@ -174,11 +174,11 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     PROJECTION from Earth and carries no depth, so `texture/*_offlimb_*.jpg` is drawn as a
     camera-facing billboard (`src/three/offLimb.ts`) and FADES OUT with the angle from the
     sub-Earth direction — past ~25-55 deg it would be a flat photograph pasted across a Sun
-    seen from the side. The crop is centred on the FITTED disk centre, not the array centre
+    seen from the side. The crop is centered on the FITTED disk center, not the array center
     (`measure_limb` reports 12-14 px offsets on AIA frames). Black, not alpha: the billboard
     is additive, so black already contributes nothing and a PNG would cost several times the
     bytes. `half_width_rsun` is DATA (AIA 1.28, HMI 1.09) because it falls out of plate scale.
-    The validator asserts the disk centre is black — additive blending would otherwise paint a
+    The validator asserts the disk center is black — additive blending would otherwise paint a
     second Sun over the sphere and nothing else would catch it.
 22. **The 3D sphere texture is MULTI-CHANNEL** (`sol.texture/2`). `TEX_WAVELENGTHS =
     (171, 304, 193)` in `pipeline/config.py`; `run_texture` loops them and writes one
@@ -245,7 +245,7 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
 - PFSS: our pipeline (GONG mrzqs + sunkit-magex, nrho=35, rss=2.5). Fallback (phase 2):
   LMSAL `fieldlines-YYYYMMDD-000400.json` (CORS *, single daily frame).
 - PUNCH & Proba-3 have NO Horizons ids — both orbit Earth; heliocentrically they ARE Earth.
-- **CCMC DONKI** (`kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/`): flare + CME catalogue, no API
+- **CCMC DONKI** (`kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/`): flare + CME catalog, no API
   key, `ACAO: *`. The ONLY source that gives a flare/CME a place and a direction — NOAA's
   `xray-flares-latest.json` has class and timing but no source location at all. Digested
   server-side into `data/events/events.json` (~4 KB). Ask for SHORT windows: 3 days is

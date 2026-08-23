@@ -226,7 +226,7 @@ def seed_xyz_solrad(lats_deg: np.ndarray, lons_deg: np.ndarray,
 
     Used for DUMMY lines: a seed that traced nothing in some frame is stored as
     N copies of its own seed point (never zeros -- zeros would draw rays into
-    the Sun's centre the moment a shader bug let them through) with valid=0.
+    the Sun's center the moment a shader bug let them through) with valid=0.
     """
     lat = np.radians(np.asarray(lats_deg, dtype=float))
     lon = np.radians(np.asarray(lons_deg, dtype=float))

@@ -47,7 +47,7 @@ export type ProductStatus = "ok" | "degraded" | "stale" | "absent" | "failed";
 // ---------------------------------------------------------------------
 
 export interface PfssRenderHints {
-  /** Dome palette: same colours the planetarium show uses. */
+  /** Dome palette: same colors the planetarium show uses. */
   closed: Rgb;
   openPos: Rgb;
   openNeg: Rgb;

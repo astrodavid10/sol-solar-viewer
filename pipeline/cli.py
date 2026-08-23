@@ -611,7 +611,7 @@ def run_texture(ctx: Ctx) -> ProductResult:
 
 
 def run_events(ctx: Ctx) -> ProductResult:
-    """Flare + CME catalogue from CCMC DONKI.
+    """Flare + CME catalog from CCMC DONKI.
 
     Never fatal by design (see run_all): DONKI has no SLA, and field lines are
     the headline product. A DONKI outage falls back to the cached response and,
@@ -1132,7 +1132,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p, pfss_flags=False)
     p.set_defaults(func=lambda a: _single(a, "texture"))
 
-    p = sub.add_parser("events", help="flare + CME catalogue (CCMC DONKI)")
+    p = sub.add_parser("events", help="flare + CME catalog (CCMC DONKI)")
     _add_common(p, pfss_flags=False)
     p.set_defaults(func=lambda a: _single(a, "events"))
 

@@ -169,7 +169,7 @@ export default defineComponent({
           // freshness dot answers "how long ago did we MEASURE this", and for a
           // deliberately historical number that question has no useful answer.
           // A green dot beside a three-day-old count would be a lie told in
-          // colour.
+          // color.
           observedMs: spots.live ? snapshot.observedMs : null,
           stale: false,
         },

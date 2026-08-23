@@ -120,7 +120,7 @@ def build_spacecraft(now: datetime, verbose: bool = False) -> Dict:
         "generated_iso": iso_z(now),
         "generated_unix": unix_s(now),
         "source": "JPL Horizons via sunpy.coordinates.get_horizons_coord",
-        "frame": "HeliocentricMeanEcliptic (equinox J2000), Sun-centred",
+        "frame": "HeliocentricMeanEcliptic (equinox J2000), Sun-centered",
         "units": {"xyz_au": "AU ([x,y,z] per epoch)", "r_rsun": "R_sun",
                   "angles": "deg"},
         "epochs_unix": epochs_unix or [],

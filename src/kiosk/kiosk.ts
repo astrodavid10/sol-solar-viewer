@@ -1,5 +1,5 @@
 // Kiosk-mode runtime helpers — app-agnostic. Copy this file verbatim into a
-// sibling data-story repo to add museum-touchscreen behaviour (see KIOSK_MODE.md).
+// sibling data-story repo to add museum-touchscreen behavior (see KIOSK_MODE.md).
 //
 // Three concerns:
 //   • createIdleWatcher   — detect "nobody's touched it" → attract loop.

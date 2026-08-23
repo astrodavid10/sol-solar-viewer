@@ -66,7 +66,7 @@ function strField(row: Dict, ...keys: string[]): string | null {
 
 /**
  * SWPC time tags are ISO-ish but frequently lack a zone ("2026-08-23T00:00:00")
- * while always meaning UTC. Normalise so Date.parse doesn't read them as local.
+ * while always meaning UTC. Normalize so Date.parse doesn't read them as local.
  */
 export function parseTimeTag(timeTag: string | null): number | null {
   if (!timeTag) { return null; }

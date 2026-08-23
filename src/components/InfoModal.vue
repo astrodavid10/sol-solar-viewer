@@ -35,7 +35,7 @@
       </p>
 
       <p class="im-body">
-        Each surface below is a different colour of light, and each colour
+        Each surface below is a different color of light, and each color
         comes from gas at a different temperature — so switching surfaces is
         really switching altitude, from the visible photosphere all the way
         out into the million-degree corona.
@@ -48,7 +48,7 @@
         <li><strong>Coronal Loops</strong> — ultraviolet light tracing the Sun's own magnetic field.</li>
         <li><strong>Hot Corona</strong> — the outer atmosphere, millions of degrees, with dark coronal holes where the solar wind escapes.</li>
         <li><strong>Magnetic Map</strong> — light and dark show which way the magnetic field points. These are the roots of the field lines you can turn on below.</li>
-        <li><strong>Artist</strong> — a stylised, illustrated Sun. Not a photograph of anything — just a clean way to see the model's shape.</li>
+        <li><strong>Artist</strong> — a stylized, illustrated Sun. Not a photograph of anything — just a clean way to see the model's shape.</li>
       </ul>
 
       <!-- Say this plainly rather than let a photorealistic globe imply more
@@ -58,8 +58,8 @@
       <p class="im-body">
         SDO only ever sees the side of the Sun facing Earth. Spin the globe
         around and the far side is never a photograph: for Chromosphere,
-        Coronal Loops and Hot Corona it's a stylised, quiet-looking fill; for
-        Visible Sun and Magnetic Map it's just flat grey, with nothing invented.
+        Coronal Loops and Hot Corona it's a stylized, quiet-looking fill; for
+        Visible Sun and Magnetic Map it's just flat gray, with nothing invented.
       </p>
 
       <h3 class="im-subtitle">How to use it</h3>
@@ -68,7 +68,7 @@
         <li><strong>Surface</strong> switches which picture is painted on the globe — the six above.</li>
         <li>
           <strong>Magnetic field</strong> draws our own model of the Sun's field lines (a "PFSS" model,
-          rebuilt from the last 72 hours of magnetic maps). <strong>Polarity</strong> colours them by
+          rebuilt from the last 72 hours of magnetic maps). <strong>Polarity</strong> colors them by
           which way the field points; switched off, they're all one electric blue.
         </li>
         <li>The <strong>timeline</strong> scrubs back through those same 72 hours. The marks on it are flares and CMEs — tap one to jump straight to it.</li>
@@ -76,7 +76,7 @@
       </ul>
 
       <p class="im-fine">
-        The flare and CME marks come from NASA's DONKI catalogue — solid research
+        The flare and CME marks come from NASA's DONKI catalog — solid research
         data, but not an official forecast. NOAA's Space Weather Prediction
         Center (below) is the official source.
       </p>
@@ -92,7 +92,7 @@
         </li>
         <li>
           <a href="https://ccmc.gsfc.nasa.gov/tools/DONKI/" target="_blank" rel="noopener"><strong>NASA CCMC DONKI</strong></a>
-          — the flare and CME catalogue behind the timeline marks.
+          — the flare and CME catalog behind the timeline marks.
         </li>
         <li>
           <a href="https://www.swpc.noaa.gov/" target="_blank" rel="noopener"><strong>NOAA Space Weather Prediction Center</strong></a>
@@ -188,7 +188,7 @@ export default defineComponent({
     flex: 1 1 auto;
     min-height: 0;
     // Fill the rail column: `width: min(100%, 32rem)` is a modal constraint,
-    // and in a 35% column it made this panel narrower than its neighbours.
+    // and in a 35% column it made this panel narrower than its neighbors.
     width: 100%;
     max-width: none;
     margin: 0;

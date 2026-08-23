@@ -58,10 +58,10 @@ const PHASE_CHANNEL_MS = 15_000;
 
 /**
  * The channels shown, in the order shown, and why this order:
- *   HMIIC — colourised continuum: the Sun "as your eye would see it" (with
+ *   HMIIC — colorized continuum: the Sun "as your eye would see it" (with
  *           sunspots). The most legible anchor image, so the loop starts and
  *           ends on it — whoever glances over mid-cycle is more likely to
- *           catch something recognisable.
+ *           catch something recognizable.
  *   0171  — quiet corona, calm gold loops: the gentlest step up from visible
  *           light into EUV.
  *   0193  — hotter corona / active regions: livelier structure, still a
@@ -222,7 +222,7 @@ function onActivity(): void {
  * to run inside the write so `writing` still reads true for the loop's own
  * writes; a queued (default pre-flush) callback would see it back down and
  * count them. statsTrack's own "no open session" rule is the second line of
- * defence.
+ * defense.
  *
  * Note the rollup field name is exo-era (`planets`): kioskStats.ts is shared
  * verbatim across data stories, so a channel id lands in `planets`.

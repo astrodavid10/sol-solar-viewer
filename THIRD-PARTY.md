@@ -10,7 +10,7 @@ below, each under its own terms.
 `src/three/three-wwt/` — MIT. Vendored from
 [cosmicds/three-wwt](https://github.com/cosmicds/three-wwt) at commit
 `80b95028d2b1e9ba7dbc117c314b25f535e80847`, with local modifications documented
-in each file's header. The upstream licence text is kept verbatim alongside the
+in each file's header. The upstream license text is kept verbatim alongside the
 source at `src/three/three-wwt/LICENSE`.
 
 Vendored rather than taken from npm because `@cosmicds/three-wwt@0.0.3` bundles
@@ -20,7 +20,7 @@ a duplicate copy of the WWT engine (1.7 MB) and ships a broken CJS entry point.
 
 `src/assets/Roboto.ttf`, `src/assets/RobotoCondensed.ttf`,
 `src/assets/RobotoCondensed-Italic.ttf` — Apache License 2.0. Copyright Google
-Inc. The fonts self-declare this in their `name` tables; the licence text is at
+Inc. The fonts self-declare this in their `name` tables; the license text is at
 <https://www.apache.org/licenses/LICENSE-2.0>.
 
 ## Highway Gothic Narrow
@@ -28,16 +28,16 @@ Inc. The fonts self-declare this in their `name` tables; the licence text is at
 `src/assets/HighwayGothicNarrow.ttf` — **terms unverified.**
 
 The font's `name` table records `copyright: "2009"` and
-`trademark: "Ash Pikachu Font"`, but carries **no licence record (nameID 13) and
-no licence URL (nameID 14)**. Highway Gothic derives from the US FHWA Standard
+`trademark: "Ash Pikachu Font"`, but carries **no license record (nameID 13) and
+no license URL (nameID 14)**. Highway Gothic derives from the US FHWA Standard
 Alphabets, which are themselves a US government work, but that says nothing
-about the terms of this particular digitisation.
+about the terms of this particular digitization.
 
 **This is not specific to Sol.** The file here is byte-identical
 (SHA-256 `7b98172d…`) to the one in `exo-sonification`, and the same font ships
 in at least seven projects in this family — including `minids`, which is already
 published publicly under MIT. Sol therefore introduces no exposure that does not
-already exist, and the question of terms is an organisation-wide one to settle
+already exist, and the question of terms is an organization-wide one to settle
 once rather than a Sol blocker.
 
 If it is ever settled the other way, [Overpass](https://overpassfont.org/) is an
@@ -47,9 +47,9 @@ replacement.
 ## WorldWide Telescope engine
 
 `@wwtelescope/engine`, `@wwtelescope/engine-pinia` and related packages are
-consumed from npm, not vendored, and carry their own licences (MIT). The app
-also fetches the WWT imageset catalogue from `worldwidetelescope.org` at
-runtime; `public/hips-surveys.wtml` is an excerpt of that catalogue.
+consumed from npm, not vendored, and carry their own licenses (MIT). The app
+also fetches the WWT imageset catalog from `worldwidetelescope.org` at
+runtime; `public/hips-surveys.wtml` is an excerpt of that catalog.
 
 ## Data sources
 
@@ -59,7 +59,7 @@ public, US-government or publicly-funded scientific products:
 - **NASA SDO** imagery (`sdo.gsfc.nasa.gov`) — hotlinked stills and movies.
 - **NOAA SWPC** (`services.swpc.noaa.gov`) — space-weather products.
 - **NSO GONG** (`gong2.nso.edu`) — magnetograms feeding the PFSS model.
-- **NASA CCMC DONKI** (`kauai.ccmc.gsfc.nasa.gov`) — flare and CME catalogue.
+- **NASA CCMC DONKI** (`kauai.ccmc.gsfc.nasa.gov`) — flare and CME catalog.
   CCMC asks that DONKI be described as research-grade rather than an official
   forecast; the app carries that wording on every event card.
 - **JPL Horizons** — spacecraft ephemerides, via `astroquery`.

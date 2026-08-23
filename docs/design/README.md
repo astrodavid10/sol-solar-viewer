@@ -8,6 +8,6 @@ handoff document; this directory is just the artifacts that section refers to.
   proposal). The remaining artboards were never built; §8.5 lists them.
 - `cr.py` — WCAG contrast-ratio calculator used to settle the palette. The
   measured table it produced is in §8.3, so this only needs re-running if the
-  candidate colours change.
+  candidate colors change.
 
 Nothing here is loaded by the app or the pipeline.

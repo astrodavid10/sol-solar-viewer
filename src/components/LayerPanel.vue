@@ -18,7 +18,7 @@
     </button>
 
     <!-- Same switch as the layer rows above, because it is the same kind of
-         question: on or off. Off is not "no colour" — it is one flat electric
+         question: on or off. Off is not "no color" — it is one flat electric
          blue, so the field still reads as a single structure. -->
     <button
       type="button"
@@ -31,7 +31,7 @@
       </span>
       <span class="lp-text">
         <span class="lp-label">Polarity</span>
-        <span class="lp-hint">Colour the field lines by magnetic direction</span>
+        <span class="lp-hint">Color the field lines by magnetic direction</span>
       </span>
     </button>
 
@@ -75,7 +75,7 @@ interface Row {
 /**
  * One row of the Surface control. A channel entry paints that AIA wavelength
  * from the pipeline's Carrington map; "artist" is the synthetic surface.
- * Collapsing "which channel" and "real vs stylised" into one control is
+ * Collapsing "which channel" and "real vs stylized" into one control is
  * deliberate — they are the same question to a guest ("what am I looking at"),
  * and two segmented controls in a phone popover is one too many.
  */
@@ -107,7 +107,7 @@ const ROWS: Row[] = [
  * The five published channels, plus the synthetic surface.
  *
  * Labels come from `sdoCatalog` rather than being written again here: the
- * texture channel codes ARE that catalogue's product ids, so one table names
+ * texture channel codes ARE that catalog's product ids, so one table names
  * every SDO product in the app and the two can never drift apart.
  */
 const TEXTURE_CHANNELS: TextureChannel[] = ["HMIIC", "0304", "0171", "0193", "HMIB"];

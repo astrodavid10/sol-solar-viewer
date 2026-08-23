@@ -11,10 +11,10 @@ getting it wrong produces a *silent* visual bug rather than an error:
                        {-1,0,1}, valid in {0,1}.
 4. dequantization   -- declared round-trip error under 1e-4 R_sun and every
                        valid line's radii inside [0.99, 2.61] (a line outside
-                       that is a frame/units bug, e.g. metres for R_sun).
+                       that is a frame/units bug, e.g. meters for R_sun).
 5. cross-frame      -- identical n_lines and n_verts_total in EVERY frame; this
                        is the morph guarantee, and violating it makes the GPU
-                       lerp read a neighbouring line's vertices.
+                       lerp read a neighboring line's vertices.
 6. matrices         -- orthonormal, det +1, and equal to the closed form
                        mat3_hci . Rz(hci_rot_deg); catches a sunpy frame change.
 7. quaternion       -- Rotation.from_quat(q).as_matrix() == mat3; catches an
@@ -482,7 +482,7 @@ _DIR_TOL = 1e-5
 
 
 def _check_events(rep: Report, get, idx: Optional[dict]) -> None:
-    """events/events.json -- the flare + CME catalogue.
+    """events/events.json -- the flare + CME catalog.
 
     Every rule here exists because getting it wrong is SILENT: a bad
     window_hours puts marks off the end of the scrubber, a bad dir_ecl aims a
@@ -688,7 +688,7 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
                 doc.get("url"),
                 [lay.get("url") for lay in layers if isinstance(lay, dict)]))
         # Identity is the SDO product code, not the wavelength: HMIB and HMIIC
-        # have no wavelength (a magnetogram and a colourised continuum image),
+        # have no wavelength (a magnetogram and a colorized continuum image),
         # so wavelength_angstrom is null for both and cannot tell them apart.
         codes = [lay.get("channel") for lay in layers if isinstance(lay, dict)]
         rep.check(all(isinstance(c, str) and c for c in codes),
@@ -698,7 +698,7 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
 
         # An honesty invariant, not a formatting one. farside_modulation
         # invents band-limited mottling for the hemisphere Earth cannot see.
-        # That is a defensible stylisation in EUV; on a magnetogram it is
+        # That is a defensible stylization in EUV; on a magnetogram it is
         # fabricated magnetic field, and on a continuum image the polar ramp
         # encodes coronal holes that image does not show.
         bad_fill = [lay.get("channel") for lay in layers
@@ -770,7 +770,7 @@ def _check_offlimb(rep: Report, get, layer: dict) -> None:
               "got {0}x{1}".format(*img.size))
 
     # The disk MUST be blacked out: the billboard is additively blended, so a
-    # bright centre would paint a second Sun over the sphere.
+    # bright center would paint a second Sun over the sphere.
     import numpy as np
     arr = np.asarray(img.convert("L"), dtype=float)
     n = arr.shape[0]
@@ -778,8 +778,8 @@ def _check_offlimb(rep: Report, get, layer: dict) -> None:
     q = n // 8
     core = arr[c - q:c + q, c - q:c + q]
     rep.check(float(core.mean()) < 4.0,
-              "{0} disk centre is blacked out".format(name),
-              "centre mean {0:.1f}".format(float(core.mean())))
+              "{0} disk center is blacked out".format(name),
+              "center mean {0:.1f}".format(float(core.mean())))
 
 
 def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict) -> None:

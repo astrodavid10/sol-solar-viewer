@@ -4,7 +4,7 @@ Ported from ``sunspots-Bfield-daily.py`` (L869-994).  GONG publishes
 ``mrzqsYYMMDDtHHMMcCCCC_NNN.fits.gz`` under a per-day autoindex directory;
 there is no query API, so discovery is an HTML scrape of three day
 directories (target day +/- 1, because a slot near UTC midnight can be closest
-to a file in the neighbouring day).
+to a file in the neighboring day).
 
 Two additions over the dome version:
   * ``tolerance_hours`` -- the dome pipeline accepted *any* nearest file; a web

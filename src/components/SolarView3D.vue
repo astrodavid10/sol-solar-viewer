@@ -52,9 +52,9 @@
         <button
           type="button"
           class="sv-icon-btn"
-          aria-label="Recentre the Sun"
-          title="Recentre the Sun"
-          @click="recentre"
+          aria-label="Recenter the Sun"
+          title="Recenter the Sun"
+          @click="recenter"
         >
           <font-awesome-icon icon="rotate-left" />
         </button>
@@ -369,7 +369,7 @@ interface CardInfo {
   detail: string;
   compare: string;
   blurb: string;
-  /** Optional final line, set apart in warning colour. */
+  /** Optional final line, set apart in warning color. */
   warn?: string;
 }
 
@@ -659,7 +659,7 @@ export default defineComponent({
     },
 
     resetToken() {
-      this.recentre();
+      this.recenter();
       // resetView() parks frameT at 0, which for a frame-index playhead is the
       // OLDEST frame. Resting state is "now", so override it here — this
       // watcher runs before the frameT one, so that write is what survives.
@@ -740,7 +740,7 @@ export default defineComponent({
     host.applySetting(["solarSystemOrbits", this.layers.orbits] as EngineSetting);
 
     // Non-freestanding requirement (CLAUDE.md footgun 5): 3D mode needs
-    // worldwidetelescope.org for its imageset catalogue. If the mode never
+    // worldwidetelescope.org for its imageset catalog. If the mode never
     // engages, say so plainly instead of showing a black rectangle.
     this.rt.modeTimer = window.setTimeout(() => {
       if (!solarSystemModeActive()) {
@@ -964,7 +964,7 @@ export default defineComponent({
      * only, so the engine's own per-frame easing smooths it for free (footgun
      * 14), and wrapped into [0, 360) exactly as the engine's drag handler does:
      * the easing takes the short way round only while both cameras agree on
-     * where the branch cut is, and it normalises `viewCamera` itself.
+     * where the branch cut is, and it normalizes `viewCamera` itself.
      */
     driftCamera(dt: number): void {
       const camera = WWTControl.singleton?.renderContext?.targetCamera;
@@ -1032,7 +1032,7 @@ export default defineComponent({
         closedFloor: manifest.hints.closedFloor,
       }));
       rt.fieldLines.setVisible(this.layers.fieldLines);
-      // The layer can be (re)built long after the guest picked a colour — a
+      // The layer can be (re)built long after the guest picked a color — a
       // deep link sets it before any frame data has arrived.
       rt.fieldLines.setMonochrome(this.fieldColorMode === "blue");
       stage.scene.add(rt.fieldLines.group);
@@ -1271,7 +1271,7 @@ export default defineComponent({
      * (number, mag class, spot count, seed count) which the shader never needed.
      */
     /**
-     * Flare + CME catalogue. Optional product: absent or empty simply means no
+     * Flare + CME catalog. Optional product: absent or empty simply means no
      * marks, which on a quiet Sun is the honest answer rather than an error.
      */
     async loadEventLayer(): Promise<void> {
@@ -1348,7 +1348,7 @@ export default defineComponent({
       // Occluder radius 0 on purpose. projectTargets' sphere test is built for
       // bodies out in SPACE — for a point sitting ON the sphere it misfires,
       // hiding near-limb chips at the closest zoom (a marker at 1.03 R can be
-      // farther from the camera than the Sun's centre while still being in front
+      // farther from the camera than the Sun's center while still being in front
       // of the surface). The facing dot below is the exact test for a point on a
       // sphere, so this call is used purely for the world→CSS projection.
       cameraPosition(stage.camera, rt.cameraWorld);
@@ -1392,7 +1392,7 @@ export default defineComponent({
      *
      * Every number shown is the measured one — this app does not round a real
      * measurement into a vibe. The `warn` line carries DONKI's own framing
-     * ("prototyping quality... research context"): the catalogue is analyst-
+     * ("prototyping quality... research context"): the catalog is analyst-
      * submitted research data, not a NOAA forecast, and a planetarium should
      * not imply otherwise.
      */
@@ -1457,7 +1457,7 @@ export default defineComponent({
 
     // --- chrome -----------------------------------------------------------
 
-    recentre(): void {
+    recenter(): void {
       // targetCamera only: the engine eases viewCamera toward it every frame,
       // so this is a smooth flight home for free (footgun 14).
       homeCamera(false);
@@ -1724,7 +1724,7 @@ export default defineComponent({
   text-align: center;
 }
 
-// Centred near the top, clear of the card slot and the scrubber. Deliberately
+// Centered near the top, clear of the card slot and the scrubber. Deliberately
 // quiet: it explains the dimming the guest has just caused, it is not an alert.
 .sv-unobserved {
   position: absolute;

@@ -8,7 +8,9 @@ NOAA space-weather numbers.
 
 **Start here: `HANDOFF.md`** — living status doc (what is done, partial, unstarted, and what
 has never been verified in a browser). Update it at the end of any session that changes state.
-Full implementation plan: `the implementation plan (local, not in this repo)`.
+The original implementation plan lives outside this repo as a local Claude Code planning
+document; the parts that matter (the binary formats and manifest fields that the app and the
+pipeline must agree on) are restated here and in `pipeline/validate.py`, which enforces them.
 Skeleton provenance: adapted from `DataStories\exo-sonification` (that repo is READ-ONLY reference).
 
 ## Commands

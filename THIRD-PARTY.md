@@ -65,10 +65,20 @@ public, US-government or publicly-funded scientific products:
 - **JPL Horizons** — spacecraft ephemerides, via `astroquery`.
 - **ROB/SILSO** sunspot numbers, relayed by NOAA SWPC.
 
-## Institutional mark
+## Institutional marks
 
-`src/assets/ip-ussrc.png` is the mark of the INTUITIVE Planetarium at the U.S.
-Space & Rocket Center, used as a credit. Its use here is authorised by the
-planetarium's director, who is the author of this proof of concept. The mark
-itself is not covered by this repository's MIT grant — the MIT terms apply to
-the software, not to the institution's trademark.
+Two marks of the INTUITIVE Planetarium at the U.S. Space & Rocket Center ship in
+the bundle and are used as a credit:
+
+- `src/assets/ip-ussrc.png` — the USSRC lock-up.
+- `src/assets/ip-wordmark-white.svg` — the planetarium ICON. The filename says
+  "wordmark", but the artwork is square (`viewBox="0 0 160 160"`) and its ids are
+  `Logos_Icon_1` / `White_Icon_1`; per the brand kit that is the icon, not the
+  wordmark.
+
+Their use here is authorized by the planetarium's director, who is the author of
+this proof of concept. The marks themselves are not covered by this repository's
+MIT grant — the MIT terms apply to the software, not to the institution's
+trademarks. The brand kit also requires that the planetarium wordmark never
+appear without the USSRC logo, which is why `InfoModal`'s credit row pairs
+them.

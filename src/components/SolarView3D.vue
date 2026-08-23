@@ -398,6 +398,8 @@ interface Runtime {
   lastTickMs: number;
   lastPublishMs: number;
   lastProjectMs: number;
+  /** Camera state the labels were last projected for — see PROJECT_MS. */
+  lastCam: { lat: number; lng: number; zoom: number; rotation: number };
   dragging: boolean;
   destroyed: boolean;
   /** Last playhead value WE wrote to shared state, so the watcher can tell

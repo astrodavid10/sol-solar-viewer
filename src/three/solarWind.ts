@@ -300,6 +300,16 @@ function buildPath(path: OpenLinePath, line: number): WindPath | null {
 // Layer
 // ---------------------------------------------------------------------
 
+/**
+ * Seconds between solar-wind position updates.
+ *
+ * 30 Hz. The particles take tens of seconds to cross their path, so the motion
+ * is indistinguishable from a per-frame update -- but the per-frame version was
+ * doing a 3000-iteration loop and two buffer uploads inside every rendered
+ * frame, ungated, including while the guest is dragging the Sun.
+ */
+const WIND_UPDATE_SECONDS = 1 / 30;
+
 export function createSolarWind(options: SolarWindOptions): SolarWind {
   const count = Math.max(1, Math.floor(options.count ?? defaultCount()));
 
@@ -388,6 +398,9 @@ export function createSolarWind(options: SolarWindOptions): SolarWind {
   }
 
   /** Write particle `i`'s world position and alpha from its phase. */
+  /** Accumulated time since the last update (see WIND_UPDATE_SECONDS). */
+  let windClock = 0;
+
   function place(i: number): void {
     const at = i * 3;
     const path = slot[i] >= 0 ? paths[slot[i]] : undefined;
@@ -485,7 +498,24 @@ export function createSolarWind(options: SolarWindOptions): SolarWind {
       if (!group.visible || !paths.length) { return; }
       if (!Number.isFinite(dtSeconds) || dtSeconds <= 0) { return; }
 
-      const step = dtSeconds / runSeconds;
+      // Advance on a FIXED CADENCE, not once per rendered frame.
+      //
+      // This loop walks up to 3000 particles, binary-searching a cumulative
+      // arc-length table per particle, and then re-uploads 36 KB of positions
+      // plus 12 KB of alphas. It was doing that at the full render rate, and
+      // — unlike the label work — outside every throttle in the app, because
+      // it is reached from updateSun rather than from the projection block.
+      //
+      // The particles cross their whole path over `runSeconds` (tens of
+      // seconds), so nothing about the motion needs 60 Hz. Time is ACCUMULATED
+      // rather than dropped, so the wind still travels at exactly the speed the
+      // solar-wind reading implies; only the sampling rate falls.
+      windClock += dtSeconds;
+      if (windClock < WIND_UPDATE_SECONDS) { return; }
+      const elapsed = windClock;
+      windClock = 0;
+
+      const step = elapsed / runSeconds;
       for (let i = 0; i < count; i++) {
         let p = phase[i] + step * jitter[i];
         if (p >= 1) {

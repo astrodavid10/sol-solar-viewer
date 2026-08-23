@@ -1,5 +1,9 @@
 <template>
-  <div ref="root" class="solar-view-3d">
+  <div
+    ref="root"
+    class="solar-view-3d"
+    :style="{ '--sv-btn-count': visibleButtonCount }"
+  >
     <!-- The engine's own div; the canvas is appended inside it. -->
     <WorldWideTelescope wwt-namespace="wwt-sol" />
 
@@ -130,45 +134,57 @@
         </p>
       </transition>
 
-      <!-- One card slot, three kinds of subject: a spacecraft, an active
-           region, or the sub-Earth marker. `selectedId` says which. -->
-      <transition name="fade">
-        <div v-if="selectedCard" class="sv-card">
-          <button
-            type="button"
-            class="sv-card-close"
-            aria-label="Close"
-            @click="selectedId = ''"
-          >
-            <font-awesome-icon icon="times" />
-          </button>
-          <h3 class="sv-card-title">{{ selectedCard.name }}</h3>
-          <p v-if="selectedCard.detail" class="sv-card-dist">{{ selectedCard.detail }}</p>
-          <p v-if="selectedCard.compare" class="sv-card-compare">{{ selectedCard.compare }}</p>
-          <p v-if="selectedCard.blurb" class="sv-card-blurb">{{ selectedCard.blurb }}</p>
-          <p v-if="selectedCard.warn" class="sv-card-warn">{{ selectedCard.warn }}</p>
-        </div>
-      </transition>
+      <!-- Card and scrubber share one flex column (E1) instead of each
+           carrying an independent `bottom` offset. The card used to sit at a
+           fixed `bottom: 5.2rem` sized for the scrubber's height WITHOUT its
+           `.ts-banner` (TimeScrubber.vue ~3-6, shown while `stale`); the
+           banner adds ~18px that a constant can't see coming, so the
+           scrubber's top edge rose above the card's bottom edge and (being
+           later in the DOM, with nothing here carrying a z-index) painted
+           over the card's last line AND stole its taps. Stacking them in
+           normal flow means the card's position is always "whatever is
+           directly above the scrubber's actual rendered height," computed by
+           the browser every frame — no constant to go stale when the banner
+           toggles, the label wraps, or a guest's font size changes. -->
+      <div class="sv-bottom-stack">
+        <transition name="fade">
+          <div v-if="selectedCard" class="sv-card">
+            <button
+              type="button"
+              class="sv-card-close"
+              aria-label="Close"
+              @click="selectedId = ''"
+            >
+              <font-awesome-icon icon="times" />
+            </button>
+            <h3 class="sv-card-title">{{ selectedCard.name }}</h3>
+            <p v-if="selectedCard.detail" class="sv-card-dist">{{ selectedCard.detail }}</p>
+            <p v-if="selectedCard.compare" class="sv-card-compare">{{ selectedCard.compare }}</p>
+            <p v-if="selectedCard.blurb" class="sv-card-blurb">{{ selectedCard.blurb }}</p>
+            <p v-if="selectedCard.warn" class="sv-card-warn">{{ selectedCard.warn }}</p>
+          </div>
+        </transition>
 
-      <div class="sv-bottom">
-        <p v-if="fieldLinesAbsent" class="sv-note">
-          Field lines aren't available right now — the rest of the view still works.
-        </p>
-        <time-scrubber
-          v-else-if="frameCount > 0"
-          :frame-count="frameCount"
-          :loaded-from="loadedFrom"
-          :loaded-count="loadedCount"
-          :times="frameTimes"
-          :frame-t="frameT"
-          :stale="dataStale"
-          :stale-hours="dataStaleHours"
-          :events="flareMarks"
-          @scrub="onScrub"
-          @grab="onGrab"
-          @release="onRelease"
-          @pick-event="pickEvent"
-        />
+        <div class="sv-bottom">
+          <p v-if="fieldLinesAbsent" class="sv-note">
+            Field lines aren't available right now — the rest of the view still works.
+          </p>
+          <time-scrubber
+            v-else-if="frameCount > 0"
+            :frame-count="frameCount"
+            :loaded-from="loadedFrom"
+            :loaded-count="loadedCount"
+            :times="frameTimes"
+            :frame-t="frameT"
+            :stale="dataStale"
+            :stale-hours="dataStaleHours"
+            :events="flareMarks"
+            @scrub="onScrub"
+            @grab="onGrab"
+            @release="onRelease"
+            @pick-event="pickEvent"
+          />
+        </div>
       </div>
     </div>
 
@@ -704,6 +720,23 @@ export default defineComponent({
       if (id.indexOf(EVENT_PREFIX) !== 0) { return null; }
       const wanted = id.slice(EVENT_PREFIX.length);
       return this.solarEvents?.events.find((e) => e.id === wanted) ?? null;
+    },
+
+    /**
+     * How many 44px buttons `.sv-buttons` is actually rendering right now:
+     * recenter (always), share (hidden in kiosk), info + layers (both hidden
+     * when `wide` — the desktop rail covers them). Written onto the root
+     * element as `--sv-btn-count` (see the template's root `:style`) so the
+     * layer popover's `top` offset (below, in `<style>`) can hang itself off
+     * the stack's REAL length instead of the literal `4` it used to have —
+     * that number was only ever right in narrow+non-kiosk; narrow+kiosk
+     * renders 3 (no share button) and floated the popover ~48px too low.
+     */
+    visibleButtonCount(): number {
+      let count = 1; // recenter — unconditional
+      if (!this.kiosk) { count += 1; } // share
+      if (!this.wide) { count += 2; } // info + layers
+      return count;
     },
   },
 

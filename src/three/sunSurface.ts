@@ -93,7 +93,35 @@ export interface SunSurfaceOptions {
   debug?: boolean;
 }
 
-/** What `texture/texture.json` tells us, normalized. */
+/**
+ * One time-aligned Carrington map: the sphere as it looked at one slot of the
+ * PFSS timeline.
+ *
+ * `targetIso` is the slot's grid time and is the KEY — it is what the file name
+ * encodes and what the field-line frames share. `obsIso` is when the photons
+ * actually arrived, which is within half a slot for a history frame and simply
+ * "as fresh as possible" for the newest one.
+ */
+export interface SunTextureFrame {
+  index: number;
+  targetIso: string;
+  /** `targetIso` as a unix second, for nearest-match against the playhead. */
+  targetUnix: number;
+  /** Absolute URL, already cache-busted. */
+  url: string;
+  width: number;
+  height: number;
+  obsIso: string;
+  subEarthCarrLonDeg: number;
+  subEarthLatDeg: number;
+}
+
+/** What `texture/texture.json` tells us, normalized.
+ *
+ *  The scalar sub-Earth / obs fields describe the ACTIVE frame, not the
+ *  manifest — `adoptTexture` rewrites them every time a frame is swapped in, so
+ *  `subEarthFrame()` and `unobservedFraction()` stay in step with the pixels
+ *  actually on the sphere without either of them knowing frames exist. */
 export interface SunTextureInfo {
   /** Absolute URL of the image, already cache-busted. */
   url: string;
@@ -114,6 +142,18 @@ export interface SunTextureInfo {
   label: string;
   /** Every channel texture.json publishes, in manifest order (default first). */
   available: string[];
+  /**
+   * This channel's time-aligned maps, OLDEST FIRST, newest last.
+   *
+   * Empty for a schema-2 manifest, in which case there is exactly one map and
+   * the scrubber cannot change the imagery — which is the behavior this field
+   * exists to replace, kept working so an older published tree still renders.
+   * Slots the pipeline could not source are ABSENT rather than duplicated, so
+   * this array is not necessarily evenly spaced; `frameForUnix` picks nearest.
+   */
+  frames: SunTextureFrame[];
+  /** Index into `frames` of the map currently on the sphere; -1 before load. */
+  activeFrame: number;
 }
 
 export interface SunSurface {
@@ -122,6 +162,30 @@ export interface SunSurface {
   setMode: (mode: SunSurfaceMode) => void;
   /** Paint a different SDO channel. No-op if it is already the active one. */
   setChannel: (channel: string) => void;
+  /**
+   * Show the map nearest this wall-clock time, so the imagery, the sunspots and
+   * the field lines all describe the same hour.
+   *
+   * SNAPS to a frame rather than cross-fading, following the precedent already
+   * set by the solar wind (rebuilt only when `floor(playhead)` changes) rather
+   * than the field lines (blended on the GPU by `uMix`). A cross-fade would
+   * need a second sampler injected into the material and twice the resident
+   * texture memory; snapping at the 4 h slot boundary is what the DATA
+   * resolution actually supports.
+   *
+   * No-op when the manifest has no `frames` array, or when the nearest frame is
+   * already the active one.
+   */
+  setFrameTime: (unixSeconds: number) => void;
+  /**
+   * True when the active map is the newest one, i.e. the playhead is at "now".
+   *
+   * The off-limb billboard is a photograph of the corona AS SEEN FROM EARTH
+   * RIGHT NOW (footgun 29) and there is only ever one of them, so drawing it
+   * around a three-day-old sphere would pair today's prominences with an older
+   * photosphere. Callers use this to hide it while scrubbed.
+   */
+  atNewestFrame: () => boolean;
   /** What we are actually drawing (never "sdo" until a texture has loaded). */
   effectiveMode: () => SunSurfaceMode;
   /** The SAME slerped Carrington->ecliptic quaternion the field lines use. */
@@ -164,6 +228,34 @@ const SEGMENTS_H = 64;
 
 /** Up to this many sunspot groups reach the shader (uniform array size). */
 const MAX_SPOTS = 8;
+
+/**
+ * GPU memory allowed for decoded Carrington maps, in bytes.
+ *
+ * A BYTE budget rather than a frame count, because the frames are not the same
+ * size: the newest map is 4096x2048 (32 MB as RGBA, before mipmaps) and every
+ * history frame is 2048x1024 (8 MB). Counting frames would either allow four
+ * newest maps or throw away three history frames for every one of them.
+ *
+ * 40 MB buys the newest map alone (the state most guests never leave), or five
+ * history frames, or the newest plus one — and because it is a plain LRU with no
+ * pinning, scrubbing back naturally evicts the big one and buys the guest four
+ * more history frames instead. Peak transient is ~48 MB, crossing over.
+ *
+ * NOT YET MEASURED ON A PHONE. If a mid-range device runs out of texture
+ * memory, this is the number to lower; the JPEGs stay in the HTTP cache, so a
+ * smaller budget costs a decode on revisit, never a download.
+ */
+const TEXTURE_BUDGET_BYTES = 40e6;
+
+/** RGBA bytes a decoded map occupies, before mipmaps. */
+function textureBytes(width: number, height: number): number {
+  // A frame whose manifest entry omitted its size is charged the newest map's
+  // cost, which is the conservative direction: under-charging would let the
+  // budget be exceeded silently.
+  if (!width || !height) { return 32e6; }
+  return width * height * 4;
+}
 
 /**
  * Granulation cell size, in degrees of heliographic arc. Real granules are
@@ -380,6 +472,18 @@ interface RawOffLimb {
   half_width_rsun?: number;
 }
 
+interface RawFrame {
+  index?: number;
+  target_iso?: string;
+  url?: string;
+  bytes?: number;
+  width?: number;
+  height?: number;
+  obs_iso?: string;
+  sub_earth_carr_lon_deg?: number;
+  sub_earth_lat_deg?: number;
+}
+
 interface RawLayer {
   channel?: string;
   label?: string;
@@ -390,13 +494,16 @@ interface RawLayer {
   url?: string;
   obs_iso?: string;
   sub_earth_carr_lon_deg?: number;
+  /** schema sol.texture/3: one map per PFSS timeline slot, OLDEST FIRST. */
+  frames?: RawFrame[];
 }
 
 interface RawTexture {
   url?: string;
-  /** schema sol.texture/2: one entry per published channel, default FIRST. The
-   *  top-level fields still describe that default layer, so a reader that
-   *  ignores this array is still correct — just single-channel. */
+  /** schema sol.texture/2 and up: one entry per published channel, default
+   *  FIRST. The top-level fields still describe that default layer's NEWEST
+   *  frame, so a reader that ignores this array is still correct — just
+   *  single-channel and always showing "now". */
   layers?: RawLayer[];
   width?: number;
   height?: number;
@@ -534,15 +641,55 @@ async function fetchTextureInfo(
 
   const imageUrl = withStamp(new URL(chosen.url, manifestUrl));
 
+  // One map per PFSS timeline slot. A frame whose target_iso does not parse is
+  // dropped rather than guessed at: it is the KEY the playhead matches on, and
+  // a frame at the wrong time is worse than a missing one — the app falls back
+  // to the nearest good frame either way.
+  const frames: SunTextureFrame[] = (Array.isArray(chosen.frames) ? chosen.frames : [])
+    .map((frame): SunTextureFrame | null => {
+      if (typeof frame?.url !== "string" || frame.url === "") { return null; }
+      const targetUnix = Date.parse(String(frame.target_iso)) / 1000;
+      if (!Number.isFinite(targetUnix)) { return null; }
+      return {
+        index: 0,
+        targetIso: String(frame.target_iso),
+        targetUnix,
+        url: withStamp(new URL(frame.url, manifestUrl)).href,
+        width: typeof frame.width === "number" ? frame.width : 0,
+        height: typeof frame.height === "number" ? frame.height : 0,
+        obsIso: typeof frame.obs_iso === "string" ? frame.obs_iso : "",
+        subEarthCarrLonDeg: typeof frame.sub_earth_carr_lon_deg === "number"
+          ? frame.sub_earth_carr_lon_deg
+          : Number.NaN,
+        subEarthLatDeg: typeof frame.sub_earth_lat_deg === "number"
+          ? frame.sub_earth_lat_deg
+          : 0,
+      };
+    })
+    .filter((frame): frame is SunTextureFrame => frame !== null)
+    // Sort by target rather than trusting the published order, then renumber:
+    // `index` has to agree with the position in THIS array, because a slot the
+    // pipeline could not source is absent and would otherwise leave a hole.
+    .sort((a, b) => a.targetUnix - b.targetUnix)
+    .map((frame, i) => ({ ...frame, index: i }));
+
+  // The scalar fields describe the frame that will be shown FIRST, which is the
+  // newest — same as a schema-2 manifest, so nothing changes until the guest
+  // actually scrubs.
+  const newest = frames.length ? frames[frames.length - 1] : null;
+
   return {
-    url: imageUrl.href,
-    obsIso: typeof chosen.obs_iso === "string" ? chosen.obs_iso : "",
-    subEarthCarrLonDeg: typeof chosen.sub_earth_carr_lon_deg === "number"
-      ? chosen.sub_earth_carr_lon_deg
-      : Number.NaN,
-    subEarthLatDeg: typeof chosen.sub_earth_lat_deg === "number"
-      ? chosen.sub_earth_lat_deg
-      : 0,
+    url: newest ? newest.url : imageUrl.href,
+    obsIso: newest ? newest.obsIso
+      : (typeof chosen.obs_iso === "string" ? chosen.obs_iso : ""),
+    subEarthCarrLonDeg: newest ? newest.subEarthCarrLonDeg
+      : (typeof chosen.sub_earth_carr_lon_deg === "number"
+        ? chosen.sub_earth_carr_lon_deg
+        : Number.NaN),
+    subEarthLatDeg: newest ? newest.subEarthLatDeg
+      : (typeof chosen.sub_earth_lat_deg === "number"
+        ? chosen.sub_earth_lat_deg
+        : 0),
     offLimbUrl: typeof chosen.off_limb?.url === "string" && chosen.off_limb.url
       ? withStamp(new URL(chosen.off_limb.url, manifestUrl)).href
       : "",
@@ -554,7 +701,33 @@ async function fetchTextureInfo(
     channel: typeof chosen.channel === "string" ? chosen.channel : "",
     label: typeof chosen.label === "string" ? chosen.label : "",
     available,
+    frames,
+    activeFrame: newest ? newest.index : -1,
   };
+}
+
+/**
+ * The frame whose slot is nearest `unixSeconds`, or null when there are none.
+ *
+ * Nearest rather than floor: slots are 4 h apart and a playhead between two of
+ * them is genuinely closer to one. Frames the pipeline could not source are
+ * simply absent, so this also does the right thing across a gap in the archive
+ * (measured: the SDO browse tree for 2026-08-21 stops at 12:42 UT in every
+ * channel, which leaves three slots empty) — it lands on the nearest frame that
+ * exists instead of showing nothing.
+ */
+function frameForUnix(frames: SunTextureFrame[], unixSeconds: number): SunTextureFrame | null {
+  if (!frames.length || !Number.isFinite(unixSeconds)) { return null; }
+  let best = frames[0];
+  let bestGap = Math.abs(frames[0].targetUnix - unixSeconds);
+  for (let i = 1; i < frames.length; i++) {
+    const gap = Math.abs(frames[i].targetUnix - unixSeconds);
+    if (gap < bestGap) {
+      best = frames[i];
+      bestGap = gap;
+    }
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------
@@ -702,6 +875,55 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     synthetic.colorWrite = paint;
   }
 
+  /**
+   * Decoded maps we are holding, keyed on URL, in LEAST-RECENTLY-USED ORDER.
+   *
+   * This replaces "exactly one resident texture, always" — which was correct
+   * when there was one map per channel and is wrong now that scrubbing walks a
+   * 19-frame sequence: disposing on every step would re-decode 8 MB per slot
+   * crossed, on the main thread, while the guest is dragging.
+   *
+   * A JS Map iterates in insertion order, so re-inserting on every hit makes
+   * the first entry the least recently used and eviction is `keys().next()`.
+   */
+  const resident = new Map<string, Texture>();
+  let residentBytes = 0;
+  /**
+   * The wall-clock time the caller last asked for, or null for "newest".
+   *
+   * Kept so a CHANNEL switch lands on the same moment in time: without it,
+   * switching from Coronal Loops to Magnetic Map while scrubbed three days back
+   * would jump to now, which reads as the scrubber breaking.
+   */
+  let wantUnix: number | null = null;
+  /** Prefetches in flight, so two scrub steps do not request the same map. */
+  const pending = new Set<string>();
+
+  function touchResident(url: string, tex: Texture, bytes: number): void {
+    if (resident.has(url)) {
+      resident.delete(url);
+      resident.set(url, tex);
+      return;
+    }
+    resident.set(url, tex);
+    residentBytes += bytes;
+    // Never evict the map currently on the sphere, whatever the budget says:
+    // dropping it would blank the Sun to satisfy an accounting rule.
+    while (residentBytes > TEXTURE_BUDGET_BYTES && resident.size > 1) {
+      const oldestUrl = resident.keys().next().value as string | undefined;
+      if (oldestUrl === undefined || oldestUrl === url) { break; }
+      const oldest = resident.get(oldestUrl);
+      resident.delete(oldestUrl);
+      if (oldest) {
+        residentBytes -= textureBytes(
+          (oldest.image as { width?: number } | undefined)?.width ?? 0,
+          (oldest.image as { height?: number } | undefined)?.height ?? 0);
+        oldest.dispose();
+      }
+    }
+    if (residentBytes < 0) { residentBytes = 0; }
+  }
+
   function adoptTexture(next: Texture, meta: SunTextureInfo): void {
     if (destroyed) {
       next.dispose();
@@ -715,10 +937,13 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     next.anisotropy = 4;
     next.needsUpdate = true;
 
-    const previous = texture;
     texture = next;
     info = meta;
     sdo.map = next;
+    touchResident(meta.url, next,
+      textureBytes(
+        (next.image as { width?: number } | undefined)?.width ?? 0,
+        (next.image as { height?: number } | undefined)?.height ?? 0));
 
     // Where Earth was when THIS map was made. Per-texture, not per-frame: the
     // observed band belongs to the image, so a future per-frame texture
@@ -729,28 +954,95 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       (l0 * Math.PI) / 180, Math.sin(b0), Math.cos(b0));
 
     sdo.needsUpdate = true;
-    previous?.dispose();
+    // No dispose here any more: `touchResident` owns every decoded map's
+    // lifetime, so stepping back to a frame we just left is free.
     applyMode();
   }
 
   function loadTexture(next: SunTextureInfo): void {
+    const held = resident.get(next.url);
+    if (held) {
+      // Already decoded. Adopting it synchronously is what makes scrubbing back
+      // across frames we have seen feel instant rather than re-decoding 8 MB.
+      adoptTexture(held, next);
+      return;
+    }
     loader.load(
       next.url,
       (loaded) => adoptTexture(loaded, next),
       undefined,
       () => {
         // The manifest promised an image that isn't there. Nothing to say to
-        // the guest — the synthetic surface is already on screen.
+        // the guest — the synthetic surface, or the frame already up, stays.
         console.warn(`[sunSurface] texture image unavailable: ${next.url}`);
       },
     );
+  }
+
+  /**
+   * Decode a frame into the ring without putting it on the sphere.
+   *
+   * Called for the neighbors of wherever the playhead lands, so a scrub that
+   * keeps going in the same direction finds its next frame already decoded. The
+   * budget is what bounds this: a prefetch that would evict the frame on screen
+   * cannot happen, because `touchResident` never evicts the active map.
+   */
+  function prefetchFrame(frame: SunTextureFrame | undefined): void {
+    if (!frame || resident.has(frame.url) || pending.has(frame.url)) { return; }
+    pending.add(frame.url);
+    loader.load(
+      frame.url,
+      (loaded) => {
+        pending.delete(frame.url);
+        if (destroyed) {
+          loaded.dispose();
+          return;
+        }
+        loaded.colorSpace = SRGBColorSpace;
+        loaded.wrapS = RepeatWrapping;
+        loaded.anisotropy = 4;
+        touchResident(frame.url, loaded,
+          textureBytes(frame.width, frame.height));
+      },
+      undefined,
+      () => { pending.delete(frame.url); },
+    );
+  }
+
+  /** Apply one frame of the active channel to the sphere. */
+  function showFrame(frame: SunTextureFrame): void {
+    if (!info) { return; }
+    const meta: SunTextureInfo = {
+      ...info,
+      url: frame.url,
+      obsIso: frame.obsIso,
+      subEarthCarrLonDeg: frame.subEarthCarrLonDeg,
+      subEarthLatDeg: frame.subEarthLatDeg,
+      activeFrame: frame.index,
+    };
+    loadTexture(meta);
+    // Both neighbors, not just the direction of travel: the playhead reverses
+    // constantly while a guest drags, and a wrong guess costs a decode at
+    // exactly the moment they are watching.
+    prefetchFrame(info.frames[frame.index - 1]);
+    prefetchFrame(info.frames[frame.index + 1]);
   }
 
   async function checkTexture(): Promise<void> {
     const next = await fetchTextureInfo(options.dataBaseUrl, channel, abort.signal);
     if (destroyed || !next) { return; }
     if (info && next.generatedUnix === info.generatedUnix && next.url === info.url) { return; }
-    loadTexture(next);
+    // Adopt the manifest first (so `info.frames` exists), then honor whatever
+    // playhead the caller last asked for. Doing it in this order is what lets a
+    // 30-minute poll or a channel switch land back on the scrubbed moment
+    // instead of snapping the guest to "now" underneath their finger.
+    info = next;
+    const wanted = wantUnix === null ? null : frameForUnix(next.frames, wantUnix);
+    if (wanted) {
+      showFrame(wanted);
+    } else {
+      loadTexture(next);
+    }
   }
 
   // --- ?debug=1: Carrington longitude markers ----------------------------
@@ -840,11 +1132,28 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     setChannel(next: string): void {
       if (!next || next === channel) { return; }
       channel = next;
-      // Only ONE channel texture is ever resident: at 2048x1024 RGBA each costs
-      // ~8 MB of GPU memory before mipmaps, and holding all three would be ~32 MB
-      // on a phone for the sake of an instant switch. The JPEG stays in the
-      // browser's HTTP cache, so coming back is a decode, not a download.
+      // Residency is a shared byte budget across channels AND frames now (see
+      // TEXTURE_BUDGET_BYTES), not "one texture, always" — a 19-frame sequence
+      // makes that old rule pathological, because every scrub step would
+      // re-decode. Switching channel keeps the current playhead: checkTexture
+      // re-reads the manifest and then re-seeks to `wantUnix`.
       void checkTexture();
+    },
+
+    setFrameTime(unixSeconds: number): void {
+      if (!Number.isFinite(unixSeconds)) { return; }
+      wantUnix = unixSeconds;
+      if (!info || !info.frames.length) { return; }
+      const frame = frameForUnix(info.frames, unixSeconds);
+      if (!frame || frame.index === info.activeFrame) { return; }
+      showFrame(frame);
+    },
+
+    atNewestFrame(): boolean {
+      // No frames array means a schema-2 manifest: there is exactly one map and
+      // it IS the newest, so the off-limb billboard belongs with it.
+      if (!info || !info.frames.length) { return true; }
+      return info.activeFrame === info.frames.length - 1;
     },
 
     effectiveMode: effective,
@@ -932,6 +1241,13 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       geometry.dispose();
       synthetic.dispose();
       sdo.dispose();
+      // Every decoded map, not just the one on the sphere: the LRU may be
+      // holding several frames, and leaking them across a stage teardown is how
+      // you end up with GPU memory that never comes back.
+      resident.forEach((tex) => tex.dispose());
+      resident.clear();
+      residentBytes = 0;
+      pending.clear();
       texture?.dispose();
       texture = null;
     },

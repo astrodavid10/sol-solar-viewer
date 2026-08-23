@@ -90,8 +90,18 @@ export default defineComponent({
   // and the Sun.
   border: 1px solid rgba(255, 255, 255, 0.38);
   border-radius: 999px;
-  background: rgba(6, 5, 2, 0.82);
-  backdrop-filter: blur(4px);
+  /* Alpha raised from 0.82 with the blur removed: it is what actually makes the
+     text legible, and it costs nothing per frame.
+
+     NO backdrop-filter here, deliberately. A backdrop-filter is recomputed
+     whenever its BACKDROP changes, and the backdrop is a WebGL canvas
+     repainting at the full frame rate -- so four of these chips were being
+     re-blurred every frame, and they are also the elements that MOVE every
+     frame. That is the reported "framerate feels low on the labels as we drag
+     around the Sun". HANDOFF's own design spec already said as much: "NO
+     backdrop-filter -- a solid plate doesn't need it, and blur is the most
+     expensive thing in the overlay". Blur belongs on panels that sit still. */
+  background: rgba(9, 2, 24, 0.92);
   color: var(--sol-text);
   text-align: left;
   white-space: nowrap;
@@ -102,7 +112,7 @@ export default defineComponent({
 
   &.is-selected {
     border-color: var(--sol-accent);
-    background: rgba(30, 22, 6, 0.85);
+    background: rgba(40, 31, 63, 0.92);
   }
 }
 

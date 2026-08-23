@@ -116,7 +116,7 @@ export default defineComponent({
 
   &.is-selected {
     border-color: var(--sol-accent);
-    background: rgba(30, 22, 6, 0.85);
+    background: rgba(40, 31, 63, 0.92);
   }
 }
 

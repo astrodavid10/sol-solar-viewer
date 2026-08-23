@@ -24,7 +24,15 @@ export interface Projected {
   visible: boolean;
 }
 
-// Scratch vectors — this runs ~20x/second, so nothing is allocated per call.
+// Scratch vectors, module-scope so the maths allocates nothing.
+//
+// The comment here used to claim "nothing is allocated per call", which was only
+// true of the vectors: `out.push({...})` below built a fresh object literal per
+// target per call. This runs TWICE per frame over 9 targets, and — since the
+// projection throttle is short-circuited whenever the camera is moving — that is
+// ~1,080 short-lived objects a second during a drag, i.e. exactly the moment the
+// user reported the framerate dropping. The pool below fixes it: `out` entries
+// are now reused in place.
 const scratchNdc = new Vector3();
 const scratchCamera = new Vector3();
 const scratchToBody = new Vector3();
@@ -52,8 +60,11 @@ export function projectTargets(
   occluderRadius: number,
   out: Projected[] = [],
 ): Projected[] {
-  out.length = 0;
-  if (!(widthCss > 0) || !(heightCss > 0)) { return out; }
+  let written = 0;
+  if (!(widthCss > 0) || !(heightCss > 0)) {
+    out.length = 0;
+    return out;
+  }
 
   // Read the position straight out of matrixWorld. NOT getWorldPosition():
   // that calls updateWorldMatrix(), which for a parent-less camera does an
@@ -87,13 +98,28 @@ export function projectTargets(
       occluded = Math.acos(cosAngle) < sunAngle;
     }
 
-    out.push({
-      id: target.id,
-      xCss: (scratchNdc.x * 0.5 + 0.5) * widthCss,
-      yCss: (-scratchNdc.y * 0.5 + 0.5) * heightCss,
-      visible: onScreen && !occluded,
-    });
+    // Reuse the slot if `out` already has one. Callers hand the SAME array back
+    // every frame (SolarView3D keeps one per target group), so after the first
+    // call this branch always wins and the loop allocates nothing at all.
+    const slot = out[written];
+    if (slot === undefined) {
+      out.push({
+        id: target.id,
+        xCss: (scratchNdc.x * 0.5 + 0.5) * widthCss,
+        yCss: (-scratchNdc.y * 0.5 + 0.5) * heightCss,
+        visible: onScreen && !occluded,
+      });
+    } else {
+      slot.id = target.id;
+      slot.xCss = (scratchNdc.x * 0.5 + 0.5) * widthCss;
+      slot.yCss = (-scratchNdc.y * 0.5 + 0.5) * heightCss;
+      slot.visible = onScreen && !occluded;
+    }
+    written++;
   }
 
+  // Trim rather than clearing up front: `out.length = 0` would drop the pooled
+  // objects on the floor, which is the allocation this exists to avoid.
+  if (out.length > written) { out.length = written; }
   return out;
 }

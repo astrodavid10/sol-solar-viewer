@@ -476,16 +476,46 @@ def run_regions(ctx: Ctx, ss: Optional[pfss_seeds.SeedSet]) -> ProductResult:
     from .regions import export as regions_export
     print("[regions]")
     ss = ss or acquire_seed_set(ctx)
+
+    # Per-UT-day spot counts covering the scrubber's window, so the app's
+    # sunspot chip can follow the playhead instead of always reporting today.
+    # +1 day because a 72 h window anchored mid-day touches four UT dates, and
+    # the app resolves a frame time to the date it falls in.
+    days = WINDOW_HOURS // 24 + 1
+    try:
+        history = srs_src.daily_history(days, now=ctx.now)
+    except Exception as exc:                                   # noqa: BLE001
+        # Optional enrichment of an otherwise-good product: the chip falls back
+        # to the current count, which is what it showed before this existed.
+        print("  WARN daily history unavailable: {0}".format(exc))
+        history = []
+
     doc = regions_export.build_regions(
         ss.regions, ss.region_seed_counts, ss.srs_epoch, ss.source, ctx.now,
-        status="degraded" if ss.source.startswith("cached") else "ok")
+        status="degraded" if ss.source.startswith("cached") else "ok",
+        history=history)
     ctx.staging.write_json("ar/regions.json", doc)
     complex_n = sum(1 for r in doc["regions"] if r["is_complex"])
     print("  {0} region(s) ({1} delta), epoch {2}, source {3}".format(
         doc["count"], complex_n, doc["srs_epoch_date"], ss.source))
+    if history:
+        print("  history: {0}/{1} day(s) -> {2}".format(
+            len(history), days,
+            ", ".join("{0} {1} spot(s)/{2} region(s)".format(
+                h["date"][5:], h["spot_count"], h["region_count"])
+                for h in history)))
+        # The top-level `count` comes from srs.txt and this series from
+        # solar_regions.json; they legitimately disagree (see daily_history).
+        if history[-1]["region_count"] != doc["count"]:
+            print("  note: today's srs.txt lists {0} region(s), the history "
+                  "product {1} -- different epochs and Section I only, both "
+                  "expected".format(doc["count"], history[-1]["region_count"]))
+    else:
+        print("  history: none available ({0} day(s) requested)".format(days))
     return ProductResult(name="active_regions", url="ar/regions.json",
                          status=doc["status"], generated=ctx.now,
-                         extra={"count": doc["count"]})
+                         extra={"count": doc["count"],
+                                "history_days": len(history)})
 
 
 def _regions_for_check(ctx: Ctx) -> List[dict]:

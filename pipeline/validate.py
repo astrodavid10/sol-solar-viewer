@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import io
 import math
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 from urllib.parse import urljoin
@@ -362,6 +363,58 @@ def _claims_present(idx: Optional[dict], name: str) -> bool:
     return entry.get("status") in ("ok", "degraded")
 
 
+def _check_region_history(rep: Report, regions: dict) -> None:
+    """The per-UT-day counts schema sol.ar/2 added.
+
+    An EMPTY history is legal, not a failure: solar_regions.json can be down,
+    and the app falls back to the live count exactly as it did before the array
+    existed.  What must never happen is a MALFORMED one -- the chip reads a
+    number out of it and puts it on screen next to a date.
+    """
+    history = regions.get("history")
+    if not isinstance(history, list):
+        rep.check(False, "regions.json history is a list",
+                  "got {0}".format(type(history).__name__))
+        return
+    if not history:
+        rep.info("regions.json history is empty (SRS history unavailable)")
+        return
+
+    dates = [h.get("date") for h in history if isinstance(h, dict)]
+    rep.check(len(dates) == len(history), "every history entry is an object")
+    parsed = []
+    for d in dates:
+        try:
+            parsed.append(datetime.strptime(str(d), "%Y-%m-%d").date())
+        except (TypeError, ValueError):
+            rep.check(False, "history date parses", "got {0!r}".format(d))
+            return
+    rep.check(parsed == sorted(parsed), "history is ordered oldest first")
+    rep.check(len(set(parsed)) == len(parsed), "history dates are unique")
+
+    for h in history:
+        n_reg = h.get("region_count")
+        n_spot = h.get("spot_count")
+        n_spotted = h.get("spotted_region_count")
+        ok = all(isinstance(v, int) and v >= 0 for v in (n_reg, n_spot,
+                                                          n_spotted))
+        rep.check(ok, "history {0} counts are non-negative ints".format(
+            h.get("date")), "got {0!r}".format(h))
+        if not ok:
+            continue
+        # A spotted region has at least one spot, so the spot total can never
+        # be under the number of spotted regions -- the check that catches the
+        # `or 1` flooring bug this array was written around.
+        rep.check(n_spotted <= n_reg,
+                  "history {0}: spotted <= total regions".format(h.get("date")),
+                  "{0} spotted of {1}".format(n_spotted, n_reg))
+        rep.check(n_spot >= n_spotted,
+                  "history {0}: spot count >= spotted regions".format(
+                      h.get("date")),
+                  "{0} spot(s), {1} spotted region(s)".format(n_spot,
+                                                              n_spotted))
+
+
 def _check_side_products(rep: Report, get, idx: Optional[dict]
                          ) -> Optional[int]:
     n_regions: Optional[int] = None
@@ -378,6 +431,7 @@ def _check_side_products(rep: Report, get, idx: Optional[dict]
         n_regions = len(regions.get("regions") or [])
         rep.check(int(regions.get("count", -1)) == n_regions,
                   "regions.json count matches array length")
+        _check_region_history(rep, regions)
 
     ephem = _json(get, "ephem/spacecraft.json")
     if ephem is None:

@@ -17,7 +17,7 @@ Region dicts use the dome pipeline's field names (``rnumber``, ``cLon``,
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -159,7 +159,12 @@ def fetch_regions_json(timeout: float = 30.0) -> Dict[date, List[Region]]:
             continue
         out.setdefault(d, []).append({
             "rnumber": rnumber,
+            # Floored at 1: the seed builder wants at least one seed for a
+            # region that exists, spots or not.  `nSpotsRaw` is the SRS number
+            # as published (0 for a spotless plage region) and is what a
+            # sunspot COUNT must be summed from -- see daily_history.
             "numSpots": int(rec.get("number_spots") or 1),
+            "nSpotsRaw": int(rec.get("number_spots") or 0),
             "lat": int(lat),
             "lon": -int(rec.get("longitude") or 0),      # E+/W- -> W+
             "cLon": int(clon),
@@ -179,6 +184,62 @@ def regions_for_date(d: date, timeout: float = 30.0
     if d in jr:
         return jr[d], "solar_regions.json"
     return [], "none"
+
+
+def daily_history(days: int, now: Optional[datetime] = None,
+                  timeout: float = 30.0) -> List[Dict[str, object]]:
+    """Per-UT-day spot and region counts for the last ``days`` days.
+
+    Returns ``[{"date": "YYYY-MM-DD", "region_count": n, "spot_count": n,
+    "spotted_region_count": n}]``, OLDEST FIRST.  Feeds the app's sunspot chip,
+    which has to answer "how many spots were there at the time under the
+    playhead" rather than "how many are there now".
+
+    Costs NO extra request: ``fetch_regions_json`` memoises the one ~30-day
+    solar_regions.json fetch that ``newest_regions`` already makes, so this is a
+    dictionary lookup per day.
+
+    ONE SOURCE, ON PURPOSE -- do not "improve" this by preferring srs.txt for
+    the newest day.  It was written that way first and produced a fake overnight
+    collapse from 34 spots to 19.  Two independent reasons, both measured
+    2026-08-23:
+
+      1. DIFFERENT EPOCHS.  solar_regions.json keys on ``observed_date``;
+         srs.txt carries an ``:Issued:`` date describing the PREVIOUS UT day.
+         Lining the two up by date shifts one of them by 24 h.
+      2. DIFFERENT REGION SETS.  ``parse_srs`` reads Section I only, so it stops
+         at the ``IA.`` marker and never sees the spotless plage regions; on
+         2026-08-22 srs.txt listed 4 regions where the JSON listed 7.
+
+    Either alone turns a flat Sun into a cliff.  The JSON series is internally
+    consistent across all 31 days it publishes, which is the only property this
+    array actually needs.
+
+    A DATE WITH NO DATA IS OMITTED, never emitted as zero.  The product is built
+    from region records, so a day NOAA published nothing for and a day on which
+    the Sun was genuinely spotless look identical in it -- and "0 sunspots" is a
+    remarkable claim this pipeline has no business making by accident.  The app
+    falls back to the nearest date it does have.
+    """
+    jr = fetch_regions_json(timeout)
+    end = (now or datetime.utcnow()).date()
+    out: List[Dict[str, object]] = []
+    for back in range(int(days) - 1, -1, -1):
+        d = end - timedelta(days=back)
+        regions = jr.get(d)
+        if not regions:
+            continue
+        # nSpotsRaw, not numSpots: the latter floors a spotless plage region at
+        # one spot for the seed builder's benefit, which would inflate a count.
+        spots = sum(int(r.get("nSpotsRaw") or 0) for r in regions)
+        out.append({
+            "date": d.isoformat(),
+            "region_count": len(regions),
+            "spotted_region_count": sum(
+                1 for r in regions if int(r.get("nSpotsRaw") or 0) > 0),
+            "spot_count": int(spots),
+        })
+    return out
 
 
 def newest_regions(cache_dir: Path, simulate_outage: bool = False,

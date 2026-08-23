@@ -43,6 +43,9 @@ import { defineComponent, PropType } from "vue";
 import StatChip from "./StatChip.vue";
 import { STALE_MS, useSolarStats } from "../data/useSolarStats";
 import { flareLabel, kpLabel, sunspotLabel, windLabel } from "../data/swpc";
+import { dataBaseUrl } from "../data/pfss";
+import { RegionDay, loadRegionHistory, regionDayAt, utDate } from "../data/regions";
+import { sceneUnix } from "../state/useAppState";
 
 interface Chip {
   key: string;
@@ -53,12 +56,23 @@ interface Chip {
   stale: boolean;
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Aug 21" from a `YYYY-MM-DD` UT date, parsed as UTC rather than local. */
+function dayLabel(date: string): string {
+  const parts = date.split("-");
+  const month = Number(parts[1]) - 1;
+  if (!(month >= 0 && month < 12)) { return date; }
+  return `${MONTHS[month]} ${Number(parts[2])}`;
+}
+
 /** One sentence each. No jargon that isn't immediately unpacked. */
 const EXPLAINERS: Record<string, string> = {
   flare: "Flares are magnetic explosions on the Sun — NASA labels them A, B, C, M, X, and each letter is ten times stronger than the one before.",
   wind: "The Sun blows a constant stream of charged particles past Earth; at these speeds it makes the trip in about four days.",
   kp: "Kp measures how hard the solar wind is shaking Earth's magnetic field — at 5 and above the northern lights push south.",
-  sunspots: "Sunspot groups NOAA is tracking on the Sun today. Each is an island of intense magnetism, and the more there are, the busier the Sun is.",
+  sunspots: "The sunspots NOAA counted that day. Each is an island of magnetism strong enough to cool the surface, and the more there are, the busier the Sun is. NOAA publishes one count per day, so this steps as you scrub rather than sliding.",
 };
 
 export default defineComponent({
@@ -82,14 +96,31 @@ export default defineComponent({
     // object it also returns is only needed by the retry affordance, which
     // lives in the disk viewer's error card instead.
     const { stats } = useSolarStats();
-    return { stats };
+    // The moment under the field-line playhead. Reading it here is what makes
+    // the sunspot chip follow the scrubber instead of always reporting now.
+    return { stats, sceneUnix };
   },
 
   data() {
     return {
       openKey: "",
       auroraDismissed: false,
+      /** `ar/regions.json`'s per-UT-day counts; empty until it loads. */
+      history: [] as RegionDay[],
+      abort: null as AbortController | null,
     };
+  },
+
+  async mounted() {
+    // Optional enrichment: an absent or schema-1 product leaves this empty and
+    // the chip falls back to the live active-region count.
+    this.abort = new AbortController();
+    const history = await loadRegionHistory(dataBaseUrl(), this.abort.signal);
+    this.history = history;
+  },
+
+  beforeUnmount() {
+    this.abort?.abort();
   },
 
   computed: {
@@ -102,7 +133,7 @@ export default defineComponent({
       const flareText = flareLabel(flare.value ? flare.value.currentClass : null);
       const windText = windLabel(wind.value);
       const kpText = kpLabel(kp.value);
-      const spotText = sunspotLabel(snapshot.value ? snapshot.value.activeRegions : null);
+      const spots = this.spotDay;
 
       return [
         {
@@ -132,14 +163,52 @@ export default defineComponent({
         {
           key: "sunspots",
           label: "Sunspots",
-          value: spotText.headline,
-          // The snapshot comes from the daily pipeline run, which may simply
-          // not exist yet — that is a "—", not an error.
-          detail: snapshot.value ? spotText.detail : "daily count",
-          observedMs: snapshot.observedMs,
+          value: spots.headline,
+          detail: spots.detail,
+          // Null on purpose whenever the value belongs to a scrubbed day: the
+          // freshness dot answers "how long ago did we MEASURE this", and for a
+          // deliberately historical number that question has no useful answer.
+          // A green dot beside a three-day-old count would be a lie told in
+          // colour.
+          observedMs: spots.live ? snapshot.observedMs : null,
           stale: false,
         },
       ];
+    },
+
+    /**
+     * The sunspot chip's value, for the day under the playhead.
+     *
+     * Three tiers, in order: the published daily history (what this is for),
+     * the live active-region count (what the chip showed before the history
+     * existed, and the fallback for an old data tree), and "—".
+     *
+     * `live` says which, so the caller knows whether a freshness dot means
+     * anything.
+     */
+    spotDay(): { headline: string; detail: string; live: boolean } {
+      const day = regionDayAt(this.history, this.sceneUnix);
+      if (day) {
+        const regions = day.spottedRegionCount === 1
+          ? "1 spotted region" : `${day.spottedRegionCount} spotted regions`;
+        // Name the date always, not just when scrubbed: NOAA issues one report
+        // a day, so even "now" is a number with a date on it, and saying so is
+        // what stops the chip implying a live count it never had.
+        const today = utDate(Date.now() / 1000);
+        const when = day.date === today ? "today" : dayLabel(day.date);
+        return {
+          headline: String(day.spotCount),
+          detail: `${regions} · ${when}`,
+          live: day.date === today,
+        };
+      }
+      const snapshot = this.stats.snapshot;
+      const text = sunspotLabel(snapshot.value ? snapshot.value.activeRegions : null);
+      return {
+        headline: text.headline,
+        detail: snapshot.value ? text.detail : "daily count",
+        live: true,
+      };
     },
 
     explainer(): string {

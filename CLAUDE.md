@@ -217,6 +217,22 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     must apply NO rotation to it. Surface-anchored parts of an eruption (flash, arcade) DO
     stay Carrington-local and should mirror the quaternion the way `solarWind.ts` does.
 
+30. **NOAA's two SRS products disagree, and lining them up by date fabricates a
+    cliff.** `srs.txt` and `json/solar_regions.json` are NOT the same series.
+    (a) *Different epochs* — the JSON keys on `observed_date`; srs.txt carries
+    an `:Issued:` date describing the PREVIOUS UT day, so matching them by date
+    shifts one by 24 h. (b) *Different region sets* — `parse_srs` reads
+    Section I only (it breaks at the `IA.` marker) and so never sees the
+    spotless plage regions; measured 2026-08-22, srs.txt listed 4 regions where
+    the JSON listed 7, and the srs.txt set was a strict subset. Preferring
+    srs.txt for "today" and the JSON for older days turned a flat Sun into
+    34 → 19 spots overnight. `sources.srs.daily_history` therefore uses the JSON
+    for EVERY day; `run_regions` prints a note when the two disagree so the gap
+    stays visible rather than looking like a bug. Also: `fetch_regions_json`
+    floors `numSpots` at 1 (a region that exists deserves a seed even with no
+    spots), so a spot COUNT must be summed from `nSpotsRaw`, not `numSpots` —
+    the validator asserts `spot_count >= spotted_region_count` to catch it.
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).

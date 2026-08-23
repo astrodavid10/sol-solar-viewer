@@ -8,7 +8,7 @@
 // "Entry chunk must stay engine-free"). So: plain refs, imported directly by
 // the components that need them.
 
-import { App, reactive, ref } from "vue";
+import { App, computed, reactive, ref } from "vue";
 
 import { DEFAULT_CHANNEL, DiskRes, ProductId } from "../data/sdoCatalog";
 import { boolParam } from "../urlParams";
@@ -47,11 +47,19 @@ export interface LayerFlags {
   glow: boolean;
 }
 
-/** 3D-view layer toggles (M-W5/M-W6 consume these). */
+/**
+ * 3D-view layer toggles (M-W5/M-W6 consume these).
+ *
+ * `spacecraft` starts OFF deliberately. The Sun and its field are the story;
+ * three mission markers and their trails are a second, unrelated one, and on a
+ * phone they land on top of the disk before the guest has looked at it. The
+ * layer panel is the way in, and SolarView3D defers the two live-position
+ * requests until it is switched on, so a guest who never opens it pays nothing.
+ */
 export const layers = reactive<LayerFlags>({
   fieldLines: true,
   wind: true,
-  spacecraft: true,
+  spacecraft: false,
   orbits: false,
   glow: true,
 });
@@ -101,7 +109,14 @@ export const wide = ref(false);
  */
 export type FieldColorMode = "polarity" | "blue";
 
-export const DEFAULT_FIELD_COLOR: FieldColorMode = "polarity";
+/**
+ * Blue, not polarity, is the resting state. Polarity encodes real information
+ * but it is a three-colour legend a guest has not been given yet; one electric
+ * blue reads immediately as a single structure wrapped around the Sun, and the
+ * legend is one tap away in the layer panel. `?fieldcolor=polarity` is now the
+ * non-default value useDeepLink writes.
+ */
+export const DEFAULT_FIELD_COLOR: FieldColorMode = "blue";
 
 export const fieldColorMode = ref<FieldColorMode>(DEFAULT_FIELD_COLOR);
 
@@ -114,6 +129,36 @@ export const fieldColorMode = ref<FieldColorMode>(DEFAULT_FIELD_COLOR);
  * that with the NEWEST frame — the resting state of this app is "now".
  */
 export const frameT = ref(0);
+
+/**
+ * Magnetogram time of each published frame, unix seconds, oldest first — the
+ * `mag_unix` column of `pfss/manifest.json`.
+ *
+ * Shared rather than private to SolarView3D because `frameT` alone is a
+ * fractional INDEX and cannot be turned into a wall-clock time without it.
+ * Anything outside the 3D view that has to answer "when is the guest looking
+ * at?" — today the sunspot chip — needs both. SolarView3D is still the only
+ * writer, exactly as it is for `frameT`.
+ */
+export const frameTimes = ref<number[]>([]);
+
+/**
+ * The moment under the playhead, unix seconds — `frameTimes` interpolated at
+ * `frameT`. Falls back to now while no manifest has loaded, which is also the
+ * right answer for a build with no PFSS product at all.
+ *
+ * Kept here rather than duplicated per consumer so there is exactly one
+ * definition of "scene time"; SolarView3D's own `sceneUnix()` reads it.
+ */
+export const sceneUnix = computed<number>(() => {
+  const times = frameTimes.value;
+  if (!times.length) { return Date.now() / 1000; }
+  const last = times.length - 1;
+  const t = Math.min(Math.max(frameT.value, 0), last);
+  const indexA = Math.min(Math.floor(t), last);
+  const indexB = Math.min(indexA + 1, last);
+  return times[indexA] + (times[indexB] - times[indexA]) * (t - indexA);
+});
 
 /** Field-line animation playback (M-W5). */
 export const playing = ref(false);

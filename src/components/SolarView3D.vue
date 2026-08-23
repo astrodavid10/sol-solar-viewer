@@ -226,10 +226,12 @@ import {
   attractDrift,
   fieldColorMode,
   frameT,
+  frameTimes,
   getAppHandle,
   layers,
   playing,
   resetToken,
+  sceneUnix as sceneTime,
   sheet,
   surfaceMode,
   textureChannel,
@@ -433,6 +435,8 @@ interface Runtime {
   windFrame: number;
   /** ?debug=1 sub-Earth assertion has already run (it only needs to once). */
   textureChecked: boolean;
+  /** The swhv.oma.be live-position fetch has been issued (at most once). */
+  liveRequested: boolean;
 }
 
 function makeRuntime(): Runtime {
@@ -476,6 +480,7 @@ function makeRuntime(): Runtime {
     cameraWorld: new Vector3(),
     windFrame: -1,
     textureChecked: false,
+    liveRequested: false,
   };
 }
 
@@ -514,8 +519,9 @@ export default defineComponent({
     // layer only reads the current speed (416 km/s today) to scale itself.
     const { stats } = useSolarStats();
     return {
-      frameT, layers, playing, resetToken, sheet, surfaceMode, fieldColorMode,
-      textureChannel, view, wide, solarStats: stats,
+      frameT, frameTimes, sceneTime, layers, playing, resetToken, sheet,
+      surfaceMode, fieldColorMode, textureChannel, view, wide,
+      solarStats: stats,
     };
   },
 
@@ -528,7 +534,6 @@ export default defineComponent({
       frameCount: 0,
       loadedFrom: 0,
       loadedCount: 0,
-      frameTimes: [] as number[],
       dataStale: false,
       dataStaleHours: 0,
 
@@ -696,6 +701,11 @@ export default defineComponent({
 
     "layers.spacecraft"(value: boolean) {
       this.rt.trails?.setVisible(value);
+      // The layer now starts OFF (useAppState), so this is where most guests
+      // who ever see a spacecraft first ask for one — and the first place it is
+      // worth spending two requests on swhv.oma.be. Once only: the baked
+      // ephemeris is accurate to well under a pixel without it.
+      if (value && !this.rt.liveRequested) { void this.refreshLivePositions(); }
       // Only a SPACECRAFT card is dismissed with the spacecraft layer — the
       // surface markers share this slot and are not part of that layer.
       if (!value && this.selectedId && !this.isSurfaceId(this.selectedId)) {
@@ -974,7 +984,7 @@ export default defineComponent({
             rt.manifest = markRaw(manifest);
             this.frameCount = manifest.frames.length;
             this.loadedFrom = manifest.frames.length;
-            this.frameTimes = manifest.frames.map((f) => f.magUnix);
+            frameTimes.value = manifest.frames.map((f) => f.magUnix);
             // Surfaced now so the banner (if it appears) already has the right
             // number in it; `dataStale` itself waits for index.json's verdict.
             this.dataStaleHours = manifest.newestMagAgeHours;
@@ -1106,7 +1116,10 @@ export default defineComponent({
         };
       });
 
-      void this.refreshLivePositions();
+      // Deferred until the layer is switched on (see the layers.spacecraft
+      // watcher). A deep link that arrives with it already on still gets the
+      // live dots, because the watcher has not run for that case.
+      if (this.layers.spacecraft) { void this.refreshLivePositions(); }
     },
 
     /**
@@ -1116,6 +1129,7 @@ export default defineComponent({
      */
     async refreshLivePositions(): Promise<void> {
       const rt = this.rt;
+      rt.liveRequested = true;
       const when = new Date();
       const results = await Promise.all([
         fetchLivePosition("psp", when),
@@ -1127,15 +1141,16 @@ export default defineComponent({
       });
     },
 
-    /** Scene time: the magnetogram time under the playhead, or now. */
+    /**
+     * Scene time: the magnetogram time under the playhead, or now.
+     *
+     * The arithmetic moved to useAppState's `sceneUnix` computed when the
+     * sunspot chip needed the same answer — one definition, two readers. Kept
+     * as a method because this file calls it from the render tick, where a
+     * plain function read is cheaper to reason about than a computed.
+     */
     sceneUnix(): number {
-      const times = this.frameTimes;
-      if (!times.length) { return Date.now() / 1000; }
-      const last = times.length - 1;
-      const t = Math.min(Math.max(this.frameT, 0), last);
-      const indexA = Math.min(Math.floor(t), last);
-      const indexB = Math.min(indexA + 1, last);
-      return times[indexA] + (times[indexB] - times[indexA]) * (t - indexA);
+      return this.sceneTime;
     },
 
     updateSpacecraft(): void {

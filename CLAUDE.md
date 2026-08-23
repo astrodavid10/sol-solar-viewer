@@ -268,6 +268,26 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     swallow-and-continue path equally loud: this pipeline's whole design is
     "degrade quietly for the guest, never quietly for the operator".
 
+33. **`gong2.nso.edu` is UNREACHABLE from GitHub Actions runners** — connect
+    timeouts, every request, every run. Measured 2026-08-23 across four
+    consecutive CI runs: `URLError: <urlopen error timed out>` on all 12 day-
+    directory scrapes, while the identical request from a laptop answers
+    HTTP 200 in 0.35 s. Not IPv6 (footgun 24's cause): `gong2.nso.edu` publishes
+    **no AAAA record at all**, only A 146.5.21.69. Not a block-with-a-response
+    either — a 403 or a TLS error would arrive fast; a silent drop is what
+    times out. Every OTHER upstream works fine from the same runner in the same
+    run (JPL Horizons, CCMC DONKI, NOAA SWPC, SDO GSFC), so it is NSO-side and
+    specific to their firewall's view of Azure/GitHub ranges.
+    **Consequence: the scheduled pipeline cannot build field lines at all.** It
+    reported success anyway for four runs, because the PFSS stage's failure
+    policy is a soft one — which is right for a transient outage and actively
+    misleading for a permanent block. The frames currently served were built on
+    a workstation and published by hand; footgun 31's seeding is what keeps CI
+    from deleting them on the next run. Until this is resolved (an NSO
+    allow-list request, a mirror, or a self-hosted runner), treat `pfss` in
+    `index.json` as expected-stale and do NOT "fix" it by lowering
+    `MIN_FRAMES_TO_PUBLISH`.
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).

@@ -161,6 +161,40 @@ Footgun 22 was two revisions out of date. The favicon hotlinked
 `?view=&wl=&pfss=&movie=&res=` into every shareable URL; those params are still *stripped* on
 write, because a QR printed before the consolidation can carry them.
 
+### ⚠ GONG IS UNREACHABLE FROM GITHUB ACTIONS — the scheduled pipeline cannot build field lines
+
+Found while verifying the first real deploy, and it is the most important thing on this page.
+
+`gong2.nso.edu` **times out on every request from a GitHub Actions runner**, and always has:
+all four data.yml runs to date (14:45, 14:59, 16:36, 19:41 on 2026-08-23) resolved **0 of 19
+slots**. The identical request from a workstation answers HTTP 200 in 0.35 s. Every other
+upstream works from the same runner in the same run — JPL Horizons, CCMC DONKI, NOAA SWPC and
+SDO GSFC all succeeded. Not IPv6 (footgun 24's cause): `gong2.nso.edu` publishes no AAAA
+record at all. A connect *timeout* rather than a 403 or a TLS error is the signature of a
+silent firewall drop, so this reads as NSO blocking Azure/GitHub ranges. → **footgun 33**.
+
+**Every one of those runs reported success.** The PFSS stage's failure policy is soft by
+design, which is correct for a transient outage and actively misleading for a permanent block.
+HANDOFF previously recorded "data.yml passed first try" — true of the exit code, and never
+true of the product.
+
+**It was also deleting the live data.** `publish_gh_pages.sh` rsyncs `--delete`, and CI built
+into an empty `dist-data`, so "don't publish pfss/, the previous frames keep being served"
+actually removed them from gh-pages. → **footgun 31**; `data.yml` now seeds `dist-data` from
+`origin/gh-pages -- data` before building, which makes the whole failure policy real.
+
+**Where that leaves things:** the published frames are built on a workstation and pushed by
+hand; CI now preserves them and marks `pfss` stale rather than deleting them. Treat a stale
+`pfss` entry in `index.json` as expected. Do NOT "fix" it by lowering
+`MIN_FRAMES_TO_PUBLISH`.
+
+**Options, none tried yet:** ask NSO to allow-list GitHub's ranges; find a GONG mirror
+(JSOC/Stanford carries the same synoptic products); run the data job on a self-hosted runner
+at the planetarium; or proxy the fetch. Diagnostics are now in place either way — `_scrape_gong`
+prints the actual exception (footgun 32), `data.yml` runs `probe-sources` every run, and a
+circuit breaker stops asking after two consecutive timeouts (which also gave back ~4 minutes
+of every run).
+
 ### Font: Highway Gothic Narrow → Overpass (RESOLVED)
 
 `HighwayGothicNarrow.ttf` carried no license record at all (no nameID 13, no nameID 14 — just

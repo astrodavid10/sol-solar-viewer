@@ -86,6 +86,13 @@ CLOSED_FLOOR = 0.25
 WINDOW_HOURS = 72                # user request 2026-08-23 (was 48)
 FRAME_SPACING_HOURS = 4          # 72/4 + 1 == 19 frames (~2.2 MB total)
 GONG_TOLERANCE_HOURS = 3.0       # real GONG gaps of 5-6 h have been observed
+# A directory listing normally answers in ~0.35 s (measured). 20 s was generous
+# for a slow day and ruinous for an unreachable host: gong2.nso.edu drops
+# connections from GitHub runners entirely (footgun 33), and 12 scrapes x 20 s
+# was nearly five minutes of a ~9 minute job spent waiting on nothing. 8 s is
+# still 20x the observed latency, and sources/gong.py's circuit breaker stops
+# asking after two consecutive timeouts.
+GONG_SCRAPE_TIMEOUT = 8.0
 STALE_HOURS = 8.0                # index.json "stale" threshold
 MIN_FRAMES_TO_PUBLISH = 6        # fewer than this -> don't publish pfss/ at all
 MAX_FRAME_BYTES = 200_000        # hard fail; target is 110-160 KB

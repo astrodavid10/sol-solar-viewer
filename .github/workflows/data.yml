@@ -92,6 +92,16 @@ jobs:
             rm -rf .ghp-seed
           fi
 
+      # Non-fatal, and it runs BEFORE the build so its verdict is at the top of
+      # the log. Added after four consecutive runs reported success while the
+      # headline product (PFSS field lines) was never built once -- see the
+      # GONG note in HANDOFF.md. A one-line upstream health record per run is
+      # cheap; re-deriving "has this ever worked?" from six months of logs is
+      # not.
+      - name: Probe upstreams (never fatal)
+        continue-on-error: true
+        run: python -m pipeline probe-sources --out dist-data
+
       - name: Build data products
         # Inputs reach the shell as ENVIRONMENT VARIABLES, never spliced into
         # the script text. ${{ }} is substituted before bash parses the line,

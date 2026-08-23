@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import re
+import socket
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -28,10 +29,44 @@ from typing import List, Optional, Tuple
 import gzip
 import uuid
 
-from ..config import GONG_BASE, GONG_TOLERANCE_HOURS, HEADERS
+from ..config import (GONG_BASE, GONG_SCRAPE_TIMEOUT,
+                      GONG_TOLERANCE_HOURS, HEADERS)
 from ..io_utils import quiet_unlink
 
 _FITS_RE = re.compile(r"mrzqs(\d{6})t(\d{4})c\d+_\d+\.fits\.gz", re.IGNORECASE)
+
+# ── Circuit breaker ──────────────────────────────────────────────────────────
+# gong2.nso.edu is unreachable from GitHub Actions runners (footgun 33): every
+# request is a silent drop that costs the full timeout. A 19-slot window touches
+# ~4 day directories and gong_list scrapes 3 each, so without a breaker one run
+# spends 12 x GONG_SCRAPE_TIMEOUT waiting on a host that is not going to answer
+# -- measured at nearly five minutes of a ~9 minute job.
+#
+# After this many consecutive TIMEOUTS the rest of the run skips GONG entirely.
+# Reset between processes, never within one: a host that dropped two connections
+# thirty seconds ago is not going to answer the third.
+_TIMEOUT_BREAKER = 2
+_consecutive_timeouts = 0
+_breaker_announced = False
+
+
+def _breaker_open() -> bool:
+    """True once GONG has timed out enough times to stop asking."""
+    global _breaker_announced
+    if _consecutive_timeouts < _TIMEOUT_BREAKER:
+        return False
+    if not _breaker_announced:
+        _breaker_announced = True
+        print("  GONG unreachable ({0} consecutive timeouts); skipping the "
+              "remaining listings this run".format(_consecutive_timeouts))
+    return True
+
+
+def reset_breaker() -> None:
+    """Test hook: forget that GONG was unreachable."""
+    global _consecutive_timeouts, _breaker_announced
+    _consecutive_timeouts = 0
+    _breaker_announced = False
 
 
 class _HrefParser(HTMLParser):
@@ -53,7 +88,7 @@ def _gong_dir_url(dt: datetime) -> str:
         GONG_BASE, dt.strftime("%Y%m"), dt.strftime("%y%m%d"))
 
 
-def _scrape_gong(dir_url: str, timeout: float = 20.0
+def _scrape_gong(dir_url: str, timeout: float = GONG_SCRAPE_TIMEOUT
                  ) -> List[Tuple[datetime, str]]:
     """Return [(file_datetime_utc, url)] sorted by time; [] on any failure.
 
@@ -65,15 +100,26 @@ def _scrape_gong(dir_url: str, timeout: float = 20.0
     from a laptop answered 200 in 0.35 s, and the log could not say why.
     Whatever the reason turns out to be, it should be READABLE from one run.
     """
+    global _consecutive_timeouts
+    if _breaker_open():
+        return []
     try:
         req = urllib.request.Request(dir_url, headers=HEADERS)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             html = resp.read().decode("utf-8", errors="replace")
+        _consecutive_timeouts = 0
     except urllib.error.HTTPError as exc:
+        # An answer, even a rude one, means the host is reachable -- that is a
+        # different failure from a drop and must not trip the breaker.
+        _consecutive_timeouts = 0
         print("  WARN GONG {0}: HTTP {1} {2}".format(
             dir_url, exc.code, exc.reason))
         return []
     except Exception as exc:                                   # noqa: BLE001
+        if isinstance(exc, socket.timeout) or "timed out" in str(exc):
+            _consecutive_timeouts += 1
+        else:
+            _consecutive_timeouts = 0
         print("  WARN GONG {0}: {1}: {2}".format(
             dir_url, type(exc).__name__, exc))
         return []

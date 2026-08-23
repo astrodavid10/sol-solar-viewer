@@ -102,7 +102,9 @@ export default defineComponent({
       const flareText = flareLabel(flare.value ? flare.value.currentClass : null);
       const windText = windLabel(wind.value);
       const kpText = kpLabel(kp.value);
-      const spotText = sunspotLabel(snapshot.value ? snapshot.value.sunspotNumber : null);
+      const spotText = sunspotLabel(
+        snapshot.value ? snapshot.value.sunspotNumber : null,
+        snapshot.value ? snapshot.value.sunspotMonth : "");
 
       return [
         {
@@ -135,7 +137,7 @@ export default defineComponent({
           value: spotText.headline,
           // The snapshot comes from the daily pipeline run, which may simply
           // not exist yet — that is a "—", not an error.
-          detail: snapshot.value ? spotText.detail : "daily count",
+          detail: snapshot.value ? spotText.detail : "monthly average",
           observedMs: snapshot.observedMs,
           stale: false,
         },

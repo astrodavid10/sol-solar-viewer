@@ -74,6 +74,13 @@ export interface FlareWindow {
 export interface SnapshotInfo {
   sunspotNumber: number | null;
   activeRegions: number | null;
+  /**
+   * Which month `sunspotNumber` belongs to ("2026-07"), when the pipeline says.
+   * The international sunspot number is a MONTHLY mean — it is not a count of
+   * what is on the disk today — and this app is called "the Sun Right Now", so
+   * the UI has to be able to say which month it is quoting. Empty when unknown.
+   */
+  sunspotMonth: string;
 }
 
 export interface SolarStats {
@@ -217,6 +224,21 @@ function pickNumber(source: unknown, keys: string[]): number | null {
       if (Number.isFinite(n)) { return n; }
     }
     if (Array.isArray(raw)) { return raw.length; }
+    // The pipeline publishes every MEASURED quantity as an object carrying its
+    // own provenance -- `sunspotNumber: {month, smoothed, value}`,
+    // `f107: {time_iso, value}` -- because a bare number cannot say when it was
+    // measured or which month it belongs to. Unwrap `value` rather than
+    // special-casing each field: this reader is deliberately shape-tolerant,
+    // and NOT handling the publisher's own idiom is what left the Sunspots
+    // chip permanently blank while every alias key below "looked" covered.
+    if (raw !== null && typeof raw === "object") {
+      const inner = (raw as Record<string, unknown>)["value"];
+      if (typeof inner === "number" && Number.isFinite(inner)) { return inner; }
+      if (typeof inner === "string" && inner.trim() !== "") {
+        const n = Number(inner);
+        if (Number.isFinite(n)) { return n; }
+      }
+    }
   }
   return null;
 }
@@ -330,18 +352,33 @@ function parseSnapshot(json: unknown): Parsed<SnapshotInfo> | null {
   const nested = dict["sun"] ?? dict["summary"] ?? dict["stats"];
 
   const sunspotNumber =
-    pickNumber(dict, ["sunspot_number", "sunspotNumber", "ssn", "monthly_ssn", "smoothed_ssn"]) ??
-    pickNumber(nested, ["sunspot_number", "sunspotNumber", "ssn", "monthly_ssn"]);
+    // "sunspotNumber" is what stats/export.py actually writes; the rest are
+    // tolerated aliases. Keep the real one FIRST so the working path is the
+    // obvious one when reading this.
+    pickNumber(dict, ["sunspotNumber", "sunspot_number", "ssn", "monthly_ssn", "smoothed_ssn"]) ??
+    pickNumber(nested, ["sunspotNumber", "sunspot_number", "ssn", "monthly_ssn"]);
 
   const activeRegions =
-    pickNumber(dict, ["active_region_count", "ar_count", "active_regions", "n_regions", "regions"]) ??
-    pickNumber(nested, ["active_region_count", "ar_count", "active_regions", "regions"]);
+    // Likewise: "activeRegionCount" is the published name. Its absence from
+    // this list is why the chip stayed blank even once the sunspot number was
+    // readable -- parseSnapshot returns null only when BOTH are missing, so
+    // two independent misses looked like one silent failure.
+    pickNumber(dict, ["activeRegionCount", "active_region_count", "ar_count",
+      "active_regions", "n_regions", "regions"]) ??
+    pickNumber(nested, ["activeRegionCount", "active_region_count", "ar_count",
+      "active_regions", "regions"]);
 
   if (sunspotNumber === null && activeRegions === null) { return null; }
 
+  const spotBlock = dict["sunspotNumber"];
+  const sunspotMonth = (spotBlock !== null && typeof spotBlock === "object"
+    && typeof (spotBlock as Record<string, unknown>)["month"] === "string")
+    ? (spotBlock as Record<string, string>)["month"]
+    : "";
+
   const generated = dict["generated"] ?? dict["generated_iso"] ?? dict["date"];
   return {
-    value: { sunspotNumber, activeRegions },
+    value: { sunspotNumber, activeRegions, sunspotMonth },
     timeTag: typeof generated === "string" ? generated : null,
   };
 }

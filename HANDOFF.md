@@ -37,9 +37,13 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 
 1. **The 3D view has never been confirmed working in a browser.** Large amounts of geometry
    were derived from engine source and verified numerically, not visually. See §4.
-2. **CI has never run**, and Actions are deliberately disabled on the repo so the first push
-   could not fire `app-deploy.yml` by accident. `data.yml`, `app-deploy.yml`, `keepalive.yml`
-   and `build.yml` are written and unexercised; there is no gh-pages branch yet.
+2. **The publish path has never run.** `data.yml`'s build+validate half is proven on a clean
+   runner; `app-deploy.yml`, `keepalive.yml` and the gh-pages publish are still unexercised,
+   and there is no gh-pages branch. **GitHub Pages is blocked**: a private repo needs GitHub
+   Pro, and the API refuses with "Your current plan does not support GitHub Pages for this
+   repository." Unblock by making the repo public or upgrading — deferred by choice.
+   Actions are ENABLED, so the `data.yml` (4-hourly) and `keepalive.yml` (monthly) schedules
+   are armed and will consume private-repo CI minutes publishing to a branch nobody serves.
 3. **No app-side tests.** Regressions in the app are caught only by eye.
 
 ---
@@ -76,7 +80,7 @@ no WWT at all and the user has been exercising them.
 | M-P4 | Binary export + validator | **DONE** |
 | M-P5 | Ephemeris + regions + stats | **DONE** |
 | M-P6 | Outage drills (GONG, SRS, DONKI) | **DONE** |
-| M-P7 | **CI end-to-end** | **NOT STARTED** (workflows written, never run) |
+| M-P7 | CI end-to-end | **PARTIAL** — `data.yml -f dry_run=true` passed first try on 2026-08-23 (build + validate + artifact green, publish correctly skipped). Publish path still unexercised. |
 | M-P8 | DONKI source + events product | **DONE** (2026-08-23) |
 | M-P9 | Events validator + outage drill | **DONE** (2026-08-23) |
 
@@ -163,6 +167,19 @@ AAAA record and urllib has no Happy Eyeballs: 21.06 s to time out on IPv6, then 
 IPv4. curl races the families and never notices, which is why a curl probe said 0.87 s for a
 URL the pipeline spent 21.8 s on. Fixed with `io_utils._ipv4_only()`. Events stage 47.3 s →
 5.4 s standalone, 1.5 s inside `all`. → footgun 24.
+
+**Sunspots chip was permanently blank** (user-reported) — a pipeline/app contract mismatch,
+two independent misses that compounded. `stats/export.py` publishes `sunspotNumber` as an
+object (`{month, smoothed, value}`) and `activeRegionCount` in camelCase; `parseSnapshot`'s
+`pickNumber` understood numbers, numeric strings and arrays but not the publisher's own
+`{value, …}` idiom, and its alias list didn't contain `activeRegionCount`. `parseSnapshot`
+returns null only when BOTH fields are missing, so two separate bugs presented as one silent
+blank. `pickNumber` now unwraps `value` generally. Verified against the real payload:
+null/null before, 78.1 / 4 after. The fix also exposed that the chip was about to present a
+*July monthly average* as if it were today's Sun, so `sunspotLabel` now names the month.
+
+Lesson worth keeping: the reader's long list of tolerated alias keys created false confidence
+— it looked thoroughly defensive while missing the one name the publisher actually uses.
 
 ---
 

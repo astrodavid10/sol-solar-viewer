@@ -283,9 +283,23 @@ export function kpLabel(kp: number | null): FriendlyValue {
   return { headline: "Calm", detail };
 }
 
-export function sunspotLabel(count: number | null): FriendlyValue {
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+/**
+ * The international sunspot number is a MONTHLY mean published by SILSO, not a
+ * count of spots visible today, and it lands about a month in arrears. Saying
+ * only "sunspot number" next to it in an app called "the Sun Right Now" invites
+ * a guest to read a July average as this morning's Sun, so the month is named
+ * whenever the pipeline tells us which one it is.
+ */
+export function sunspotLabel(count: number | null, month = ""): FriendlyValue {
   if (count === null) { return NO_DATA; }
-  return { headline: String(count), detail: "sunspot number" };
+  const headline = String(count);
+  const parts = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!parts) { return { headline, detail: "monthly average" }; }
+  const name = MONTH_NAMES[Number(parts[2]) - 1] ?? "";
+  return { headline, detail: name ? `${name} average` : "monthly average" };
 }
 
 // --- freshness ------------------------------------------------------------

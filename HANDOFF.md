@@ -3,16 +3,23 @@
 **Living document.** Update it at the end of any session that changes project state. It exists
 so a fresh session (human or Claude) can pick the work up without re-deriving context.
 
-- **Last updated:** 2026-08-23
+- **Last updated:** 2026-08-23 (second session that day)
 - **Repo:** `github.com/astrodavid10/sol-solar-viewer`. Actions are ENABLED and the
-  `gh-pages` branch is live (app + data). GitHub Pages is not yet turned on.
-- **Status summary:** feature-complete against the v1 plan, building clean, and now pushed to
-  GitHub. The remaining headline risk is that **almost none of the 3D work has been seen in a
-  browser** — see §4.
+  `gh-pages` branch is live (app + data). The repo is still PRIVATE and GitHub Pages is not
+  yet turned on.
+- **Branch:** work is on `feature/unified-sphere-view`, which is well ahead of `main` and
+  carries the single-sphere consolidation (the "Sun Now" disk view was deleted in `a270e5a`).
+  **`main` is stale — do not read it for current state.**
+- **Status summary:** feature-complete against the v1 plan, building clean. The remaining
+  headline risk is unchanged and is the reason nothing else should be built on top:
+  **almost none of the 3D work has been seen in a browser** — see §4.
+- **Current plan:** a four-workstream plan was approved this session — per-frame textures,
+  the §8 design overhaul, public launch, and a set of small corrections. Workstream 4 and the
+  pre-publication half of workstream 3 are DONE (see §3); the rest is not started.
 
 ### Read these first, in this order
 
-1. `CLAUDE.md` — architecture + **25 numbered footguns**. Dense and authoritative. The
+1. `CLAUDE.md` — architecture + **30 numbered footguns**. Dense and authoritative. The
    footguns are hard-won; several document bugs that took hours to find. Do not "fix" them.
 2. This file — what is done, what is not, what is unverified.
 3. The original implementation plan — a local Claude Code planning document, not in this
@@ -25,12 +32,14 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 
 | | |
 |---|---|
-| App (`src/`) | 51 files, ~13,000 lines — Vue 3 + TS |
-| Pipeline (`pipeline/`) | 26 files, ~5,700 lines — Python, conda env `sdo` |
+| App (`src/`) | Vue 3 + TS; one unified sphere view (no disk view since `a270e5a`) |
+| Pipeline (`pipeline/`) | 26 files, ~5,900 lines — Python, conda env `sdo` |
 | `yarn lint` / `yarn typecheck` / `yarn build` | all **PASS** |
 | `pipeline validate --root public/data --strict` | **0 failed, 0 warnings** |
 | Data products building | 6 of 6 (pfss, ar, ephem, stats, texture, events) |
-| Git commits | 2, pushed to `origin/main` |
+| PFSS window | 72 h, 4 h spacing, **19 frames** (`config.WINDOW_HOURS`) |
+| Sphere textures | **5 channels** at 4096x2048, one frame each (per-frame is workstream 1) |
+| Git commits | 22 on `feature/unified-sphere-view` |
 | Automated tests | none (the pipeline validator is the de-facto test suite; the app has none) |
 | CI workflows | `data.yml` and `app-deploy.yml` both green end-to-end; `build.yml` and `keepalive.yml` still unexercised |
 
@@ -39,10 +48,12 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 1. **The 3D view has never been confirmed working in a browser.** Large amounts of geometry
    were derived from engine source and verified numerically, not visually. See §4.
 2. **GitHub Pages is not enabled**, so nothing is served yet. On a private repo it needs
-   GitHub Pro ("Your current plan does not support GitHub Pages for this repository");
-   making the repo public is the other route. `gh-pages` already exists and carries both the
-   app and `data/`, at exactly one commit, so enabling Pages is the only remaining step.
+   GitHub Pro; **making the repo public is the agreed route** (it is also what removes the
+   Actions-minutes quota). `gh-pages` already exists and carries both the app and `data/`, at
+   exactly one commit. Remaining steps: merge this branch to `main`, flip visibility, then
+   `gh api -X POST repos/astrodavid10/sol-solar-viewer/pages -f source[branch]=gh-pages -f source[path]=/`.
    The `data.yml` (4-hourly) and `keepalive.yml` (monthly) schedules are armed.
+   **One open question blocks the flip** — see §3, Highway Gothic Narrow.
 3. **No app-side tests.** Regressions in the app are caught only by eye.
 
 ---
@@ -104,7 +115,67 @@ cross-check against GSFC's own PFSS overlay, overnight kiosk soak.
 
 ---
 
-## 3. What changed on 2026-08-23 (most recent session)
+## 3a. What changed on 2026-08-23 (SECOND session — most recent)
+
+A four-workstream plan was approved: (1) time-aligned per-frame sphere textures, (2) the §8
+design overhaul, (3) commit/merge/publish publicly, (4) a set of small corrections. **Only
+workstream 4 and the pre-publication half of 3 are done.** Workstreams 1 and 2 are not
+started.
+
+**Sunspot count now follows the scrubber.** The chip was labelled "Sunspots" but showed the
+active-region count, and it always showed *today's* while everything beside it scrubbed
+through 72 h. It now shows the real spot total for the day under the playhead, from a new
+per-UT-day `history` array in `ar/regions.json` (schema `sol.ar/2`). No new request and no new
+file — the app already fetched that product. NOAA issues the SRS once a day, so the number
+**steps at UT midnight rather than sliding**; the chip names the date so that cadence is
+visible instead of implied, and the freshness dot is suppressed for a scrubbed day.
+
+**`frameTimes` is now shared state** (`useAppState`), with a `sceneUnix` computed beside it.
+It was private to `SolarView3D`, which is why nothing outside the 3D view could follow the
+scrubber: `frameT` alone is a fractional index and cannot be turned into a wall-clock time.
+SolarView3D remains the only writer and its own `sceneUnix()` now reads that one definition.
+
+**→ footgun 30: NOAA's two SRS products are not the same series.** Building the history
+"srs.txt for today, solar_regions.json for older days" reported the Sun losing half its spots
+overnight (34 → 19). Two independent causes: srs.txt's `:Issued:` date describes the PREVIOUS
+UT day, and `parse_srs` reads Section I only so it never sees the spotless plage regions
+(measured 2026-08-22: 4 regions vs 7, the former a strict subset). `daily_history` now uses
+one source for every day; `run_regions` prints the disagreement rather than hiding it.
+
+**Defaults changed, per user request.** Field lines start as one electric blue rather than the
+polarity palette; spacecraft start OFF. The two `swhv.oma.be` live-position requests are now
+deferred until the spacecraft layer is switched on.
+
+**American English throughout** — 208 replacements across 44 files, plus three identifiers a
+`` regex could not reach (`_` and camelCase suppress the boundary). Verified safe first: no
+British spelling appears as a key in any published JSON, in any CSS class or `--sol-*` token,
+or in any value that is compared or serialized. `analysis`/`analyst`/`analyses` are identical
+in both dialects and were left alone, as was DONKI's `cmeAnalyses`.
+
+**Pre-publication hygiene.** Full-history secret scan: clean. No private IPs, personal paths
+or emails in tracked files. Stale "48 h / 13 frames" corrected in fourteen places (SDO's
+*movie* products really are 48 h, so those were left). README described the deleted disk view.
+Footgun 22 was two revisions out of date. The favicon hotlinked
+`worldwidetelescope.org/favicon.ico`. Dead disk-view state (`view`, `channel`, `pfssOverlay`,
+`diskMode`, `diskRes`, `diskSettledAt`) removed — `useDeepLink` was still writing
+`?view=&wl=&pfss=&movie=&res=` into every shareable URL; those params are still *stripped* on
+write, because a QR printed before the consolidation can carry them.
+
+### ⚠ OPEN QUESTION BLOCKING THE PUBLIC FLIP
+
+**Highway Gothic Narrow has no license record.** `src/assets/HighwayGothicNarrow.ttf`
+(SHA-256 `7b98172d…`) carries `copyright: "2009"` and `trademark: "Ash Pikachu Font"` but no
+nameID 13 or 14. `THIRD-PARTY.md` argues it is an organization-wide question rather than a Sol
+blocker — the same file ships in at least seven projects here, including `minids`, which is
+already public. Going public redistributes it. Three options: ship as-is (accept the existing
+exposure), swap to **Overpass** (open FHWA-derived face, SIL OFL, a genuine drop-in — this
+also retires the question permanently), or drop the display face. **Not yet decided.**
+The orphaned `Roboto*.ttf` files are a separate matter: they have no `@font-face` rule at all
+and are dead weight (see §8's Tier 0 notes).
+
+---
+
+## 3. What changed on 2026-08-23 (FIRST session)
 
 A long session driven by user-reported visual bugs. Root cause of most of them was one thing.
 

@@ -101,6 +101,15 @@ export interface SolarStats {
    * keeping one point of it.
    */
   kpSeries: StatField<SeriesPoint[]>;
+  /**
+   * Hourly solar-wind speed over the scrub window, from the pipeline.
+   *
+   * Server-side by necessity: the source is 2.8 MB and covers only ~24 h, so
+   * the pipeline both digests it and ACCUMULATES it across runs. A cold cache
+   * genuinely cannot fill 72 h, which is why `coverageHours` travels with it --
+   * a gap here is the data being honest, not a bug.
+   */
+  windSeries: StatField<{ points: SeriesPoint[]; coverageHours: number }>;
   scales: StatField<ScaleInfo>;
   snapshot: StatField<SnapshotInfo>;
   /**
@@ -155,6 +164,7 @@ const stats = reactive<SolarStats>({
   mag: emptyField<MagInfo>(),
   kp: emptyField<number>(),
   kpSeries: emptyField<SeriesPoint[]>(),
+  windSeries: emptyField<{ points: SeriesPoint[]; coverageHours: number }>(),
   scales: emptyField<ScaleInfo>(),
   snapshot: emptyField<SnapshotInfo>(),
   flareHistory: emptyField<FlareWindow>(),
@@ -360,6 +370,39 @@ export function thinFlareEvents(events: FlareEvent[], maxMarks = 10): FlareEvent
   return strong.concat(filler).sort((a, b) => a.peakUnix - b.peakUnix);
 }
 
+/**
+ * `windWindow` from summary.json: the pipeline's hourly wind series.
+ *
+ * Absent in any snapshot published before the pipeline grew one, and then this
+ * simply never gains a value and the chip keeps its live-only behaviour.
+ */
+function parseWindSeries(
+  json: unknown,
+): Parsed<{ points: SeriesPoint[]; coverageHours: number }> | null {
+  if (typeof json !== "object" || json === null) { return null; }
+  const dict = json as Record<string, unknown>;
+  const rawWindow = dict["windWindow"] ?? dict["wind_window"];
+  if (typeof rawWindow !== "object" || rawWindow === null) { return null; }
+  const raw = rawWindow as Record<string, unknown>;
+  const list = raw["points"];
+  if (!Array.isArray(list)) { return null; }
+  const points: SeriesPoint[] = [];
+  for (const entry of list) {
+    if (typeof entry !== "object" || entry === null) { continue; }
+    const row = entry as Record<string, unknown>;
+    const t = Number(row["t"]);
+    const v = Number(row["v"]);
+    if (Number.isFinite(t) && Number.isFinite(v)) { points.push({ t, v }); }
+  }
+  if (!points.length) { return null; }
+  points.sort((a, b) => a.t - b.t);
+  const coverage = Number(raw["coverage_hours"] ?? raw["coverageHours"]);
+  return {
+    value: { points, coverageHours: Number.isFinite(coverage) ? coverage : 0 },
+    timeTag: null,
+  };
+}
+
 function parseSnapshot(json: unknown): Parsed<SnapshotInfo> | null {
   if (typeof json !== "object" || json === null) { return null; }
   const dict = json as Record<string, unknown>;
@@ -436,10 +479,12 @@ export async function refresh(force = false): Promise<void> {
   // number can't take the flare marks down with it (and vice versa).
   if (force
     || !isFresh(stats.snapshot, TTL_SNAPSHOT_MS)
-    || !isFresh(stats.flareHistory, TTL_SNAPSHOT_MS)) {
+    || !isFresh(stats.flareHistory, TTL_SNAPSHOT_MS)
+    || !isFresh(stats.windSeries, TTL_SNAPSHOT_MS)) {
     tasks.push(settle(fetchJson(snapshotUrl()).then((j) => {
       commit(stats.snapshot, parseSnapshot(j));
       commit(stats.flareHistory, parseFlareHistory(j));
+      commit(stats.windSeries, parseWindSeries(j));
     })));
   }
 

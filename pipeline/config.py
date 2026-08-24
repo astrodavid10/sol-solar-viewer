@@ -127,6 +127,31 @@ GONG_PROXY_HEADER = "X-Sol-Relay-Token"
 SRS_URL = "https://services.swpc.noaa.gov/text/srs.txt"
 SRS_JSON_URL = "https://services.swpc.noaa.gov/json/solar_regions.json"
 SUNSPOTS_URL = "https://services.swpc.noaa.gov/json/solar-cycle/sunspots.json"
+# Real-time solar wind, 1-minute cadence. 2.8 MB and SERVER-SIDE ONLY -- the
+# browser must never be sent this (the whole reason stats/summary.json exists).
+#
+# It covers only ~24 h (measured 2026-08-24: 3799 records over 23.9 h) and there
+# is no longer product -- plasma-7-day, plasma-3-day and plasma-6-hour all 404,
+# and propagated-solar-wind-1-hour really is one hour. So a 72 h series has to
+# be ACCUMULATED across runs, exactly as the 30-day flare history already is.
+#
+# Records interleave three spacecraft (measured: IMAP 1140, SOLAR1 1313, ACE
+# 1346), which is why there are 3799 of them for 1440 minutes and why binning to
+# an hourly MEAN is the right digest rather than picking rows.
+RTSW_WIND_URL = "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json"
+
+# One point per hour. 72 points for the window, ~2 KB published -- against
+# 2.8 MB fetched. The scrubber's own resolution is 4 h, so an hourly series is
+# already finer than anything the guest can select.
+WIND_BIN_MINUTES = 60
+
+# Plausible solar-wind speed, km/s. A PHYSICAL range rather than trusting
+# `overall_quality`, whose semantics are undocumented and which was 0 for all
+# 3799 records measured -- a flag with one observed value cannot filter anything.
+# Real solar wind runs ~250-800 km/s; the bounds are deliberately wider than
+# that so a genuine fast stream is never silently dropped.
+WIND_SPEED_RANGE_KMS = (150.0, 1500.0)
+
 XRAY_FLARES_URL = (
     "https://services.swpc.noaa.gov/json/goes/primary/xray-flares-7-day.json")
 F107_URL = "https://services.swpc.noaa.gov/products/summary/10cm-flux.json"
@@ -308,6 +333,30 @@ TEX_HIRES_W, TEX_HIRES_H = 8192, 4096
 # 4096x2048 one, and a shared ceiling would either fail every normal-res
 # build or let a hi-res build through many times bigger than intended.
 TEX_HIRES_JPEG_QUALITY = 82                # same as TEX_JPEG_QUALITY; see below
+
+# How far the hi-res limb fit may stray from EXACTLY twice the normal fit.
+#
+# The absolute check (TEX_LIMB_RADIUS_TOL, 3%) is the wrong instrument at this
+# resolution and rejected a channel it should not have. measure_limb is
+# resolution-DEPENDENT for a diffuse edge: more rays cross a soft limb further
+# out, so the fitted radius grows slightly with sampling. Measured 2026-08-24,
+# fitted radius at 2048 vs 4096 and the ratio against the ideal 2.0:
+#
+#     0171   788.0 -> 1582.3   ratio 2.0080   (+0.40%)
+#     0304   807.4 -> 1650.4   ratio 2.0441   (+2.20%)   <- fails a 3% ABSOLUTE
+#     HMIB   941.5 -> 1882.9   ratio 1.9999   (-0.01%)
+#
+# 0304 is He II 304 A, the AIA channel with the most extended chromospheric
+# limb, so it drifts most -- and its absolute error at 4096 (+4.4%) tripped a
+# guard aimed at something else entirely.
+#
+# The RATIO asks the question that actually matters for this build: is the 4096
+# still the same framing as the 2048 one at twice the scale? That is precisely
+# what makes the synthesized WCS valid at the higher resolution, and it does not
+# depend on modelling where a soft limb "really" is. It still catches the thing
+# TEX_LIMB_RADIUS_TOL exists for -- GSFC re-cropping one resolution and not the
+# other (footgun 21) would move this ratio immediately.
+TEX_HIRES_LIMB_RATIO_TOL = 0.03
 TEX_HIRES_MAX_BYTES = 4_500_000
 
 # ── Off-limb annulus ────────────────────────────────────────────────────────

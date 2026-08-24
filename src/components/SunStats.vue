@@ -148,7 +148,8 @@ export default defineComponent({
       const kp = this.stats.kp;
       const snapshot = this.stats.snapshot;
 
-      const windText = windLabel(wind.value);
+      const windNow = this.windAtPlayhead;
+      const windText = windLabel(windNow.value);
       const spots = this.spotDay;
       const kpNow = this.kpAtPlayhead;
       const flareNow = this.flareAtPlayhead;
@@ -179,9 +180,9 @@ export default defineComponent({
           key: "wind",
           label: "Solar wind",
           value: windText.headline,
-          detail: windText.detail,
-          observedMs: wind.observedMs,
-          stale: this.isStale(wind.fetchedAt),
+          detail: windNow.live ? windText.detail : windNow.detail,
+          observedMs: windNow.live ? wind.observedMs : null,
+          stale: windNow.live ? this.isStale(wind.fetchedAt) : false,
         },
         {
           key: "kp",
@@ -217,6 +218,33 @@ export default defineComponent({
      */
     atNow(): boolean {
       return Date.now() / 1000 - this.sceneUnix < 3 * 3600;
+    },
+
+    /**
+     * Solar-wind speed for the moment under the playhead.
+     *
+     * From the pipeline's hourly series, which it accumulates across runs
+     * because the upstream product is 2.8 MB and covers only ~24 h. A cold
+     * cache therefore cannot fill the whole 72 h window -- and when the
+     * playhead sits outside what the series actually covers there is simply no
+     * measurement, so this falls back to the live reading and says so rather
+     * than interpolating across a gap it knows nothing about.
+     *
+     * Tolerance is one bin: the series is hourly, so a point more than an hour
+     * from the playhead is not a measurement of that moment.
+     */
+    windAtPlayhead(): { value: number | null; detail: string; live: boolean } {
+      const live = { value: this.stats.wind.value, detail: "", live: true };
+      if (this.atNow) { return live; }
+      const series = this.stats.windSeries.value;
+      if (!series || !series.points.length) { return live; }
+      const point = seriesAt(series.points, this.sceneUnix, 1);
+      if (!point) { return live; }
+      return {
+        value: point.v,
+        detail: `hourly mean · ${timeLabel(point.t)}`,
+        live: false,
+      };
     },
 
     /**

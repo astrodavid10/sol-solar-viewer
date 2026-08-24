@@ -18,12 +18,71 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ..config import (F107_URL, PIPELINE_VERSION, SCHEMA_STATS, SUNSPOTS_URL,
-                      WINDOW_HOURS, XRAY_FLARES_URL)
+from ..config import (F107_URL, PIPELINE_VERSION, RTSW_WIND_URL,
+                      SCHEMA_STATS, SUNSPOTS_URL, WIND_BIN_MINUTES,
+                      WIND_SPEED_RANGE_KMS, WINDOW_HOURS, XRAY_FLARES_URL)
 from ..io_utils import (http_get_json, iso_z, parse_iso_z, read_json, unix_s,
                         write_json)
 
 _CLASS_ORDER = {"A": 0, "B": 1, "C": 2, "M": 3, "X": 4}
+
+
+def _wind_points(rows: List[Dict]) -> Dict[int, List[float]]:
+    """Bin raw 1-minute records into {hour_start_unix: [speeds]}.
+
+    Three spacecraft interleave in this product, so several records share a
+    minute; the mean over an hour is the honest digest of that, and it is what
+    the chip's single number wants anyway.
+    """
+    bins: Dict[int, List[float]] = {}
+    lo, hi = WIND_SPEED_RANGE_KMS
+    step = WIND_BIN_MINUTES * 60
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        speed = row.get("proton_speed")
+        if not isinstance(speed, (int, float)):
+            continue
+        speed = float(speed)
+        if not lo <= speed <= hi:
+            continue
+        when = parse_iso_z(str(row.get("time_tag") or ""))
+        if when is None:
+            continue
+        key = (unix_s(when) // step) * step
+        bins.setdefault(key, []).append(speed)
+    return bins
+
+
+def _merge_wind_series(cache_dir: Path, fresh: Dict[int, List[float]],
+                       now: datetime) -> List[Dict]:
+    """Rolling hourly wind series, accumulated across runs.
+
+    Same shape as _merge_flare_history and for the same reason: the upstream
+    product is shorter than the window the app scrubs, so the only way to fill
+    72 h is to remember. A fresh bin REPLACES a cached one for the same hour --
+    later runs see more of that hour's minutes, so their mean is better.
+    """
+    path = Path(cache_dir) / "wind.json"
+    cached = read_json(path) or {}
+    series: Dict[int, float] = {}
+    for entry in (cached.get("points") or []):
+        try:
+            series[int(entry["t"])] = float(entry["v"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    for key, speeds in fresh.items():
+        if speeds:
+            series[key] = sum(speeds) / len(speeds)
+
+    step = WIND_BIN_MINUTES * 60
+    # Trim to the window, plus one bin of slack so the oldest scrubber slot is
+    # never left without a point to interpolate from.
+    cutoff = ((unix_s(now) // step) * step) - (WINDOW_HOURS * 3600) - step
+    points = [{"t": t, "v": round(v, 1)}
+              for t, v in sorted(series.items()) if t >= cutoff]
+    write_json(path, {"points": points})
+    return points
 
 
 def flare_magnitude(cls: Optional[str]) -> float:
@@ -141,6 +200,31 @@ def build_stats(now: datetime, cache_dir: Path, active_region_count: int,
     except Exception as exc:
         print("  WARN xray-flares-7-day.json: {0}".format(exc))
 
+    # Solar wind, accumulated. A failure here costs the chip its history and
+    # nothing else: the app falls back to the live reading it already fetches.
+    wind_window: Optional[Dict] = None
+    try:
+        rows = http_get_json(RTSW_WIND_URL)
+        fresh = _wind_points(rows if isinstance(rows, list) else [])
+        points = _merge_wind_series(cache_dir, fresh, now)
+        coverage = 0.0
+        if points:
+            coverage = max(0.0, (unix_s(now) - points[0]["t"]) / 3600.0)
+        wind_window = {
+            "hours": WINDOW_HOURS,
+            "bin_minutes": WIND_BIN_MINUTES,
+            # How much of the window the cache actually covers. The upstream
+            # product is only ~24 h, so a cold cache genuinely cannot fill 72 h
+            # and the app must be able to tell that from a gap in the data.
+            "coverage_hours": round(coverage, 1),
+            "points": points,
+        }
+        if verbose:
+            print("    wind: {0} fresh hour(s), {1} in series, {2:.1f} h "
+                  "covered".format(len(fresh), len(points), coverage))
+    except Exception as exc:
+        print("  WARN rtsw_wind_1m.json: {0}".format(exc))
+
     f107: Optional[Dict] = None
     try:
         rows = http_get_json(F107_URL)
@@ -168,6 +252,7 @@ def build_stats(now: datetime, cache_dir: Path, active_region_count: int,
         "latestFlare": latest_flare,
         "biggestFlare30d": biggest_30d,
         "flaresWindow": {"hours": WINDOW_HOURS, "events": flares_window},
+        "windWindow": wind_window,
         "f107": f107,
         "carrington": carrington,
         "sources": {
@@ -175,5 +260,6 @@ def build_stats(now: datetime, cache_dir: Path, active_region_count: int,
             "flares": XRAY_FLARES_URL,
             "f107": F107_URL,
             "activeRegionCount": "NOAA SRS (services.swpc.noaa.gov/text/srs.txt)",
+            "windWindow": RTSW_WIND_URL,
         },
     }

@@ -761,7 +761,13 @@ def run_texture(ctx: Ctx) -> ProductResult:
             t_hires = time.perf_counter()
             try:
                 hires_blob, hires_meta = texture_export.build_hires_texture(
-                    ctx.now, code=code, verbose=ctx.verbose)
+                    ctx.now, code=code, verbose=ctx.verbose,
+                    # The normal map's fitted limb, measured moments ago in this
+                    # same run. Handing it over turns the hi-res geometry check
+                    # from "does this match a model of the limb" into "do the two
+                    # resolutions agree", which is the question that matters and
+                    # costs no extra fetch. See TEX_HIRES_LIMB_RATIO_TOL.
+                    ref_limb_px=info.get("limb_radius_px"))
             except Exception as exc:                      # noqa: BLE001
                 print("    {0} hi-res skipped: {1}".format(code, exc))
             else:

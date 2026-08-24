@@ -21,6 +21,7 @@ export interface LayerFlags {
   orbits: boolean;
   glow: boolean;
   regionLabels: boolean;
+  eruptions: boolean;
 }
 
 /**
@@ -42,6 +43,11 @@ export const layers = reactive<LayerFlags>({
   // of the Sun" into "the Sun right now", and a guest who wants the clean disk
   // can say so. Off is the exception, not the default.
   regionLabels: true,
+  // ON, and it costs nothing to leave on: an eruption draws only during the few
+  // hours it was actually happening, so for most of the 72 h window this layer
+  // is two invisible meshes. Off would mean a guest who scrubs onto the one
+  // dramatic moment in the window sees nothing and never learns why.
+  eruptions: true,
 });
 
 /** How the Sun's own surface is painted in the 3D view:

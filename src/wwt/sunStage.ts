@@ -148,9 +148,22 @@ export function aspectPad(): number {
   return Math.max(1, h / w);
 }
 
+/**
+ * Zoom that frames `radii` solar radii on the SHORT screen axis.
+ *
+ * Extracted from `zoomHome` when the eruption replay needed to frame something
+ * ten times bigger than the Sun: a CME reaches 21.5 R_sun, so the one place
+ * that knows how many R_sun a zoom shows had to be callable with a number other
+ * than HOME_RADII. Clamped, because the answer for a big enough radius is
+ * outside the engine's own zoom range.
+ */
+export function zoomForRadii(radii: number): number {
+  return clampZoom((9 / 4) * radii * R_SUN_AU * FIT_FACTOR * aspectPad());
+}
+
 /** Zoom that frames HOME_RADII solar radii on the short screen axis. */
 export function zoomHome(): number {
-  return (9 / 4) * HOME_RADII * R_SUN_AU * FIT_FACTOR * aspectPad();
+  return zoomForRadii(HOME_RADII);
 }
 
 /** The engine's solar-system zoom↔distance relation (footgun 14). */

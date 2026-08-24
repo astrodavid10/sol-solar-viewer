@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of any session that changes project state. It exists
 so a fresh session (human or Claude) can pick the work up without re-deriving context.
 
-- **Last updated:** 2026-08-24 (fourth session — five phone/desktop layout fixes, §3zz)
+- **Last updated:** 2026-08-24 (fourth session — layout fixes + the 3D eruption layer, §3zz)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
   enabled on `gh-pages` / root, and the deployed data tree passes
   `validate --url … --strict` at 0 failed / 0 warnings.
@@ -23,7 +23,7 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 
 ### Read these first, in this order
 
-1. `CLAUDE.md` — architecture + **45 numbered footguns**. Dense and authoritative. The
+1. `CLAUDE.md` — architecture + **46 numbered footguns**. Dense and authoritative. The
    footguns are hard-won; several document bugs that took hours to find. Do not "fix" them.
 2. This file — what is done, what is not, what is unverified.
 3. The original implementation plan — a local Claude Code planning document, not in this
@@ -117,7 +117,7 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 | P2.4d | `prefers-reduced-motion` | **PARTIAL** — one file only, not applied systematically |
 | P2.4e | Audio narration | **NOT STARTED** |
 | — | Per-frame sphere textures | **PIPELINE DONE, APP NOT STARTED** — the data is published and validating; `sunSurface.ts` still loads one texture per channel (§3z) |
-| — | Flare/CME 3D eruption (see §6) | **NOT STARTED** — feasibility study done |
+| M-W9 | Flare/CME 3D eruption (see §6) | **DONE** — `src/three/cme.ts`, browser-verified (§3zz) |
 
 ### Integration (M-INT)
 
@@ -214,6 +214,33 @@ squeezed to a sliver: at a literal 1200x630 viewport it gets ~40px and the panel
 is cut through the middle of its glyphs, which reads as a broken app rather than as a panel with
 more to scroll. Cropped 631→630 rather than resampled, JPEG q88 progressive, 147 KB.
 
+### M-W9: eruptions are in 3D — the last unstarted item from the approved plan
+
+`src/three/cme.ts` (~700 lines incl. its reasoning), a `layers.eruptions` toggle, and a
+**"Watch it erupt"** button on the event card. It draws exactly what the catalog fitted and
+nothing more: DONKI's `dir_ecl`, `half_angle_deg` and its two published timestamps ARE a cone
+model fit, so drawing the cone model is showing the guest the same object SWPC forecasts from.
+§6's recommended path, no new bytes on the wire, ~50 KB of runtime buffers shared by every
+event, two draw calls per live eruption.
+
+- **No clock of its own.** Radius is a pure function of `sceneUnix`, so scrubbing, playback and
+  the replay all drive it identically and none can drift from the field lines. The rate comes
+  from the published `start_unix`→`time21_5_unix` pair rather than `speed_kms`: measured over
+  the four live CMEs the pair implies a speed 6-19% higher (plane-of-sky fit vs a real
+  accelerating climb), and the pair is what lands the cloud where the catalog says it was.
+- **The replay is a scripted scrub, not an animation.** An eruption takes 3-9 h = under two
+  SECONDS at the field lines' playback rate, so it needed its own pace — 8 s, about 40 min of
+  Sun per second, with the camera eased out to frame ~11 R_sun and eased back when the card
+  closes. It writes the SAME playhead, so the scrubber's UT label ticks through the real
+  timestamps as it runs. Verified end to end with real clicks: tap the blue mark → card → the
+  button → 09:53 → 10:47 UT with the cloud expanding, on desktop and at 390x844.
+- **Only what was observed.** The front appears at 2.2 R_sun (LASCO C2's inner edge, where a
+  height-time fit can start), never below. The flare flash is separate and Carrington-parented.
+- Four expensive lessons are now **footgun 46** — a `Mesh` with no `position` attribute renders
+  NOTHING silently; a point-size formula that mixes R_sun and AU reproduces footgun 20; smooth
+  envelopes read as glass where particles read as gas; and two additive layers cannot share one
+  exposure constant.
+
 ### ⚠ Not verified in a browser (this session)
 
 - **Real-touch scrolling** of the layer popover. Synthetic PointerEvents prove the camera no
@@ -223,6 +250,14 @@ more to scroll. Cropped 631→630 rather than resampled, JPEG q88 progressive, 1
 - **iOS Safari's copy path.** The `contentEditable` + not-`readonly` + `setSelectionRange`
   recipe is the documented iOS workaround and is verified on desktop Chrome only.
 - The **share-failure toast** has never rendered: every route above it succeeded.
+- **The eruption layer on a real phone GPU.** The particle cloud is 3,000 additive points at
+  ~11 px on a phone (~360k fragments, a fifth of what the unit bug was costing), which should be
+  cheap — but "should be" is not a measurement, and it has only been seen in a desktop browser
+  at a phone VIEWPORT. Watch the frame rate during a replay on the exhibit phone.
+- **The card covers the lower half of the Sun on a phone while a replay runs.** The cloud
+  expands upward and outward so the action stays visible, but a guest holding the phone sees the
+  eruption above the card rather than centred. Left as it is deliberately — collapsing the card
+  would take the "Watch it erupt" button out from under their thumb.
 
 ---
 

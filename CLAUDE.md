@@ -475,6 +475,35 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     user. Verified by synthetic PointerEvents: the drag inside the panel leaves
     `solDebug.camera` untouched, the identical drag on open sky moves lat by 9 degrees.
 
+46. **The CME layer (`src/three/cme.ts`), and four things it cost to learn.** It draws DONKI's
+    own cone-model fit — `dir_ecl` + `half_angle_deg` + the two published timestamps — as a
+    particle cloud with one smooth shock shell. Read footgun 25 first: the cone group carries
+    NO Carrington quaternion, only the flare flash does.
+    (a) **A `Mesh` whose geometry has no `position` attribute is silently never rendered** —
+    no error, no warning, and `material.program` stays undefined because three never compiles
+    it. The flare flash had its corners in a custom `aCorner` attribute plus a valid index and
+    a hand-set `boundingSphere`, and drew nothing for an hour of debugging. Put the corners in
+    `position`. (Also: `material.program` no longer exists in modern three, so "no program" is
+    not a diagnosis.)
+    (b) **A point-size formula mixing R_sun and AU reproduces footgun 20's symptom from a new
+    cause.** `uSize * uRadius * uPixelScale / abs(mv.z)` with `uRadius` in R_sun and `mv.z` in
+    AU computed a want of **986 px against a 64 px ceiling** — all 3,000 particles pinned to
+    maximum size at every zoom, 12.3M fragments a frame of pure overdraw, and a cloud that got
+    coarser as the guest pulled back. Multiply the size by `rSunAu` where the uniform is set.
+    (c) **Smooth envelopes read as glass; only particles read as gas.** Four rounds of tuning a
+    shaded cone-and-cap surface (limb brightening, two limb exponents, filament noise, nested
+    shells) never stopped it looking like a solid object — a 45 deg half-angle envelope at
+    10 R_sun is an enormous smooth sheet, and there is no shading model that saves it. The
+    particle version is also CHEAPER (3,000 vertices against ~2,000 triangles).
+    (d) **Two additive layers must not share one exposure constant.** A per-PARTICLE alpha
+    (0.17, and it took a sweep from 1.0 through 0.06 to find) and a per-SURFACE alpha (0.5) are
+    three orders of magnitude apart in what they mean; when the shock read the cloud's number
+    it vanished. `brightnessAt()` returns a normalized 0-1 curve and each layer scales it
+    itself. Additive blending has no highlight rolloff, so these numbers are the whole
+    difference between plasma and poster paint — re-sweep them at the screen if the point count
+    or size changes, and do it with the tab FOREGROUND (a hidden tab suspends rAF, so the
+    render is frozen and the replay crawls).
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).

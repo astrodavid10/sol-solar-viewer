@@ -108,6 +108,12 @@ const ROWS: Row[] = [
   { key: "glow", label: "Corona glow", hint: "Soft halo around the Sun" },
   { key: "regionLabels", label: "Region labels",
     hint: "Name the numbered active regions on the disk" },
+  // Last, and honestly so: unlike every row above it this one usually changes
+  // nothing on screen, because it only draws during the hours an eruption was
+  // actually happening. A guest who turns it off and sees no difference has not
+  // found a bug.
+  { key: "eruptions", label: "Eruptions",
+    hint: "Flares and the clouds they throw, when there are any" },
 ];
 
 // "Live SDO" is the default and falls back to "Artist" on its own while no

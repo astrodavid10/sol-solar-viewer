@@ -184,6 +184,17 @@
             <p v-if="selectedCard.detail" class="sv-card-dist">{{ selectedCard.detail }}</p>
             <p v-if="selectedCard.compare" class="sv-card-compare">{{ selectedCard.compare }}</p>
             <p v-if="selectedCard.blurb" class="sv-card-blurb">{{ selectedCard.blurb }}</p>
+            <!-- Only for an eruption, and only when there is something to draw
+                 (a CME with no direction can be listed but not flown). -->
+            <button
+              v-if="canReplay"
+              type="button"
+              class="sv-card-replay"
+              @click="replaySelected"
+            >
+              <font-awesome-icon icon="play" />
+              <span>{{ replayLabel }}</span>
+            </button>
             <p v-if="selectedCard.warn" class="sv-card-warn">{{ selectedCard.warn }}</p>
           </div>
         </transition>
@@ -281,6 +292,7 @@ import {
   rSunAt,
 } from "../data/spacecraft";
 import { useSolarStats, thinFlareEvents } from "../data/useSolarStats";
+import { CmeLayer, cmeReplayWindow, cmeTransit, createCmeLayer } from "../three/cme";
 import { DebugHelpers, createDebugHelpers } from "../three/debug";
 import { FieldLines, createFieldLines } from "../three/fieldLines";
 import { deCollideLabels } from "../three/labelLayout";
@@ -297,10 +309,13 @@ import {
   cameraInfo,
   clampCameraLat,
   currentDistanceAu,
+  currentZoom,
   homeCamera,
   initSunStage,
   refitFraming,
   solarSystemModeActive,
+  zoomForRadii,
+  zoomTo,
 } from "../wwt/sunStage";
 import { installSunGestures, type SunGestures } from "../wwt/gestures";
 import {
@@ -371,6 +386,17 @@ const PROJECT_MS = 50;
 
 /** Kiosk attract loop: prograde camera drift, in degrees per second. */
 const ATTRACT_DRIFT_DEG_S = 2;
+
+/**
+ * How long an eruption replay takes on screen, seconds.
+ *
+ * 8 s for the 3-9 h a CME spends climbing to 26 R_sun, i.e. roughly 40 minutes
+ * of Sun per second. Short enough that a guest waiting for it does not lose
+ * interest, long enough that the front's expansion reads as motion rather than
+ * as a cut — and long enough for the flare flash at the start to be seen as a
+ * separate beat from the cloud that follows it.
+ */
+const REPLAY_SECONDS = 8;
 
 /** Chip names: the full mission name doesn't fit on a phone. */
 const SHORT_NAMES: Record<string, string> = {
@@ -486,6 +512,14 @@ interface Runtime {
   offLimbDir: Vector3;
   offLimbUp: Vector3;
   wind: SolarWind | null;
+  cme: CmeLayer | null;
+  /**
+   * A scripted scrub across one eruption's transit — see `playEruption`.
+   * Non-reactive, because it is written every frame.
+   */
+  replay: { fromFrame: number; toFrame: number; elapsed: number; seconds: number } | null;
+  /** The zoom to ease back to when the guest closes an eruption's card. */
+  replayZoom: number;
   glow: SunGlow | null;
   trails: SpacecraftTrails | null;
   debug: DebugHelpers | null;
@@ -545,6 +579,9 @@ function makeRuntime(): Runtime {
     offLimbDir: new Vector3(),
     offLimbUp: new Vector3(),
     wind: null,
+    cme: null,
+    replay: null,
+    replayZoom: 0,
     glow: null,
     trails: null,
     debug: null,
@@ -761,6 +798,25 @@ export default defineComponent({
       return marks.sort((a, b) => a.unix - b.unix);
     },
 
+    /**
+     * Is the card showing something the 3D view can actually fly?
+     *
+     * A CME needs a direction (footgun 25's `dir_ecl`) — DONKI publishes plenty
+     * of events without one, and they are still worth a mark and a card. A flare
+     * needs a source location, or there is nothing to flash. Anything else gets
+     * no button rather than a button that does nothing.
+     */
+    canReplay(): boolean {
+      const event = this.selectedEvent;
+      if (!event || !this.layers.eruptions || !this.frameCount) { return false; }
+      if (event.kind === "cme") { return !!cmeTransit(event); }
+      return event.sourceCarrLonDeg !== undefined && event.sourceLatDeg !== undefined;
+    },
+
+    replayLabel(): string {
+      return this.selectedEvent?.kind === "cme" ? "Watch it erupt" : "Watch the flare";
+    },
+
     /** The DONKI event the card slot is showing, if that is what it holds. */
     selectedEvent(): SolarEvent | null {
       const id = this.selectedId;
@@ -845,6 +901,30 @@ export default defineComponent({
       // Paths are only rebuilt on an integer-frame change, and that change may
       // have happened while the layer was off — force one on the way back in.
       if (value) { this.rt.windFrame = -1; }
+    },
+
+    "layers.eruptions"(value: boolean) {
+      this.rt.cme?.setVisible(value);
+      // Nothing to force on the way back in: the layer is stateless between
+      // frames, so the next tick's `update(sceneUnix)` is already correct.
+    },
+
+    /**
+     * Closing an eruption's card gives the guest their framing back.
+     *
+     * `playEruption` is the only thing in the app that moves the camera without
+     * being asked to by a drag, so it is also the only thing that owes one back.
+     * Stored as the zoom rather than the whole camera because that is all it
+     * changed — a guest who orbited during the replay keeps where they orbited
+     * to, which is what they would expect.
+     */
+    selectedId(value: string) {
+      const rt = this.rt;
+      if (!rt.replayZoom) { return; }
+      if (value.indexOf(EVENT_PREFIX) === 0) { return; }
+      zoomTo(rt.replayZoom);
+      rt.replayZoom = 0;
+      rt.replay = null;
     },
 
     surfaceMode(value: SurfaceMode) {
@@ -948,6 +1028,7 @@ export default defineComponent({
     rt.surface?.dispose();
     rt.offLimb?.dispose();
     rt.wind?.dispose();
+    rt.cme?.dispose();
     rt.glow?.dispose();
     rt.trails?.dispose();
     rt.debug?.dispose();
@@ -1022,6 +1103,13 @@ export default defineComponent({
       rt.wind.setVisible(this.layers.wind);
       rt.stage.scene.add(rt.wind.object3d);
 
+      // Eruptions. Created empty — `loadEventLayer` hands it the window's
+      // events when events.json arrives, and an absent product (a normal
+      // condition, see events.ts) just leaves it with nothing to draw.
+      rt.cme = markRaw(createCmeLayer({ rSunAu: R_SUN_AU }));
+      rt.cme.setVisible(this.layers.eruptions);
+      rt.stage.scene.add(rt.cme.object3d);
+
       if (boolParam("debug")) {
         rt.debug = markRaw(createDebugHelpers(R_SUN_AU));
         rt.stage.scene.add(rt.debug.group);
@@ -1060,7 +1148,21 @@ export default defineComponent({
 
       const lines = rt.fieldLines;
       if (lines) {
-        if (this.playing && !rt.dragging) { lines.advance(dt); }
+        // A replay is just a different advance rule, which is the point: it
+        // drives the SAME playhead, so the field lines, the surface, the stat
+        // chips and the scrubber's own UT label all follow an eruption exactly
+        // as they follow a finger on the track. A guest dragging cancels it —
+        // their hand outranks our animation.
+        if (rt.replay && !rt.dragging) {
+          const replay = rt.replay;
+          replay.elapsed += dt;
+          const k = Math.min(1, replay.elapsed / replay.seconds);
+          lines.setTime(replay.fromFrame + (replay.toFrame - replay.fromFrame) * k);
+          if (k >= 1) { rt.replay = null; }
+        } else if (rt.replay) {
+          rt.replay = null;
+        }
+        if (this.playing && !rt.dragging && !rt.replay) { lines.advance(dt); }
         if (now - rt.lastPublishMs > PUBLISH_MS) {
           rt.lastPublishMs = now;
           const t = lines.time();
@@ -1130,6 +1232,16 @@ export default defineComponent({
         }
         wind.tick(dt);
       }
+
+      // Eruptions are a pure function of scene time — no clock of their own, so
+      // scrubbing, playback and the scripted replay all drive them identically
+      // and none of the three can drift from the field lines. The quaternion
+      // reaches only the flare flash inside the layer (footgun 25).
+      const cme = rt.cme;
+      if (cme && this.layers.eruptions) {
+        if (orientation) { cme.setQuaternion(orientation); }
+        cme.update(this.sceneUnix());
+      }
     },
 
     /**
@@ -1143,7 +1255,12 @@ export default defineComponent({
       if (!wind || !rt.stage) { return; }
       const speed = this.solarStats.wind.value;
       if (typeof speed === "number") { wind.setSpeedKms(speed); }
-      wind.setPixelScale(rt.stage.bufferSize().height * 0.5);
+      const pixelScale = rt.stage.bufferSize().height * 0.5;
+      wind.setPixelScale(pixelScale);
+      // The eruption cloud's particles are sized by the same rule, so they want
+      // the same number — and this is already the 20 Hz throttle for exactly
+      // this kind of cheap read that only tracks the drawing-buffer size.
+      rt.cme?.setPixelScale(pixelScale);
     },
 
     /**
@@ -1499,6 +1616,9 @@ export default defineComponent({
       const loaded = await loadEvents(dataBaseUrl(), rt.abort?.signal);
       if (rt.destroyed || !loaded) { return; }
       this.solarEvents = markRaw(loaded);
+      // The same array drives the timeline marks, the cards and now the 3D
+      // eruptions, so all three can never disagree about what happened.
+      rt.cme?.setEvents(loaded.events);
     },
 
     async loadRegionLayer(): Promise<void> {
@@ -1691,6 +1811,72 @@ export default defineComponent({
     /** A timeline mark was tapped. TimeScrubber has already scrubbed there. */
     pickEvent(id: string): void {
       this.selectedId = id;
+    },
+
+    /**
+     * Fractional frame index for a wall-clock moment — the inverse of
+     * useAppState's `sceneUnix`, which interpolates `frameTimes` at `frameT`.
+     * A linear scan: 19 frames, called twice per replay.
+     */
+    frameForUnix(unix: number): number {
+      const times = this.frameTimes;
+      if (!times.length) { return 0; }
+      const last = times.length - 1;
+      if (unix <= times[0]) { return 0; }
+      if (unix >= times[last]) { return last; }
+      let i = 0;
+      while (i < last && times[i + 1] < unix) { i += 1; }
+      const span = times[i + 1] - times[i];
+      return span > 0 ? i + (unix - times[i]) / span : i;
+    },
+
+    /**
+     * Replay one eruption: frame it, then scrub the playhead across the hours it
+     * actually took.
+     *
+     * Why a replay exists at all. An eruption is over in 3-9 hours, which is one
+     * or two of the scrubber's 4 h slots — and at the field lines' playback rate
+     * (0.8 s per frame, the whole 72 h window in about 14 s) that is under two
+     * SECONDS of screen time. A guest pressing play would see a white flicker
+     * and nothing else, and a guest who never presses play would see nothing at
+     * all, because the resting playhead sits at "now" and the eruption is in the
+     * past. So the one moment in the window worth watching gets its own pace.
+     *
+     * It is not a separate animation, though: it writes the SAME playhead, so
+     * the scrubber's UT label ticks through the real timestamps as it runs and
+     * everything else in the scene follows along. The compression (about 40
+     * minutes of Sun per second) is the only liberty taken, and the label admits
+     * it frame by frame.
+     */
+    playEruption(event: SolarEvent): void {
+      const rt = this.rt;
+      const lines = rt.fieldLines;
+      if (!lines || !this.frameTimes.length) { return; }
+      playing.value = false;
+
+      const window = event.kind === "cme" ? cmeReplayWindow(event) : null;
+      // A flare with no CME is a surface event: it wants the camera left where
+      // it is (close), not pulled out to where a cloud would be.
+      if (window) {
+        if (!rt.replayZoom) { rt.replayZoom = currentZoom(); }
+        zoomTo(zoomForRadii(window.framedRadiusRSun));
+      }
+      const fromUnix = window ? window.fromUnix : (event.beginUnix ?? event.unix) - 5 * 60;
+      const toUnix = window ? window.toUnix : (event.endUnix ?? event.unix + 25 * 60);
+
+      rt.replay = {
+        fromFrame: this.frameForUnix(fromUnix),
+        toFrame: this.frameForUnix(toUnix),
+        elapsed: 0,
+        seconds: REPLAY_SECONDS,
+      };
+      lines.setTime(rt.replay.fromFrame);
+    },
+
+    /** The card's replay button. */
+    replaySelected(): void {
+      const event = this.selectedEvent;
+      if (event) { this.playEruption(event); }
     },
 
     regionCard(numberText: string): CardInfo | null {
@@ -2011,7 +2197,30 @@ export default defineComponent({
         fieldLines: rt.fieldLines,
         surface: rt.surface,
         wind: rt.wind,
+        cme: rt.cme,
         manifest: rt.manifest,
+        // The eruption layer draws nothing for most of the window, so "is it
+        // broken or is the Sun quiet?" is a question worth being able to answer
+        // without reading pixels.
+        get eruptions() {
+          return { live: rt.cme?.liveCount() ?? 0, replaying: !!rt.replay };
+        },
+        replay: (id: string) => {
+          const event = this.solarEvents?.events.find((e) => e.id === id);
+          if (event) { this.playEruption(event); }
+          return event?.id ?? null;
+        },
+        /**
+         * Park the playhead at a wall-clock moment and CANCEL any replay, so a
+         * scene can be held still while it is looked at. Without the cancel a
+         * running replay rewrites the playhead every frame and quietly wins.
+         */
+        hold: (unix: number) => {
+          rt.replay = null;
+          playing.value = false;
+          rt.fieldLines?.setTime(this.frameForUnix(unix));
+          return this.sceneUnix();
+        },
         get camera() {
           return {
             ...cameraInfo(),
@@ -2299,6 +2508,39 @@ export default defineComponent({
   color: var(--sol-text-dim);
   font-size: 0.78rem;
   line-height: 1.4;
+}
+
+// The one ACTION any card offers, so it is allowed to look like a button rather
+// than another line of copy. Same treatment as a selected `.lp-segment` and a
+// selected `.stat-chip` -- brighter border, faint neutral fill, full-strength
+// text -- because it is the same kind of thing: a lit control in a panel. 44px
+// for the same reason everything else in this app is.
+.sv-card-replay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-height: 44px;
+  margin: 0.6rem 0 0;
+  padding: 0 0.7rem;
+  border: 1px solid rgba(var(--sol-select-rgb), 0.75);
+  border-radius: var(--sol-control-radius);
+  background: rgba(var(--sol-select-rgb), 0.14);
+  color: var(--sol-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  &:active {
+    background: rgba(var(--sol-select-rgb), 0.24);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--sol-select);
+    outline-offset: -2px;
+  }
 }
 
 // Reserved for the one line that is a genuine heads-up (a delta-class region),

@@ -25,12 +25,16 @@ export interface LayerFlags {
 }
 
 /**
- * The 3D eruption layer (`three/cme.ts`) — SHIPPED OFF, deliberately.
+ * The 3D eruption layer (`three/cme.ts`) — ON HERE, OFF ON `main`.
  *
- * Nothing is deleted: the module, the replay machinery, the event cards and the
- * timeline marks all still exist and still build. This flag is the one wire
- * between them and the guest, and it is false because the layer has not earned
- * the default view yet. What sent it back: at the 2.8 R_sun home framing a CME
+ * This branch exists to investigate the layer and re-tune it; the flag is true
+ * so it is actually in the scene. On `main` it is false and the layer is not
+ * constructed at all. Do not merge this line back without the tuning work it is
+ * here for.
+ *
+ * Nothing was ever deleted: the module, the replay machinery, the event cards
+ * and the timeline marks all still exist and still build. This flag is the one
+ * wire between them and the guest. What sent the layer back to the bench: at the 2.8 R_sun home framing a CME
  * that has propagated to 7-28 R_sun drives the cloud's `want` point size to
  * 85-106 px against a 64 px ceiling, so three thousand clamped sprites overlap
  * into a bright mass off to one side of the Sun with nothing to explain it.
@@ -50,7 +54,7 @@ export interface LayerFlags {
  * and the flare/CME cards still work, because those report what happened rather
  * than simulating it.
  */
-export const ERUPTIONS_ENABLED = false;
+export const ERUPTIONS_ENABLED = true;
 
 /**
  * 3D-view layer toggles (M-W5/M-W6 consume these).

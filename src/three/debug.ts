@@ -12,9 +12,15 @@
 //   - wireframe drifts on window resize                 → sizing bug in the
 //     three-wwt drawing-buffer sync
 //
-// The axis triad tells you the frame is the one we think it is: +Z must point at
-// the ecliptic north pole, and the field lines' polar footpoints should cluster
-// around it (tilted by the 7.25° solar axis).
+// The axis triad tells you the frame is the one we think it is. It draws the
+// scene's OWN axes, which are true heliocentric ecliptic J2000: +Z (blue) must
+// point at the ecliptic north pole — i.e. perpendicular to WWT's own rendered
+// planet orbits — and the field lines' polar footpoints should cluster around
+// it, tilted by the 7.25 deg solar axis. Note WWT's world +Z is NOT the
+// ecliptic pole (three/worldFrame.ts); until 2026-08-24 this triad was drawing
+// what the app WISHED were true, and the blue axis lay in the ecliptic plane.
+// Turn on the "Planet orbits" layer to check it against WWT's own geometry —
+// that rendering is the only thing on screen not built from our frame.
 //
 // No WWT imports (CLAUDE.md footgun 12).
 

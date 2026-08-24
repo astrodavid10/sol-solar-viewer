@@ -6,10 +6,13 @@
 // proves too heavy on phones, replacing this file with an OrbitControls stage
 // is the whole port.
 //
-// Coordinates: WWT's solar-system world frame IS heliocentric ecliptic J2000 in
-// AU with the Sun at the origin, so there is no transform here at all — the
-// bridge only copies WWT's view/projection matrices into the three camera each
-// frame (see three-wwt/utils.updateTHREECamera).
+// Coordinates: the scene is heliocentric ecliptic J2000 in AU, right-handed,
+// Sun at the origin — the frame the pipeline publishes in, so nothing in
+// src/three/ transforms anything. WWT's OWN world frame is that with Y and Z
+// swapped, and the bridge folds the swap into the three camera when it copies
+// WWT's view/projection matrices (three-wwt/utils.updateTHREECamera, and
+// ./worldFrame.ts for why). Believing those two frames were the same is what
+// shipped a Sun 90 deg out of the ecliptic — CLAUDE.md footgun 47.
 
 import { Camera, NoToneMapping, Object3D, Scene, WebGLRenderer } from "three";
 
@@ -64,11 +67,11 @@ export function createThreeStage(options: ThreeStageOptions = {}): ThreeStage {
   let setup: ThreeWWTSetup;
   let target: StageTarget = wanted;
 
-  // WWT's matrices are left-handed (D3D), which reverses triangle winding for
-  // everything three draws. winding.ts states that as a constant and the
-  // materials act on it; this re-derives it from the live camera on the first
-  // real frame so a convention change in the engine shows up as a warning
-  // rather than an inside-out Sun with no sprites.
+  // Two left-handed conventions meet at this camera — WWT's D3D projection and
+  // its Y/Z-swapped world frame — and they cancel. winding.ts states the net
+  // result as a constant and the materials act on it; this re-derives it from
+  // the live camera on the first real frame, so losing either one shows up as a
+  // warning rather than an inside-out Sun with no sprites.
   function beforeRender(): void {
     assertWinding(setup.camera);
     options.onBeforeRender?.();

@@ -35,7 +35,7 @@
 //
 // THE CONE GROUP MUST NOT CARRY THE CARRINGTON QUATERNION (footgun 25). A CME
 // propagates along a fixed INERTIAL direction and `dir_ecl` is already in
-// ecliptic J2000, the world frame; Carrington rotation is 14.18 deg/day, so a
+// ecliptic J2000, the scene's frame; Carrington rotation is 14.18 deg/day, so a
 // Carrington-parented cone would swing 42.5 deg across the 72 h window — right
 // on one frame and wildly wrong at the other end of the scrubber. The surface
 // flash is the opposite case: it is anchored to a sunspot region, so it lives in
@@ -792,7 +792,7 @@ export function createCmeLayer(options: CmeLayerOptions): CmeLayer {
           if (!dir || !cmeTransit(event)) { return; }  // no direction: not drawable
           const cloud = makeCloud();
           const shock = makeShock();
-          // dir_ecl is ALREADY in the world frame. This is the only rotation the
+          // dir_ecl is ALREADY in the scene's frame. This is the only rotation the
           // eruption ever gets, it is set once, and it must never be composed
           // with the Carrington quaternion (footgun 25).
           axis.set(dir[0], dir[1], dir[2]).normalize();

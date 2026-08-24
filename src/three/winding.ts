@@ -1,36 +1,41 @@
 // =====================================================================
 // Triangle winding under WWT's camera
 // =====================================================================
-// WWT's render context is a port of the original Direct3D code and builds its
-// matrices with Matrix3d.lookAtLH + Matrix3d.perspectiveFovLH — LEFT-handed,
-// D3D convention (clip w = +z_view, depth range [0,1]). three.js assumes the
-// OpenGL right-handed convention (clip w = -z_view, depth [-1,1]).
+// TWO left-handed conventions meet at this camera, and they CANCEL. Getting
+// that arithmetic wrong renders the Sun inside-out, so the whole chain is
+// written down.
 //
-// three-wwt/utils.ts hands those matrices to the three camera verbatim (only
-// transposed from row-vector to column-vector layout), which is what keeps our
-// geometry registered with WWT's own rendering. But it also means the
-// world -> clip transform three is drawing with is ORIENTATION-REVERSING
-// relative to the one three assumes:
+// 1. THE PROJECTION reverses. WWT's render context is a port of the original
+//    Direct3D code and builds its matrices with Matrix3d.lookAtLH +
+//    Matrix3d.perspectiveFovLH — LEFT-handed, D3D convention (clip w = +z_view,
+//    depth range [0,1]). three.js assumes the OpenGL right-handed convention
+//    (clip w = -z_view, depth [-1,1]). three-wwt/utils.ts hands those matrices
+//    to the three camera as they are, so:
 //
-//     det(P_wwt)   = +w*h*zn*zf/(zf-zn)   > 0     (perspectiveFovLH)
-//     det(P_three) = -w*h*2*zn*zf/(zf-zn) < 0     (ordinary RH perspective)
-//     det(V)       = +1 in both conventions (lookAtLH's rotation rows
-//                    (xaxis, yaxis, zaxis) form a right-handed orthonormal set)
+//        det(P_wwt)   = +w*h*zn*zf/(zf-zn)   > 0     (perspectiveFovLH)
+//        det(P_three) = -w*h*2*zn*zf/(zf-zn) < 0     (ordinary RH perspective)
+//        det(V_wwt)   = +1 (lookAtLH's rotation rows (xaxis, yaxis, zaxis)
+//                       form a right-handed orthonormal set)
 //
-// Measured, not assumed: at fov=pi/4, aspect=0.5, zn=1e-4, zf=1 the two
-// determinants are +1.166e-3 and -2.332e-3.
+//    Measured, not assumed: at fov=pi/4, aspect=0.5, zn=1e-4, zf=1 the two
+//    determinants are +1.166e-3 and -2.332e-3.
 //
-// A negative determinant flips the signed area of every triangle in window
-// space, so GL's fixed winding rule sees our front faces as back faces.
-// three cannot compensate on its own: WebGLRenderer decides winding with
+// 2. THE WORLD FRAME reverses too. WWT's solar-system world frame is ecliptic
+//    J2000 with Y and Z SWAPPED, so it is left-handed with respect to physical
+//    space (three/worldFrame.ts, CLAUDE.md footgun 47). The scene is built in
+//    TRUE ecliptic J2000 and updateTHREECamera folds that swap into the view:
 //
-//     const frontFaceCW = ( object.isMesh && object.matrixWorld.determinantAffine() < 0 );
+//        det(V_effective) = det(V_wwt) * det(ECLIPTIC_TO_WWT) = -1
 //
-// which looks at the OBJECT only and never at the camera. So with three's
-// defaults (frontFace CCW, cullFace BACK) every solid mesh we draw through
-// WWT's camera gets its front faces culled and its back faces kept.
+// So the transform three actually draws with is
+// det(P_wwt . V_wwt . ECLIPTIC_TO_WWT) < 0 — the same SIGN as an ordinary
+// three.js setup, and three's ordinary FrontSide is correct. That is what
+// CAMERA_REVERSES_WINDING = false records.
 //
-// Symptoms this caused, all from this one cause:
+// THE HISTORY MATTERS, because it is why this file exists. Until 2026-08-24
+// the app fed WWT its ecliptic vectors unswapped, so only reversal (1) was in
+// play and every solid mesh had its front faces culled. Symptoms, all one
+// cause:
 //   - the Sun's SDO / synthetic texture was visible "through" the sphere: what
 //     you were looking at was the INSIDE of the far hemisphere;
 //   - that surface looked dark, because sunSurface's limb term
@@ -39,25 +44,41 @@
 //   - the sun-glow halo and the spacecraft marker dots vanished entirely:
 //     three's Sprite quad is wound CCW and SpriteMaterial defaults to
 //     FrontSide, so the flip culled every sprite in the scene.
+// Adding the frame swap cancelled reversal (1), which is why SOLID_SIDE went
+// back to FrontSide in the same change. If that swap is ever removed, this
+// file has to change back in the SAME commit — assertWinding() below is the
+// tripwire that says so.
 //
-// The fix is per-material, because `side` is the only winding knob three
-// exposes. Lines and Points have no winding and are unaffected.
+// Note what three cannot do for us here: WebGLRenderer decides winding with
+//
+//     const frontFaceCW = ( object.isMesh && object.matrixWorld.determinantAffine() < 0 );
+//
+// which looks at the OBJECT only and never at the camera. `side` is therefore
+// the only knob, and it is per-material. Lines and Points have no winding and
+// are unaffected.
 //
 // No WWT imports (CLAUDE.md footgun 12): this file states a fact about the
 // matrices the stage is fed, and assertWinding() re-derives that fact at
-// runtime from the camera itself, so if WWT ever switches to RH matrices we
-// get a console warning instead of a silently inside-out Sun.
+// runtime from the camera itself, so if either convention changes we get a
+// console warning instead of a silently inside-out Sun.
 
 import { BackSide, DoubleSide, FrontSide } from "three";
 import type { Camera, Side } from "three";
 
-/** True while the stage is driven by WWT's left-handed D3D matrices. */
-export const CAMERA_REVERSES_WINDING = true;
+/**
+ * Does the world -> clip transform three draws with reverse orientation?
+ *
+ * FALSE, and only because TWO reversals cancel: WWT's D3D projection and the
+ * left-handed world frame the camera now carries. Either one alone makes it
+ * true — see the header.
+ */
+export const CAMERA_REVERSES_WINDING = false;
 
 /**
- * `side` for a solid, single-sided mesh (the Sun sphere). BackSide under the
- * flip, which is three's supported way to say "invert this material's winding"
- * — it costs nothing and keeps one triangle per fragment, unlike DoubleSide.
+ * `side` for a solid, single-sided mesh (the Sun sphere). FrontSide while the
+ * two reversals cancel. BackSide is three's supported way to say "invert this
+ * material's winding" and is what this becomes if either one goes away — it
+ * costs nothing and keeps one triangle per fragment, unlike DoubleSide.
  */
 export const SOLID_SIDE: Side = CAMERA_REVERSES_WINDING ? BackSide : FrontSide;
 

@@ -5,8 +5,9 @@
 // going, and a small additive dot at "now". Text is DOM (see project.ts +
 // SpacecraftLabel.vue) — crisp at any DPR, tappable at 44 px, no raycaster.
 //
-// Positions arrive as heliocentric ecliptic-J2000 AU, which is WWT's world
-// frame verbatim, so nothing is transformed here.
+// Positions arrive as heliocentric ecliptic-J2000 AU, which is the frame the
+// whole three scene is built in, so nothing is transformed here (the step into
+// WWT's own frame happens once, on the camera — three/worldFrame.ts).
 //
 // No WWT imports (CLAUDE.md footgun 12).
 

@@ -5,17 +5,30 @@
 // source; the comments say why, because the failure modes are all "looks
 // almost right" (see CLAUDE.md footguns 1, 2, 11, 14).
 //
-// Frame: with `target = SolarSystemObjects.custom` and `viewTarget = (0,0,0)`,
-// WWT's solar-system world frame is heliocentric ecliptic J2000 in AU with the
-// Sun at the ORIGIN and +Z at the ecliptic pole. That is exactly the frame our
-// PFSS quaternions and Horizons positions are expressed in, so the three.js
-// overlay needs no transform at all.
+// FRAME — and this file is the one place in the app that works in WWT's own
+// coordinates rather than ours, so read this before touching anything below.
+//
+// With `target = SolarSystemObjects.custom` and `viewTarget = (0,0,0)`, WWT's
+// solar-system world frame has the Sun at the ORIGIN, AU units, and is
+// heliocentric ecliptic J2000 WITH Y AND Z SWAPPED:
+//
+//     (x, y, z)_wwt = (X, Z, Y)_ecliptic     — +Y is the ecliptic pole.
+//
+// That is NOT the frame our PFSS quaternions, Horizons positions and solar
+// axis are expressed in (see data/solarFrames.eclipticToWwtWorld and CLAUDE.md
+// footgun 47). Everywhere else in the app the difference is handled once, on
+// the three camera (three/worldFrame.ts). Here it cannot be: this file writes
+// WWT's `lat`/`lng`/`rotation` directly, so any physics vector that meets the
+// camera formulas below has to be pushed through `eclipticToWwtWorld` FIRST.
+// Currently that is exactly one quantity — the Sun's rotation axis, in
+// `solarAxis()` — plus Earth's direction in `earthFacingCamera()`.
 
 import { EngineSetting, WWTControl } from "@wwtelescope/engine";
 
 import {
   R_SUN_AU,
   Vec3,
+  eclipticToWwtWorld,
   julianDateNow,
   sunEclipticLongitudeDeg,
   sunPoleEcliptic,
@@ -35,24 +48,29 @@ const SS_CUSTOM = 20;
  *       e1 = ( cos(lng), 0, sin(lng) )
  *       e2 = ( sin(lat) sin(lng), cos(lat), -sin(lat) cos(lng) )
  *
- * in WORLD coordinates, which for this app are heliocentric ecliptic J2000 with
- * +Z at the ecliptic pole (see solarFrames.heeqToWorld).
+ * in WWT's WORLD coordinates, i.e. ecliptic J2000 with Y and Z swapped (file
+ * header). All three formulas were re-checked against the engine on
+ * 2026-08-24 by running Matrix3d._rotationX/_rotationY/transform directly:
+ * they reproduce to 0.00e+00 and are exactly right. What was wrong for four
+ * sessions was only the INTERPRETATION of which axis is which.
  *
- * The consequence worth writing down, because the old `HOME_LAT_DEG = 7` was
- * built on the opposite assumption: lat is NOT height above the ecliptic. It is
- * the angle toward +Y, which LIES IN the ecliptic plane. So lat = lng = 0 puts
- * the camera on +Z — straight over the ecliptic north pole, looking down the
- * Sun's rotation axis, with the Earth-facing hemisphere edge-on. That is why
- * the SDO texture never appeared face-on at entry.
+ * Read in the correct frame they say something much simpler than the old
+ * comment here claimed: since +Y IS the ecliptic pole, `lat` is ECLIPTIC
+ * LATITUDE and `lng` is ecliptic longitude, offset by 90 deg
+ * (lng = L - 90 puts the camera at ecliptic longitude L). lat = lng = 0 is a
+ * point ON the ecliptic at longitude 90, not "straight over the ecliptic
+ * pole". The Earth-facing framing therefore wants lat = 0 — Earth's
+ * heliocentric ecliptic latitude is under 0.0003 deg — and never goes near
+ * the clamp below.
  */
 
 /**
- * Where lat runs out. The poles of this lat/lng sphere are +/-Y, i.e. ecliptic
- * longitude 90 and 270 — ordinary viewpoints, but lng stops having any effect
- * there, so dragging sideways goes dead. Stop just short: 89.5 keeps the guard
- * while leaving the Earth-facing framing reachable all year (it needs |lat| up
- * to 90, and is off by at most 0.5 deg on the few days Earth sits within half a
- * degree of ecliptic longitude 90 or 270).
+ * Where lat runs out. The poles of this lat/lng sphere are +/-Y, which IS the
+ * ecliptic pole: an ordinary place to look from, but `lng` stops having any
+ * effect there, so dragging sideways would go dead. 89.5 keeps that guard
+ * while costing nothing — the framings this app computes sit at lat 0 (Earth)
+ * and the free-orbit path bounds itself against the SOLAR axis instead
+ * (MAX_SOLAR_LAT_DEG), which is 7.25 deg from this one.
  */
 const MAX_LAT_DEG = 89.5;
 
@@ -222,55 +240,46 @@ function pinToSunCenter(camera: MutableCamera): void {
  * The framing a guest should land on: standing where Earth stands, so the Sun
  * shows the same hemisphere SDO photographs, with solar north up.
  *
- * Inverting the camera formula in the header for a target direction u:
- * Earth's heliocentric ecliptic latitude is under 0.0003 deg, so u lies in the
- * ecliptic plane, u = (cos L, sin L, 0) for L = Earth's heliocentric ecliptic
- * longitude. Then `cos(lat) cos(lng) = u_z = 0` forces cos(lng) = 0, and the
- * two branches lng = -90 and lng = +90 give lat = L and lat = 180 - L. Picking
- * whichever branch lands |lat| <= 90 keeps us inside the clamp all year.
+ * THIS IS WHERE THE 90 DEG TILT CAME FROM. The old version read Earth's
+ * heliocentric ecliptic longitude L, then solved the camera formula as if the
+ * world frame were plain ecliptic J2000 — which forced cos(lng) = 0 and put
+ * `lat` = L, i.e. it flew the camera up to |ecliptic latitude| = L, as much as
+ * 90 deg out of the ecliptic plane, and framed the Sun from there. With +Y
+ * correctly identified as the ecliptic pole the answer is the trivial one:
+ * Earth is IN the ecliptic (heliocentric latitude under 0.0003 deg), so
+ *
+ *     lat = 0,   lng = L - 90
+ *
+ * and there is no branch and no clamp interaction. Written below as
+ * `latLngFor(eclipticToWwtWorld(u))` rather than as those two closed forms, so
+ * there is ONE inverse of the camera formula in this file instead of two that
+ * can drift apart — and so it stays correct if Earth's latitude ever matters.
  *
  * Roll: lookUp sweeps the great circle perpendicular to u as `rotation` turns,
  * spanned by e1 and e2 from the header, so writing the wanted up vector U in
  * that basis gives rotation directly. U is the Sun's rotation axis with its
  * component along the view direction removed — i.e. true solar north projected
  * onto the screen, which is what "north up" means for a picture of the Sun (and
- * what SDO's own north-up convention means).
+ * what SDO's own north-up convention means). That is `rollFor` + `northUpRoll`
+ * below, which `orbitByPixels` also uses, so entry framing and free orbit
+ * cannot disagree about which way is up.
  */
 function earthFacingCamera(): { latDeg: number; lngDeg: number; rotationRad: number } {
   const jd = julianDateNow();
   // Earth as seen from the Sun is 180 deg from the Sun as seen from Earth.
-  const lonDeg = wrap180(sunEclipticLongitudeDeg(jd) + 180);
+  const lonRad = (wrap180(sunEclipticLongitudeDeg(jd) + 180) * Math.PI) / 180;
 
-  const useNear = Math.abs(lonDeg) <= 90;
-  const latDeg = clampLat(useNear ? lonDeg : wrap180(180 - lonDeg));
-  const lngDeg = useNear ? -90 : 90;
+  // Earth's direction, ecliptic J2000 -> WWT world, then inverted through the
+  // camera formula. eclipticToWwtWorld is what makes this Earth's direction
+  // rather than a point 90 deg away from it.
+  const u = norm3(eclipticToWwtWorld([Math.cos(lonRad), Math.sin(lonRad), 0]));
+  const { latDeg, lngDeg } = latLngFor(u);
 
-  const lat = (latDeg * Math.PI) / 180;
-  const lng = (lngDeg * Math.PI) / 180;
-  const sinLat = Math.sin(lat);
-  const cosLat = Math.cos(lat);
-  const sinLng = Math.sin(lng);
-  const cosLng = Math.cos(lng);
-
-  // The camera's own axes in world coordinates (header).
-  const u: [number, number, number] = [-cosLat * sinLng, sinLat, cosLat * cosLng];
-  const e1: [number, number, number] = [cosLng, 0, sinLng];
-  const e2: [number, number, number] = [sinLat * sinLng, cosLat, -sinLat * cosLng];
-
-  // Solar north, with the along-view component removed.
-  const pole = sunPoleEcliptic(jd);
-  const along = pole[0] * u[0] + pole[1] * u[1] + pole[2] * u[2];
-  const up: [number, number, number] = [
-    pole[0] - along * u[0],
-    pole[1] - along * u[1],
-    pole[2] - along * u[2],
-  ];
-  const upLen = Math.hypot(up[0], up[1], up[2]) || 1;
-
-  const onE1 = (up[0] * e1[0] + up[1] * e1[1] + up[2] * e1[2]) / upLen;
-  const onE2 = (up[0] * e2[0] + up[1] * e2[1] + up[2] * e2[2]) / upLen;
-  // lookUp = sin(-rotation) e1 + cos(-rotation) e2, so -rotation = atan2(onE1, onE2).
-  return { latDeg, lngDeg, rotationRad: -Math.atan2(onE1, onE2) };
+  // northUpRollBase, NOT northUpRoll: this is the framing homeCamera resets TO,
+  // and homeCamera clears the guest's twist immediately afterwards. Adding
+  // userRollRad here would bake the twist into the rotation a line before it
+  // was zeroed, so "recenter" would land at whatever roll the guest had left.
+  return { latDeg: clampLat(latDeg), lngDeg, rotationRad: northUpRollBase(u, latDeg, lngDeg) };
 }
 
 /** Fold an angle in degrees into (-180, 180]. */
@@ -305,13 +314,21 @@ const ORBIT_DEG_PER_PX = 0.113;
  * other way.
  *
  * These are constants rather than inline signs because the sense cannot be
- * derived from the engine's own move(): that rotates about WWT's +/-Y pole
- * (`lng -= x`, `lat += y`) and this rotates about the SUN's axis, so the two
- * conventions do not carry over — and they do not even agree with each other.
- * Both were settled by hand at the screen: azimuth needed +1, elevation -1,
- * because the elevation axis is cross(solar_axis, u), whose direction flips
- * with which side of the Sun the camera is on. If either ever feels inverted,
- * it is a one-character fix here.
+ * derived on paper. `rotateAbout` is a right-handed Rodrigues rotation applied
+ * in WWT's world frame, which is LEFT-handed with respect to physical space
+ * (worldFrame.ts) — so it turns the Sun the opposite way from what the algebra
+ * reads like — and the elevation axis is cross(solar_axis, u), whose direction
+ * flips with which side of the Sun the camera is on. Both were originally
+ * settled by hand at the screen: azimuth +1, elevation -1.
+ *
+ * RE-CONFIRMED on 2026-08-24, because correcting `solarAxis()` to WWT world
+ * coordinates moved the axis ~90 deg and the old settling did not carry over.
+ * Not by feel this time: a Node harness replayed orbitByPixels and projected a
+ * point painted ON the Sun through the engine's own lookAtLH/perspectiveFovLH,
+ * at the entry framing. Drag right 150 px moves it +0.112 in NDC x (right);
+ * drag down 110 px moves it -0.092 in NDC y (down). Both follow the finger, so
+ * both signs stand. If either ever feels inverted, it is a one-character fix
+ * here.
  */
 const AZIMUTH_SIGN = 1;
 const ELEVATION_SIGN = -1;
@@ -361,9 +378,16 @@ function latLngFor(u: Vec3): { latDeg: number; lngDeg: number } {
 }
 
 /**
- * The Sun's rotation axis in ecliptic coordinates, cached for a minute.
+ * The Sun's rotation axis in WWT WORLD coordinates, cached for a minute.
  *
- * It moves by about 0.00001 degrees a minute (the axis is fixed in inertial
+ * The `eclipticToWwtWorld` is the whole point: `sunPoleEcliptic` is a physics
+ * vector in our frame, and every consumer of this function (`orbitByPixels`,
+ * `northUpRoll`, `clampCameraLat`) feeds it straight into `directionFor` /
+ * `cross3` against WWT camera directions. Mixing the two frames here is what
+ * made the free-orbit axis and the north-up roll point 90 deg away from the
+ * Sun's actual pole.
+ *
+ * The axis moves by about 0.00001 degrees a minute (it is fixed in inertial
  * space; only the Earth-based frame it is expressed in drifts), so recomputing
  * it per call was pure waste — and it WAS per call: `orbitByPixels` runs once
  * per pointer event, which a high-report-rate touchscreen fires several times
@@ -376,7 +400,7 @@ const AXIS_CACHE_MS = 60_000;
 function solarAxis(): Vec3 {
   const now = performance.now();
   if (!axisCache || now - axisCacheAtMs > AXIS_CACHE_MS) {
-    axisCache = norm3(sunPoleEcliptic(julianDateNow()) as Vec3);
+    axisCache = norm3(eclipticToWwtWorld(sunPoleEcliptic(julianDateNow())));
     axisCacheAtMs = now;
   }
   return axisCache;
@@ -399,13 +423,13 @@ function rollFor(latDeg: number, lngDeg: number, up: Vec3): number {
 
 /**
  * The `rotation` that puts projected solar north on screen-up from a given
- * viewing direction, PLUS whatever the guest has twisted to.
+ * viewing direction, with NO guest twist added.
  *
- * Extracted so `orbitByPixels` and `addUserRoll` cannot disagree about the
- * framing: a twist that computed "up" differently from a pan would make the
- * horizon jump the moment you did one after the other.
+ * Split out from `northUpRoll` for `earthFacingCamera`, which computes the
+ * framing that "recenter" resets to and must not carry a roll that is about to
+ * be zeroed.
  */
-function northUpRoll(u: Vec3, latDeg: number, lngDeg: number): number {
+function northUpRollBase(u: Vec3, latDeg: number, lngDeg: number): number {
   const axis = solarAxis();
   // Solar north with the along-view part removed: projected north, i.e. what
   // "up" means for a picture of the Sun.
@@ -415,7 +439,19 @@ function northUpRoll(u: Vec3, latDeg: number, lngDeg: number): number {
     axis[1] - along * u[1],
     axis[2] - along * u[2],
   ]);
-  return rollFor(latDeg, lngDeg, up) + userRollRad;
+  return rollFor(latDeg, lngDeg, up);
+}
+
+/**
+ * The `rotation` that puts projected solar north on screen-up from a given
+ * viewing direction, PLUS whatever the guest has twisted to.
+ *
+ * Extracted so `orbitByPixels` and `addUserRoll` cannot disagree about the
+ * framing: a twist that computed "up" differently from a pan would make the
+ * horizon jump the moment you did one after the other.
+ */
+function northUpRoll(u: Vec3, latDeg: number, lngDeg: number): number {
+  return northUpRollBase(u, latDeg, lngDeg) + userRollRad;
 }
 
 /**
@@ -498,18 +534,17 @@ export function currentZoom(): number {
  * Orbit the camera by a drag, in pixels.
  *
  * This REPLACES the engine's own solar-system move(), and the reason is the
- * header's formula: WWT's lat/lng sphere has its poles at +/-Y, which in this
- * app's world frame is an arbitrary pair of points in the ecliptic plane
- * (ecliptic longitude 90 and 270). Near them `lng` stops doing anything, so
- * dragging sideways went dead, and clampCameraLat's guard against that
- * degeneracy read as an invisible wall in a direction with no relationship to
- * anything the guest can see.
+ * header's formula: WWT's lat/lng sphere has its poles at +/-Y, i.e. at the
+ * ECLIPTIC pole. Near there `lng` stops doing anything, so dragging sideways
+ * goes dead — and the Sun's own axis is only 7.25 deg away, so a guest looking
+ * over the Sun's pole is right in that dead zone.
  *
  * So we orbit in the frame a guest actually expects — the SUN's. Horizontal
  * drag turns about the solar rotation axis (a full circle, never degenerate);
  * vertical drag tilts toward the poles and stops just short of them, exactly
- * as spinning a globe does. The only singular points are now the Sun's own
- * poles, which is where a person expects a globe's controls to converge.
+ * as spinning a globe does. The singular points are then the Sun's own poles,
+ * which is where a person expects a globe's controls to converge, and the
+ * result is re-expressed as lat/lng only at the end.
  *
  * Roll is recomputed every step so solar north stays up, which is also what
  * keeps the horizon from tumbling as the guest wanders.
@@ -563,6 +598,44 @@ export function orbitByPixels(dxPx: number, dyPx: number): void {
 }
 
 /**
+ * Put the camera exactly here, both cameras, no easing. `?debug=1` only.
+ *
+ * Exists because the ONE check that would have caught the 90 deg world-frame
+ * bug four sessions earlier — comparing our geometry against WWT's own
+ * rendered planet orbits — needs a viewpoint 30x further out than the guest
+ * ever goes, and getting there by wheel events means waiting on the engine's
+ * per-frame easing, which does not run at all in a background tab. Writing
+ * both cameras makes the next single rendered frame correct, so a screenshot
+ * is enough.
+ *
+ * Not reachable without `?debug=1` (SolarView3D gates the handle), and it goes
+ * through `pinToSunCenter` like every other camera writer here, so it cannot
+ * reintroduce footgun 1.
+ */
+export function debugSetCamera(
+  opts: { latDeg?: number; lngDeg?: number; zoom?: number; distanceAu?: number },
+): void {
+  const rc = renderContext();
+  if (!rc) { return; }
+  const cam = rc.targetCamera.copy();
+  if (Number.isFinite(opts.latDeg)) { cam.lat = clampLat(opts.latDeg as number); }
+  if (Number.isFinite(opts.lngDeg)) { cam.lng = opts.lngDeg as number; }
+  if (Number.isFinite(opts.distanceAu)) {
+    // Inverse of cameraDistanceAu (footgun 14).
+    cam.zoom = clampZoom((((opts.distanceAu as number) - 1e-6) * 9) / 4);
+  }
+  if (Number.isFinite(opts.zoom)) { cam.zoom = clampZoom(opts.zoom as number); }
+  const u = norm3(directionFor(cam.lat, cam.lng));
+  cam.rotation = northUpRoll(u, cam.lat, cam.lng);
+  cam.angle = 0;
+  pinToSunCenter(cam);
+  rc.targetCamera = cam;
+  const view = cam.copy();
+  pinToSunCenter(view);
+  rc.viewCamera = view;
+}
+
+/**
  * Frame the Sun.
  *
  * `instant` (initial entry) writes BOTH cameras so there is no slew from
@@ -602,12 +675,12 @@ export function homeCamera(instant = false): void {
 /**
  * Keep the camera off the Sun's rotation axis.
  *
- * This used to clamp WWT's `lat`, which sounds right and is not: that latitude
- * is measured from +/-Y, an arbitrary pair of points in the ecliptic plane, so
- * the clamp stopped the guest at an invisible wall unrelated to anything on
- * screen — and it is the reason free exploration felt stuck. orbitByPixels now
- * bounds the angle to the SOLAR axis instead, where a globe's controls are
- * expected to converge.
+ * This used to clamp WWT's `lat`, which is ECLIPTIC latitude — close to what
+ * we want (the two poles are 7.25 deg apart) but not it, so the clamp stopped
+ * the guest a little short on one side of the Sun and a little late on the
+ * other, at a wall that moved with the seasons. orbitByPixels now bounds the
+ * angle to the SOLAR axis instead, where a globe's controls are expected to
+ * converge.
  *
  * What survives is a per-frame backstop: WWT accumulates camera state in
  * several places (momentum, pinch, its own easing), and any of them can land

@@ -149,17 +149,25 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     same photospheric limb HMI sees) is 0.7711 vs HMI 0.9168 = 0.8411, within 0.2% of the
     0.5044/0.6009 plate-scale ratio. The EUV channels' limb really is ~1.5% larger — emission
     above the photosphere, not a framing error. Do not "correct" it away.
-26. **WWT's camera lat/lng has its poles at +/-Y — an arbitrary pair of points IN the
-    ecliptic plane** (ecliptic longitude 90 and 270), NOT at the ecliptic or solar poles.
-    `cameraPosition = d*(-cos(lat)sin(lng), sin(lat), cos(lat)cos(lng))`, derived from
-    `setupMatricesSolarSystem` + `_rotationX/_rotationY/transform/_multiply`. Near those
-    points `lng` does nothing, so horizontal drag goes dead, and clamping `lat` to guard the
-    degeneracy reads as an invisible wall in a direction unrelated to anything on screen.
-    `sunStage.orbitByPixels` therefore REPLACES the engine's solar-system `move()` and orbits
-    about the SUN's axis instead; `clampCameraLat` now bounds the angle to that axis.
-    The two drag signs (`AZIMUTH_SIGN` +1, `ELEVATION_SIGN` -1) were settled at the screen and
-    cannot be derived from the engine's own `lng -= x` / `lat += y` — different axis, and the
-    elevation axis `cross(solar_axis, u)` flips with which side of the Sun you are on.
+26. **WWT's camera lat/lng has its poles at +/-Y, which IS the ecliptic pole** — so `lat` is
+    ecliptic latitude and `lng` is ecliptic longitude minus 90. `cameraPosition =
+    d*(-cos(lat)sin(lng), sin(lat), cos(lat)cos(lng))`, derived from
+    `setupMatricesSolarSystem` + `_rotationX/_rotationY/transform/_multiply` and re-verified
+    against the engine on 2026-08-24 (it reproduces to 0.00e+00, as does the `lookUp` e1/e2
+    basis). **This entry used to say +/-Y was "an arbitrary pair of points IN the ecliptic
+    plane". That was exactly backwards and it is what footgun 47 is about** — the formula was
+    always right, the axis labels were not. Consequences: near the poles `lng` does nothing,
+    so horizontal drag goes dead there, and the Sun's own axis is only 7.25 deg away, so a
+    guest looking over the solar pole lands in that dead zone. `sunStage.orbitByPixels`
+    therefore REPLACES the engine's solar-system `move()` and orbits about the SUN's axis
+    instead; `clampCameraLat` bounds the angle to that axis. The two drag signs
+    (`AZIMUTH_SIGN` +1, `ELEVATION_SIGN` -1) cannot be derived on paper — `rotateAbout` is a
+    right-handed Rodrigues rotation applied in a LEFT-handed frame, and the elevation axis
+    `cross(solar_axis, u)` flips with which side of the Sun you are on. Both were re-confirmed
+    after footgun 47 moved the axis ~90 deg, by replaying `orbitByPixels` in a Node harness
+    and projecting a point painted on the Sun through the engine's own matrices: drag right
+    150 px moves it +0.112 in NDC x, drag down 110 px moves it -0.092 in NDC y. Both follow
+    the finger; both signs stand.
 27. **`.solar-view-3d` carries `z-index: 0` for one reason: to create a stacking context.**
     It used to be `position: relative` with `z-index: auto`, which creates NONE — so its
     descendants (scrubber at 5, card slot at 20) competed directly with any SIBLING overlay in
@@ -503,6 +511,57 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     difference between plasma and poster paint — re-sweep them at the screen if the point count
     or size changes, and do it with the tab FOREGROUND (a hidden tab suspends rAF, so the
     render is frozen and the replay crawls).
+
+47. **WWT's solar-system world frame is NOT ecliptic J2000. It is ecliptic J2000 with Y and Z
+    SWAPPED, and it is LEFT-HANDED.** `(x, y, z)_wwt = (X, Z, Y)_ecliptic` — the ecliptic
+    north pole is **+Y**, the ecliptic plane is **X-Z**, det = -1. This is the single most
+    load-bearing fact about the engine and the app asserted its opposite for four sessions:
+    a guest reported the Sun tilted ~90 deg out of the planets' orbital plane and possibly
+    rotating backwards, and it was both.
+    **Why it is a mirror and why that is correct.** The engine renders with `lookAtLH` +
+    `perspectiveFovLH` (footgun 19), so its world->clip transform is orientation-reversing.
+    A left-handed world frame plus an orientation-reversing projection cancel, and the picture
+    comes out physically right. Hand WWT a properly RIGHT-handed copy of the solar system and
+    it draws a MIRROR IMAGE of it. So the two "handedness-preserving 90 deg rotations about X"
+    that look like the obvious fix, `(x,z,-y)` and `(x,-z,y)`, are both WRONG: measured through
+    the engine's own matrices, each fixes the tilt and leaves a fixed solar feature crossing
+    the disk right-to-left. Only the odd permutation restores east->west.
+    **Where the derivation comes from.** Every planet and orbit the engine draws is built by
+    exactly two steps (`Planets.updatePlanetLocations` / `updateOrbits`):
+    `Coordinates.raDecTo3dAu(RA, dec, r)` — which writes `(cos.cos, SIN DEC, sin.cos)`, i.e.
+    declination into Y — followed by `rotateX(Planets._obliquity)`. Push arbitrary ecliptic
+    vectors through those two functions and they come back as `(x, z, y)` to 9e-8, the residual
+    being only the engine's truncated `RC = 3.1415927/180`.
+    **How the sign was pinned, since neither half can be settled by eye.** (a) POSITION,
+    against INCLINED orbits: WWT's own ephemeris vs our Kepler elements gives residuals against
+    `(x, z, y)` of 0.002 AU (Earth) to 0.05 AU (Jupiter) — ephemeris-sized — while against
+    `(x, -z, y)` the out-of-plane component is wrong by twice the true offset: 0.79 AU on
+    Saturn, 0.11 AU on Jupiter. **Earth alone cannot decide this**; it is in the ecliptic, so
+    it looks identical under both. (b) HANDEDNESS, against MOTION: finite-difference WWT's own
+    planet positions and take `r x v` right-handed. In our ecliptic frame that is +Z for every
+    planet (prograde); in WWT's world frame it is **-Y** for every planet while the ecliptic
+    pole maps to +Y. `h_world = -M(h_ecliptic)` is the signature of det(M) = -1.
+    **The fix, and the two things welded to it.** The swap is folded into the three CAMERA
+    (`three-wwt/utils.updateTHREECamera` + `src/three/worldFrame.ts`), NOT into the scene, so
+    the whole three.js scene stays in true right-handed ecliptic J2000 and no site that mixes
+    camera with data has to know. That requires `camera.matrixWorldAutoUpdate = false`, because
+    three's `Camera.updateMatrixWorld` decomposes matrixWorld and rebuilds matrixWorldInverse
+    with the scale forced to (1,1,1) "to be glTF conform" — a reflection decomposes to
+    (-1,1,1), so it would silently STRIP the transform every frame. And it flips
+    `winding.CAMERA_REVERSES_WINDING` to **false**: the projection's reversal and the frame's
+    mirror now cancel, so `SOLID_SIDE` is FrontSide. `assertWinding()` re-derives that from
+    the live camera and is the tripwire if any of it is ever undone.
+    **Why nothing caught it.** Every existing cross-check — the pipeline's
+    `_assert_conventions`, the `?debug=1` axis triad and sub-Earth check, `assertWinding`,
+    `b0DegApprox` — is INTERNAL to the app's own convention. The Sun mesh, field lines,
+    spacecraft trails, CME cone and the camera framing all used "+Z is the pole" consistently,
+    so they agreed with each other perfectly while all being 90 deg wrong together. **The only
+    independent reference in the scene is WWT's own `solarSystemOrbits` / `solarSystemPlanets`
+    rendering.** Turn the "Planet orbits" layer on and draw our own planet orbits over it: they
+    must coincide. `solDebug.setCamera({distanceAu, latDeg, lngDeg})` exists to make that check
+    one call — it writes BOTH cameras, so a single frame is enough and it works in a background
+    tab where the engine's easing does not. The pipeline was NOT implicated: it uses astropy's
+    `HeliocentricMeanEcliptic` and was always right.
 
 ## Data sources (verified live 2026-08)
 

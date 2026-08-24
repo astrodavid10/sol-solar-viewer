@@ -1,9 +1,15 @@
 // =====================================================================
 // Solar reference frames — pure math, no engine
 // =====================================================================
-// Everything the 3D view needs to place solar-physics data in WWT's world
-// frame: heliocentric ecliptic J2000, AU, Sun at the origin, +Z toward the
-// ecliptic north pole.
+// Everything the 3D view needs to place solar-physics data: heliocentric
+// ecliptic J2000, AU, Sun at the origin, +Z toward the ecliptic north pole,
+// right-handed. That is the frame the pipeline publishes in, the frame the
+// three.js scene is built in, and the frame every vector below is expressed
+// in.
+//
+// It is NOT the frame WWT's engine renders in — see eclipticToWwtWorld at the
+// bottom of this file, which is where that difference is stated and where the
+// evidence for it lives.
 //
 // This module is deliberately free of BOTH @wwtelescope/* and three imports
 // (CLAUDE.md footgun 12): numbers in, numbers out. That keeps it testable in a
@@ -131,8 +137,9 @@ export function heeqBasis(jd: number): Basis {
 
 /**
  * HEEQ spherical (r in AU, longitude from the central meridian, heliographic
- * latitude — both radians) → ecliptic-J2000 AU, i.e. WWT world coordinates.
- * This is the shape swhv.oma.be/position returns (`kind=latitudinal`).
+ * latitude — both radians) → ecliptic-J2000 AU, i.e. the frame the three.js
+ * scene is built in. This is the shape swhv.oma.be/position returns
+ * (`kind=latitudinal`).
  */
 export function heeqToWorld(rAU: number, lonRad: number, latRad: number, jd: number): Vec3 {
   const b = heeqBasis(jd);
@@ -178,6 +185,74 @@ export function b0DegApprox(jd: number): number {
   const om = solarAxisNodeDeg(jd);
   const i = SOLAR_AXIS_TILT_DEG * D2R;
   return Math.asin(Math.sin((lam - om) * D2R) * Math.sin(i)) * R2D;
+}
+
+// ---------------------------------------------------------------------
+// WWT's world frame — the one thing in this file that is not our own
+// ---------------------------------------------------------------------
+
+/**
+ * Heliocentric ecliptic J2000 → WWT's solar-system WORLD frame.
+ *
+ *     (x, y, z)_wwt = (X, Z, Y)_ecliptic
+ *
+ * so WWT's ecliptic NORTH POLE is +Y, its ecliptic plane is X-Z, and the frame
+ * is LEFT-HANDED with respect to physical space (det = -1). Its own inverse.
+ *
+ * Worth reading twice, because four sessions of this project were built on its
+ * opposite and shipped a Sun tilted 90 deg out of the ecliptic and mirrored
+ * (CLAUDE.md footgun 47, HANDOFF risk 5). Two things follow:
+ *
+ *  1. +Y is the pole, not "an arbitrary pair of points in the ecliptic plane"
+ *     as footgun 26 used to claim. WWT's camera `lat`/`lng` really are
+ *     ecliptic latitude and longitude — which is exactly where a sane camera
+ *     parameterization puts its poles.
+ *  2. The map is a MIRROR, not a rotation, and that is not a bug in WWT. The
+ *     engine renders with left-handed D3D matrices (footgun 19), so a
+ *     left-handed world frame and an orientation-reversing projection cancel
+ *     and the picture comes out physically correct. Hand WWT a properly
+ *     right-handed copy of the solar system and it draws a MIRROR IMAGE —
+ *     which is what made the Sun look like it was rotating backwards. The two
+ *     "handedness-preserving 90 deg rotations about X" that look like the
+ *     obvious fix would each leave that half of the bug in place.
+ *
+ * HOW IT WAS ESTABLISHED (2026-08-24), because "verified numerically, not
+ * visually" is how the original error survived. The engine builds ALL of its
+ * planet and orbit geometry with exactly two steps (@wwtelescope/engine
+ * src/index.js, Planets.updatePlanetLocations / updateOrbits):
+ *
+ *     v = Coordinates.raDecTo3dAu(RA, dec, r)   // = (cos.cos, SIN DEC, sin.cos)
+ *     v.rotateX(Planets._obliquity)
+ *
+ * `raDecTo3dAu` puts declination in Y, i.e. it already writes the equatorial
+ * triple in the swapped layout, and the rotateX then carries equatorial to
+ * ecliptic within it. Pushing arbitrary ecliptic vectors through the engine's
+ * own functions returns (x, z, y) to 9e-8 — the residual being only the
+ * engine's truncated `RC = 3.1415927/180`.
+ *
+ * The SIGN was settled two ways, neither by eye:
+ *
+ *  * POSITION, against INCLINED orbits. WWT's own ephemeris vs our Kepler
+ *    elements for six planets: residuals against (x, z, y) are ephemeris-sized
+ *    (0.002 AU Earth, 0.05 AU Jupiter), while against (x, -z, y) the
+ *    out-of-plane component is wrong by twice the true offset — 0.79 AU on
+ *    Saturn, 0.11 AU on Jupiter. Earth alone cannot decide this; a planet out
+ *    of the ecliptic can.
+ *  * HANDEDNESS, against orbital MOTION. Finite-difference WWT's own planet
+ *    positions and take r x v with the ordinary right-handed cross product. In
+ *    our ecliptic frame that gives +Z for every planet (prograde, as it must
+ *    be); in WWT's world frame it gives -Y for every planet, while the
+ *    ecliptic pole maps to +Y. `h_world = -M(h_ecliptic)` is the signature of
+ *    det(M) = -1.
+ *
+ * WHERE IT IS APPLIED: nowhere in the three.js scene — see
+ * `three/worldFrame.ts`, which folds the same swap into the three CAMERA so
+ * the whole scene can stay in true ecliptic J2000. This tuple form exists for
+ * code that talks to WWT's own camera in WWT's own coordinates and therefore
+ * cannot: currently only `wwt/sunStage.ts`.
+ */
+export function eclipticToWwtWorld(v: Vec3): Vec3 {
+  return [v[0], v[2], v[1]];
 }
 
 // ---------------------------------------------------------------------

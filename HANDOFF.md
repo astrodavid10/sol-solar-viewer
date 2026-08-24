@@ -3,7 +3,8 @@
 **Living document.** Update it at the end of any session that changes project state. It exists
 so a fresh session (human or Claude) can pick the work up without re-deriving context.
 
-- **Last updated:** 2026-08-24 (fourth session — layout fixes + the 3D eruption layer, §3zz)
+- **Last updated:** 2026-08-24 (sixth session — the 90° world-frame bug is FIXED and
+  verified against WWT's own planet orbits, §3zzzz)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
   enabled on `gh-pages` / root, and the deployed data tree passes
   `validate --url … --strict` at 0 failed / 0 warnings.
@@ -23,7 +24,7 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 
 ### Read these first, in this order
 
-1. `CLAUDE.md` — architecture + **46 numbered footguns**. Dense and authoritative. The
+1. `CLAUDE.md` — architecture + **47 numbered footguns**. Dense and authoritative. The
    footguns are hard-won; several document bugs that took hours to find. Do not "fix" them.
 2. This file — what is done, what is not, what is unverified.
 3. The original implementation plan — a local Claude Code planning document, not in this
@@ -50,7 +51,11 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 ### Top risks, highest first
 
 1. **The 3D view has never been confirmed working in a browser.** Large amounts of geometry
-   were derived from engine source and verified numerically, not visually. See §4.
+   were derived from engine source and verified numerically, not visually. See §4. This risk
+   just paid out in full: the 90° world-frame bug (risk 5 below) survived four sessions of
+   internal cross-checks because every one of them was internal. **The only independent
+   reference in the 3D scene is WWT's own `solarSystemOrbits` / `solarSystemPlanets`
+   rendering** — check new geometry against it (footgun 47), not against our own layers.
 2. **GitHub Pages is not enabled**, so nothing is served yet. On a private repo it needs
    GitHub Pro; **making the repo public is the agreed route** (it is also what removes the
    Actions-minutes quota). `gh-pages` already exists and carries both the app and `data/`, at
@@ -63,6 +68,16 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
    frames come from a workstation run. They age out of the 8 h staleness threshold and the
    app will start showing its "data is stale" banner until someone republishes or the CI
    blockage is solved.
+5. ~~**The whole 3D scene is built on a world-frame axis assumption that is now CONFIRMED
+   WRONG.**~~ **RESOLVED 2026-08-24 (sixth session, §3zzzz).** WWT's world frame is ecliptic
+   J2000 with Y and Z swapped and is LEFT-handed; the swap is now folded into the three
+   camera and the whole scene stays in true ecliptic J2000. Both reported symptoms (the ~90°
+   tilt and the backwards rotation) are gone and were verified against WWT's own orbit
+   rendering. CLAUDE.md footgun 47. **Do not re-open this by "fixing" the mirror into a
+   rotation** — measured, both proper 90° rotations leave the Sun spinning backwards.
+6. **GONG relay fallback ("Option D", a static mirror branch + Windows Scheduled Task) is
+   implemented but sitting UNCOMMITTED in the working tree.** Needs to be committed (and
+   either deployed or explicitly shelved) soon — see §3zzz and `docs/GONG-RELAY.md`.
 
 ---
 
@@ -131,7 +146,245 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zz. What changed on 2026-08-24 (FOURTH session — most recent)
+## 3zzzz. What changed on 2026-08-24 (SIXTH session — most recent)
+
+**The 90° world-frame bug is fixed.** Nothing is committed, nothing is published — the app
+builds clean and the fix is verified in a browser, but `main` and the live site are untouched
+pending review.
+
+### What was actually wrong
+
+Not what §3zzz guessed. WWT's solar-system world frame is heliocentric ecliptic J2000 **with
+Y and Z swapped**:
+
+    (x, y, z)_wwt = (X, Z, Y)_ecliptic        det = -1, a MIRROR
+
+The previous session confirmed the PLANE (pole = +Y) and left the sign open, expecting the
+answer to be one of the two handedness-preserving 90° rotations about X, on the reasoning that
+a mirror would flip the rotation sense. **That reasoning was inverted.** The engine renders
+with `lookAtLH` + `perspectiveFovLH`, so its world→clip transform is *already*
+orientation-reversing (footgun 19). A left-handed world frame and a mirroring projection
+cancel, and the picture comes out physically correct. Feeding WWT a properly right-handed
+solar system is what makes it draw a mirror image — which is precisely the "rotating
+backwards" half of the guest's report.
+
+Measured through the engine's own matrices, a fixed solar feature crossing the disk:
+
+| frame handed to WWT | tilt vs ecliptic | rotation sense |
+|---|---|---|
+| identity (what shipped) | ~90° wrong | right→left — **backwards** |
+| `(x, z, -y)` proper rotation | correct | right→left — **backwards** |
+| `(x, -z, y)` proper rotation | correct | right→left — **backwards** |
+| `(x, z, y)` mirror — **shipped** | correct | left→right — correct (east→west) |
+
+### How the sign was pinned, without eyeballing anything
+
+`@wwtelescope/engine` is a UMD bundle and **loads in plain Node** — no DOM needed. That makes
+WWT's own ephemeris and matrix code directly callable, which is how all of this was settled:
+
+- **The mapping**, exactly: every planet and orbit the engine draws is
+  `Coordinates.raDecTo3dAu(RA, dec, r)` — which writes declination into **Y** — followed by
+  `rotateX(Planets._obliquity)`. Arbitrary ecliptic vectors through those two functions come
+  back as `(x, z, y)` to 9e-8 (the residual is the engine's truncated `RC = 3.1415927/180`).
+- **The sign**, against INCLINED orbits: residuals vs `(x, z, y)` are ephemeris-sized
+  (0.002 AU Earth → 0.05 AU Jupiter); vs `(x, -z, y)` the out-of-plane component is wrong by
+  twice the true offset (0.79 AU on Saturn). Earth alone is useless here — it is *in* the
+  ecliptic and looks identical under both.
+- **The handedness**, against MOTION: finite-difference WWT's own planet positions, take
+  `r × v` right-handed. Our ecliptic frame gives +Z for every planet (prograde, as it must
+  be); WWT's world frame gives **−Y** for every planet while the ecliptic pole maps to +Y.
+  `h_world = −M(h_ecliptic)` is the signature of det(M) = −1.
+
+### What changed in the code
+
+The swap is folded into the **three camera**, not the scene — `three-wwt/utils.updateTHREECamera`
+post-multiplies `ECLIPTIC_TO_WWT` onto the view. The entire three.js scene therefore stays in
+true right-handed ecliptic J2000, which is what every header in `src/three/` already claimed,
+and **no site that mixes camera vectors with data vectors had to change** (the limb-darkening
+uniform, the off-limb billboard basis, `subEarthFrame`, the marker facing dots,
+`projectTargets`). The rejected alternatives are written up in `src/three/worldFrame.ts`.
+
+- `src/three/worldFrame.ts` — NEW. The Matrix4 + the two things welded to it.
+- `src/three/three-wwt/utils.ts` — applies it; sets `camera.matrixWorldAutoUpdate = false`.
+  **That flag is load-bearing**: three's `Camera.updateMatrixWorld` decomposes matrixWorld and
+  rebuilds matrixWorldInverse with the scale forced to (1,1,1) "to be glTF conform", and a
+  reflection decomposes to (−1,1,1) — it would have stripped the fix on every frame.
+- `src/three/winding.ts` — `CAMERA_REVERSES_WINDING` **true → false**, `SOLID_SIDE` becomes
+  FrontSide. The projection's reversal and the frame's mirror now cancel. Confirmed live: no
+  `[winding]` warning, Sun renders right side out.
+- `src/data/solarFrames.ts` — `eclipticToWwtWorld()` plus the derivation. No math changed:
+  every vector in that file was always correct ecliptic J2000.
+- `src/wwt/sunStage.ts` — the real re-derivation. `solarAxis()` now returns the pole in WWT
+  world coordinates (the one-line cause of the free-orbit axis and the north-up roll being
+  ~90° off), and `earthFacingCamera()` collapses to `lat = 0, lng = L − 90` — the old version
+  flew the camera to |ecliptic latitude| = L, up to 90° out of the plane, which IS the tilt
+  the guest saw. Entry framing measured on a clean load: `lat` exactly 0, `lng` −118.42
+  (Earth's heliocentric longitude −28.42° minus 90). The camera-position and `lookUp` formulas
+  in the header were re-checked against the engine and reproduce to **0.00e+00** — they were
+  never wrong, only the axis labels were.
+- `debugSetCamera` / `solDebug.setCamera({distanceAu, latDeg, lngDeg})` — NEW, `?debug=1` only.
+  Writes both cameras with no easing, so the wide viewpoint the orbit check needs is one call
+  and a single frame is enough (it works in a background tab, where the engine's easing does
+  not run at all).
+- Comment corrections in `stage.ts`, `debug.ts`, `planets.ts`, `spacecraft.ts`,
+  `spacecraftTrails.ts`, `cme.ts`, `regions.ts` — all of which asserted the old frame.
+- **`pipeline/` untouched, and confirmed not implicated**: it uses astropy's
+  `HeliocentricMeanEcliptic` and was always right.
+
+### Verified
+
+`yarn lint` / `yarn typecheck` / `yarn build` clean. In a browser on the dev server:
+
+1. **Against WWT's own rendering** — the only independent reference in the scene. With the
+   "Planet orbits" layer on, our own Mercury/Venus/Earth/Mars orbits (from `planets.ts`'s
+   Kepler elements) drawn into the live scene land **on top of** WWT's four rendered rings and
+   hide them; at native resolution the white shows underneath, coincident to ~1 px. Earth's
+   orbit as the OLD code placed it cuts steeply across them. Screenshots taken.
+2. **Polar axis vs the orbit normal** — 7.2517°, not ~90°. From WWT's own ephemeris, Earth's
+   `h_world` is within 0.003° of WWT's Y axis, so this is measured against the engine, not
+   against ourselves.
+3. **Rotation sense** — a fixed Carrington point tracks NDC x −0.033 → −0.001 → +0.032 across
+   the 72 h window from the default Earth-facing framing: left→right, i.e. east limb → west
+   limb, the correct solar convention. The region chips move right by the same amount in the
+   before/after scrub screenshots.
+4. **Footguns 19 and 20 re-checked.** det(P) = +0.0133, det(V_effective) = **−1** exactly
+   (the swap is present and three is not stripping it), product < 0 → matches
+   `CAMERA_REVERSES_WINDING = false`. No console warning. Footgun 20 (view-space z positive)
+   is untouched — the swap only relabels axes ahead of the view matrix.
+5. **Guest flows** — default load, 72 h scrub, spacecraft layer (both trails now lie in the
+   ecliptic plane, as they must), two live CMEs rendering. `?debug=1` sub-Earth check passes
+   at 7.0° (expected < 8°). No console errors.
+6. **Drag signs re-confirmed.** Correcting `solarAxis()` moved the orbit axis ~90°, so
+   `AZIMUTH_SIGN`/`ELEVATION_SIGN` could not be assumed to carry over. Replayed
+   `orbitByPixels` in Node and projected a point painted on the Sun through the engine's own
+   matrices: drag right 150 px → +0.112 NDC x, drag down 110 px → −0.092 NDC y. Both still
+   follow the finger; both signs stand.
+
+### Found along the way, NOT fixed (separate bug, needs a decision)
+
+**`SolarView3D.updateSurfaceMarkers()` has an off-by-one and every active-region chip is
+anchored to the WRONG region.** `rt.regionLocal.forEach((point, i) => rt.markerTargets[i + 1])`
+is a leftover from the session that removed the sub-Earth entry at index 0 (the comment right
+above it says "Index 0 used to be the sub-Earth point … both are gone with it" — the `i + 1`
+is not). So `markerTargets[0]` is never written and stays at the Sun's centre, each chip is
+drawn at the PREVIOUS region's position, and the last region's position is never used at all.
+Observed live with four regions: a chip labelled "AR 4513" sits unpositioned while "AR 4515",
+"AR 4516" and "AR 4517" are drawn at 4513's, 4515's and 4516's locations. One-character fix
+(`[i + 1]` → `[i]`), but it is guest-visible and outside the scope of the frame work, so it is
+flagged rather than folded in.
+
+Also worth knowing, though not a bug: the large bright mass that appears near the Sun at wide
+zooms is the **eruption layer** — two live CMEs in the current window. Toggling "Eruptions" off
+removes it. It reads as a saturated white blob at some zooms, which may be worth re-sweeping
+against footgun 46(d)'s alpha constants.
+
+---
+
+## 3zzz. What changed on 2026-08-24 (FIFTH session)
+
+### Data republished; PFSS is fresh again
+
+Ran the full pipeline from this workstation (which can reach GONG, unlike CI —
+footgun 33) after seeding `public/data` from the live `gh-pages` tree first
+(footgun 31 — skipping that step would have let the wholesale republish
+clobber the fresher non-PFSS products CI had already built in the hours
+since). 19/19 PFSS slots traced fresh, `validate --strict` reported 0
+failed/0 warnings, and the tree was published by hand via
+`scripts/publish_gh_pages.sh` (auth via `gh auth token`, since that script
+normally runs inside CI with `GITHUB_TOKEN`/`GITHUB_SHA` already set). Kicked
+the Pages build and re-fetched the live `index.json`: all six products now
+report `ok`, PFSS included, age 0.0 h.
+
+### GONG relay Option D (static-mirror fallback): still uncommitted
+
+The prior session's static-mirror fallback (`scripts/gong_mirror.py`,
+`scripts/gong-mirror-task.ps1`, plus the `docs/GONG-RELAY.md` and
+`pipeline/{cli,config,sources/gong}.py` changes for it) is still sitting
+uncommitted in the working tree. It's additive and inert (byte-identical
+behavior with the new env vars unset), so it isn't blocking anything, but it
+needs to be either committed + deployed (`wrangler`-free this time — it's a
+Scheduled Task + a git branch) or explicitly dropped. Don't let it go stale
+indefinitely — see risk #6 above.
+
+### A confirmed, unfixed bug: the app's world frame has the wrong pole axis
+
+The user reported the Sun looking tilted ~90° from the planets' orbital
+plane, and possibly rotating backwards. Investigated live in a browser
+rather than by re-reading the source a third time (HANDOFF's oldest standing
+risk is exactly "verified numerically, not visually" — this is that class of
+bug, finally caught by someone looking at it).
+
+**Method.** `?debug=1` exposes `window.solDebug`, including `stage.scene`
+(the live three.js scene sharing WWT's camera) and `stage.camera`. With the
+"Planet orbits" layer on (WWT's own native rendering, computed by the engine
+from its own ephemeris — completely independent of anything this app
+computes) and zoomed out to ~0.88 AU, I injected three test rings directly
+into the live scene: a unit circle in the X-Y plane (the app's actual
+assumption — "+Z is the pole"), one in the X-Z plane (candidate: "+Y is the
+pole"), and one in the Y-Z plane (candidate: "+X is the pole"). Screenshotted
+before and after orbiting the camera.
+
+**Result.** The X-Z-plane ring (pole = +Y) tracked WWT's own rendered orbit
+ring almost exactly, from two different camera angles. The X-Y-plane ring —
+what `solarFrames.ts` and `sunStage.ts` both assert is correct
+("heliocentric ecliptic J2000... +Z at the ecliptic pole") — was nowhere
+close; from the first angle it projected as a degenerate, almost perfectly
+horizontal line clear across the screen (i.e., edge-on), which is what you'd
+expect for a plane that ISN'T where the app thinks it is.
+
+**Why this went unnoticed for four sessions.** Every existing numerical
+cross-check in this codebase (the pipeline's `_assert_conventions`, the
+`?debug=1` axis-triad-vs-field-line-footpoint check, `assertWinding`,
+`b0DegApprox`) is INTERNAL to the app's own frame convention — the Sun mesh,
+field lines, spacecraft trails, CME cone and the camera-framing math in
+`sunStage.ts` all consistently use "+Z is the pole", so they agree with each
+other perfectly regardless of whether that convention is actually the one
+WWT's engine uses for its OWN rendering. The only thing in the scene that is
+NOT built from this app's own convention is WWT's native `solarSystemOrbits`
+/ `solarSystemPlanets` rendering — and nobody had compared against it until
+now. `CLAUDE.md` footgun 26 (WWT's camera lat/lng poles sit at ±Y, described
+there as "an arbitrary pair of points in the ecliptic plane") was written
+under the same wrong assumption — with the pole actually at +Y, ±Y being the
+camera's lat/lng poles is not arbitrary at all, it's exactly where a sane
+camera parameterization should put them. That footgun's empirical formula is
+still correct; its interpretation needs revisiting once this is fixed.
+
+**What's confirmed vs. still open:**
+- CONFIRMED: WWT's true ecliptic-pole axis is this app's world-frame +Y, not
+  +Z. The ecliptic plane is the X-Z plane, not X-Y.
+- NOT YET DETERMINED: the correct SIGN of the fix. A naive component swap
+  `(x, y, z) -> (x, z, y)` is an odd permutation (det = -1, a mirror), which
+  would flip the handedness of every rotation carried through it — including
+  the Carrington quaternion, which would then visibly spin the wrong way.
+  The correct fix is almost certainly a proper 90° rotation about the X axis
+  (`(x, y, z) -> (x, z, -y)` or `(x, y, z) -> (x, -z, y)` — determinant +1,
+  handedness-preserving), and picking the right one of those two requires
+  checking the result against a KNOWN prograde direction (e.g. the Sun's
+  real rotation sense, or Earth's real direction of travel), not just the
+  plane a test ring traces.
+- SCOPE: this assumption is load-bearing in `src/data/solarFrames.ts`
+  (`sunPoleEcliptic`, `heeqBasis`, `heeqToWorld`), `src/wwt/sunStage.ts`
+  (the entire camera-framing derivation in its header comment — the
+  `directionFor`/`earthFacingCamera`/`orbitByPixels` formulas were all
+  "derived from engine source" under this assumption and will need
+  re-deriving, not just patching), and everything downstream that consumes
+  those: `sunSurface.ts`'s Carrington quaternion, `fieldLines.ts`,
+  `spacecraftTrails.ts`, `cme.ts`, `offLimb.ts`, `solarWind.ts`,
+  `project.ts`, and `debug.ts`'s own axis triad. The PIPELINE side
+  (`pipeline/frames_orient.py`) is NOT implicated — it uses astropy's
+  `HeliocentricMeanEcliptic` frame directly and is unrelated to WWT's
+  internal convention; only the APP's placement of that data into WWT's
+  world is wrong.
+- NOT YET FIXED. This is a foundational, multi-file geometry change with a
+  real chance of introducing a new subtle sign error if rushed (this
+  codebase's footgun history is full of exactly that class of mistake). Given
+  standing instructions to flag anything this involved, this is a good
+  candidate for a more careful pass (bigger model and/or a dedicated session)
+  rather than a quick patch.
+
+---
+
+## 3zz. What changed on 2026-08-24 (FOURTH session)
 
 Five items reported from a phone on the LAN dev server, all app-side, no pipeline change.
 `yarn lint`, `yarn build` and `node scripts/check_label_layout.mjs` are clean. Everything below

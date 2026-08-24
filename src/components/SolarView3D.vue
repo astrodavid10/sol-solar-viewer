@@ -310,6 +310,7 @@ import {
   clampCameraLat,
   currentDistanceAu,
   currentZoom,
+  debugSetCamera,
   homeCamera,
   initSunStage,
   refitFraming,
@@ -2228,6 +2229,18 @@ export default defineComponent({
             distanceRSun: currentDistanceAu() / R_SUN_AU,
             solarSystemMode: solarSystemModeActive(),
           };
+        },
+        /**
+         * Jump the camera, both cameras, no easing — see sunStage's
+         * debugSetCamera. `setCamera({ distanceAu: 1, latDeg: 60 })` is the
+         * viewpoint the world-frame check needs (WWT's own planet orbits in
+         * frame alongside our geometry).
+         */
+        setCamera: (opts: {
+          latDeg?: number; lngDeg?: number; zoom?: number; distanceAu?: number;
+        }) => {
+          debugSetCamera(opts);
+          return { ...cameraInfo(), distanceAu: currentDistanceAu() };
         },
       };
     },

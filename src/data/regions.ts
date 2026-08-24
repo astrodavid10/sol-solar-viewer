@@ -132,7 +132,7 @@ export async function loadRegions(
  *     z = r sin(lat)          (+Z north)
  *
  * The same frame the PFSS vertices and the sun surface live in (see the header
- * of three/sunSurface.ts), so the caller turns it into world coordinates with
+ * of three/sunSurface.ts), so the caller turns it into scene coordinates with
  * exactly the quaternion those layers use and nothing else.
  */
 export function regionVector(region: SolarRegion, radius: number, out: Vec3 = [0, 0, 0]): Vec3 {

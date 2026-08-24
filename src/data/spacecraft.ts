@@ -5,8 +5,9 @@
 //
 //   1. `data/ephem/spacecraft.json` (same origin, from the pipeline's Horizons
 //      bake): ±30 days at 6 h = 241 epochs of heliocentric mean-ecliptic-J2000
-//      AU positions. That IS WWT's solar-system world frame, so the numbers go
-//      straight into three.js with no rotation. This is the only source for the
+//      AU positions. That IS the frame the three scene is built in, so the
+//      numbers go straight in with no rotation (the step into WWT's own frame
+//      happens once, on the camera — three/worldFrame.ts). Only source for the
 //      trails — Horizons has no CORS, and swhv.oma.be takes ONE epoch per call.
 //
 //   2. swhv.oma.be/position (CORS *) for a fresher now-dot. Returns HEEQ
@@ -195,7 +196,7 @@ const LIVE_TARGETS: Record<string, string> = {
 
 export interface LivePosition {
   id: string;
-  /** Heliocentric ecliptic-J2000 AU — WWT world coordinates. */
+  /** Heliocentric ecliptic-J2000 AU — the three scene's frame. */
   world: Vec3;
   rAu: number;
   rSun: number;

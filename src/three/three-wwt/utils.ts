@@ -9,6 +9,10 @@
 //    report CSS pixels) and never tracks WWT canvas resizes
 //  - createTHREERenderer throws WebGL2UnavailableError instead of crashing on
 //    a null webgl2 context (WWT can fall back to WebGL1; three r163+ cannot)
+//  - the camera carries ECLIPTIC_TO_WWT, so the three scene can be built in
+//    true heliocentric ecliptic J2000 while WWT renders in its own left-handed
+//    frame (see ../worldFrame.ts — do NOT remove without reading it, and note
+//    the matrixWorldAutoUpdate line it depends on)
 
 import {
   ACESFilmicToneMapping,
@@ -19,6 +23,8 @@ import {
   WebGLRenderer,
 } from "three";
 import { Matrix3d, RenderContext, WWTControl } from "@wwtelescope/engine";
+
+import { ECLIPTIC_TO_WWT } from "../worldFrame";
 
 interface DummyCanvasOptions {
   opacity?: number;
@@ -75,6 +81,15 @@ export function createTHREECamera(renderContext: RenderContext, far = 1): Perspe
   const camera = new PerspectiveCamera(75, renderContext.width / renderContext.height, renderContext.nearPlane, far);
   // Both matrices are overwritten from WWT every frame; three must not touch them.
   camera.matrixAutoUpdate = false;
+  // LOAD-BEARING, and not the same flag as the line above. WebGLRenderer.render
+  // calls `camera.updateMatrixWorld()` for any parent-less camera whose
+  // matrixWorldAutoUpdate is true, and three's Camera override DECOMPOSES
+  // matrixWorld and rebuilds matrixWorldInverse with the scale forced to
+  // (1,1,1) "to be glTF conform". updateTHREECamera folds ECLIPTIC_TO_WWT into
+  // the view, which decomposes to scale (-1,1,1) — so with this flag left true
+  // three would strip the frame transform on every single frame and the Sun
+  // would go back to sitting 90 deg out of the ecliptic. See ../worldFrame.ts.
+  camera.matrixWorldAutoUpdate = false;
   return camera;
 }
 
@@ -167,7 +182,15 @@ export function updateTHREECamera(camera: PerspectiveCamera, renderContext: Rend
   camera.projectionMatrix.copy(wwtMatrixToTHREE(renderContext.get_projection()));
   camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
 
+  // View, then the frame swap: the scene is in true ecliptic J2000 and WWT is
+  // not (../worldFrame.ts), so what three must draw with is
+  //     V_effective = V_wwt . ECLIPTIC_TO_WWT
+  // and the camera's own world matrix is its exact inverse. ECLIPTIC_TO_WWT is
+  // an involution, so `premultiply` on matrixWorld is that inverse — cheaper
+  // and exact, where a second invert() would only be nearly so.
   camera.matrixWorldInverse.copy(wwtMatrixToTHREE(renderContext.get_view()));
   camera.matrixWorld.copy(camera.matrixWorldInverse).invert();
+  camera.matrixWorldInverse.multiply(ECLIPTIC_TO_WWT);
+  camera.matrixWorld.premultiply(ECLIPTIC_TO_WWT);
   camera.matrixWorldNeedsUpdate = false;
 }

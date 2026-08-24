@@ -3,9 +3,10 @@
 // =====================================================================
 // Adapted from exo-sonification's tuningForkData.ts (sonification pieces
 // removed). Positions are HELIOCENTRIC ECLIPTIC (J2000) Cartesian vectors in
-// AU — x toward the vernal equinox, z toward the ecliptic north pole — which
-// is the frame WWT's solar-system mode renders in (Sun at the world origin,
-// +Z = ecliptic pole).
+// AU — x toward the vernal equinox, z toward the ecliptic north pole,
+// right-handed. That is the frame the three.js scene is built in, NOT the one
+// WWT's engine renders in (which has Y and Z swapped — see
+// solarFrames.eclipticToWwtWorld and three/worldFrame.ts).
 
 const D2R = Math.PI / 180;
 const J2000 = 2451545.0; // Julian date of the J2000.0 epoch

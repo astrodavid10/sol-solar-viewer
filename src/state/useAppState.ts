@@ -50,6 +50,34 @@ export const DEFAULT_SURFACE: SurfaceMode = "sdo";
 export const surfaceMode = ref<SurfaceMode>(DEFAULT_SURFACE);
 
 /**
+ * Whether the guest asked for the optional 8192x4096 sphere map.
+ *
+ * OFF by default and deliberately not remembered across visits: it is ~134 MB
+ * of GPU memory decoded (CLAUDE.md footgun 40), which is a commitment a guest
+ * opts into for a closer look, not a preference to restore silently on a phone
+ * that may not have the memory to honour it.
+ *
+ * Asking for it is not the same as getting it. `sunSurface.hasHighRes()` is
+ * false when this device's MAX_TEXTURE_SIZE cannot hold an 8192-wide texture
+ * (many phones cap at 4096) or when the pipeline ran without --with-hires, and
+ * the control is hidden entirely in that case -- a dead toggle is worse than no
+ * toggle.
+ */
+export const highRes = ref(false);
+
+/**
+ * Whether the sphere can ACTUALLY honour `highRes` right now.
+ *
+ * Written by SolarView3D from `sunSurface.hasHighRes()`, which is the only
+ * place that holds the WebGLRenderer and so the only place that knows this
+ * device's MAX_TEXTURE_SIZE. Shared state rather than a prop because LayerPanel
+ * is mounted twice -- the desktop rail and the phone popover -- and both need
+ * the same answer, and one of those mount points is outside the 3D view
+ * entirely.
+ */
+export const highResAvailable = ref(false);
+
+/**
  * Which SDO product the 3D sphere is painted with, as the product CODE — the
  * same identifiers `sdoCatalog` uses, so one table names them for both the
  * chips and the sphere. Not a wavelength: HMIB is a magnetogram and HMIIC a

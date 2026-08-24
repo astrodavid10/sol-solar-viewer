@@ -385,6 +385,27 @@ function rollFor(latDeg: number, lngDeg: number, up: Vec3): number {
 }
 
 /**
+ * The `rotation` that puts projected solar north on screen-up from a given
+ * viewing direction, PLUS whatever the guest has twisted to.
+ *
+ * Extracted so `orbitByPixels` and `addUserRoll` cannot disagree about the
+ * framing: a twist that computed "up" differently from a pan would make the
+ * horizon jump the moment you did one after the other.
+ */
+function northUpRoll(u: Vec3, latDeg: number, lngDeg: number): number {
+  const axis = solarAxis();
+  // Solar north with the along-view part removed: projected north, i.e. what
+  // "up" means for a picture of the Sun.
+  const along = axis[0] * u[0] + axis[1] * u[1] + axis[2] * u[2];
+  const up = norm3([
+    axis[0] - along * u[0],
+    axis[1] - along * u[1],
+    axis[2] - along * u[2],
+  ]);
+  return rollFor(latDeg, lngDeg, up) + userRollRad;
+}
+
+/**
  * The guest's own roll, in radians, on top of the solar-north-up framing.
  *
  * Two-finger twist writes this. It has to be SEPARATE state rather than just
@@ -404,6 +425,24 @@ export function addUserRoll(deltaRad: number): void {
   // accumulate a number that loses precision.
   const twoPi = Math.PI * 2;
   userRollRad = ((userRollRad % twoPi) + twoPi) % twoPi;
+
+  // AND APPLY IT. This used to only accumulate, on the assumption that
+  // `orbitByPixels` would pick the new value up -- which it does, and that was
+  // the bug: during a pinch the pan accumulator is 0, so orbitByPixels never
+  // runs and the twist sat invisible until the guest's next drag, which then
+  // snapped the whole accumulated angle in at once. Measured in a browser: a
+  // 40 deg twist moved nothing on screen, then a 4 px pan jumped -34.2 deg --
+  // exactly the twist minus the 5.7 deg deadzone.
+  //
+  // Rotation only, deliberately: lat/lng/zoom belong to the pan and pinch paths
+  // and must not be rewritten from here.
+  const rc = renderContext();
+  if (!rc) { return; }
+  for (const cam of [rc.targetCamera, rc.viewCamera]) {
+    const u = norm3(directionFor(cam.lat, cam.lng));
+    cam.rotation = northUpRoll(u, cam.lat, cam.lng);
+    cam.angle = 0;
+  }
 }
 
 /** The guest's roll, for callers that need to reproduce the framing. */
@@ -488,20 +527,11 @@ export function orbitByPixels(dxPx: number, dyPx: number): void {
   u = norm3(u);
   const { latDeg, lngDeg } = latLngFor(u);
 
-  // Solar north with the along-view part removed: projected north, i.e. what
-  // "up" means for a picture of the Sun.
-  const along = axis[0] * u[0] + axis[1] * u[1] + axis[2] * u[2];
-  const up = norm3([
-    axis[0] - along * u[0],
-    axis[1] - along * u[1],
-    axis[2] - along * u[2],
-  ]);
-
   cam.lat = latDeg;
   cam.lng = lngDeg;
   // Solar north up, PLUS whatever the guest has twisted to. Adding the two is
   // what lets a twist survive the next pan instead of being recomputed away.
-  cam.rotation = rollFor(latDeg, lngDeg, up) + userRollRad;
+  cam.rotation = northUpRoll(u, latDeg, lngDeg);
   cam.angle = 0;
   pinToSunCenter(cam);
   // Both lat/lng cameras: the engine eases viewCamera toward targetCamera, and

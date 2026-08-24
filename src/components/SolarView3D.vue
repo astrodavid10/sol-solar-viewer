@@ -296,6 +296,8 @@ import {
   TextureChannel,
   attractDrift,
   fieldColorMode,
+  highRes,
+  highResAvailable,
   frameT,
   frameTimes,
   getAppHandle,
@@ -780,6 +782,13 @@ export default defineComponent({
   },
 
   watch: {
+    // The guest flipping "Full resolution". setHighRes is a no-op when the
+    // option is not actually available, so no guard is needed here -- and the
+    // panel hides the control in that case anyway.
+    highRes(value: boolean) {
+      this.rt.surface?.setHighRes(value);
+    },
+
     resetToken() {
       this.recenter();
       // resetView() parks frameT at 0, which for a frame-index playhead is the
@@ -964,6 +973,12 @@ export default defineComponent({
         renderer: rt.stage.renderer,
       }));
       rt.stage.scene.add(rt.surface.object3d);
+      // Tell the layer panel whether the option exists at all. This is the only
+      // place that can answer it: hasHighRes() needs the renderer's
+      // MAX_TEXTURE_SIZE, and the panel is also mounted outside this component
+      // (sol.vue's desktop rail), so the answer travels as shared state.
+      highResAvailable.value = rt.surface.hasHighRes();
+      if (highRes.value) { rt.surface.setHighRes(true); }
 
       // The part of the image that is NOT on the sphere. Created next to the
       // surface because it is the same picture, and it takes its texture from
@@ -1360,6 +1375,16 @@ export default defineComponent({
       // it mounts and unmounts a <transition>-wrapped, backdrop-filtered element
       // several times a second. Show above 0.58, hide below 0.50, and in the
       // band between keep doing whatever it was doing.
+      // hasHighRes() cannot be true at creation: it needs the `high_res` block
+      // from texture.json, which is fetched asynchronously well after
+      // createStage() runs. So re-ask on the throttled cadence -- a boolean
+      // compare -- rather than only once, or the control would never appear.
+      // Guarded so it stays a no-op: this is reactive state, and writing it
+      // every pass would dirty the whole overlay's render effect (the same trap
+      // the far-side hint fell into).
+      const canHi = this.rt.surface?.hasHighRes() ?? false;
+      if (canHi !== highResAvailable.value) { highResAvailable.value = canHi; }
+
       const frac = this.rt.surface?.unobservedFraction() ?? 0;
       this.rt.unobservedFrac = frac;
       const shown = this.unobservedShown ? frac > 0.50 : frac > 0.58;

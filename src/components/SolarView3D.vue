@@ -320,6 +320,7 @@ import {
 } from "../wwt/sunStage";
 import { installSunGestures, type SunGestures } from "../wwt/gestures";
 import {
+  ERUPTIONS_ENABLED,
   FieldColorMode,
   SurfaceMode,
   TextureChannel,
@@ -1107,9 +1108,17 @@ export default defineComponent({
       // Eruptions. Created empty — `loadEventLayer` hands it the window's
       // events when events.json arrives, and an absent product (a normal
       // condition, see events.ts) just leaves it with nothing to draw.
-      rt.cme = markRaw(createCmeLayer({ rSunAu: R_SUN_AU }));
-      rt.cme.setVisible(this.layers.eruptions);
-      rt.stage.scene.add(rt.cme.object3d);
+      //
+      // Not created at all while ERUPTIONS_ENABLED is false (see useAppState):
+      // `rt.cme` stays null, every other reference to it is already `?.`, and
+      // the layer therefore costs no geometry, no shader compile and no
+      // per-frame work rather than sitting invisible. The module still builds
+      // and is one boolean away from coming back.
+      if (ERUPTIONS_ENABLED) {
+        rt.cme = markRaw(createCmeLayer({ rSunAu: R_SUN_AU }));
+        rt.cme.setVisible(this.layers.eruptions);
+        rt.stage.scene.add(rt.cme.object3d);
+      }
 
       if (boolParam("debug")) {
         rt.debug = markRaw(createDebugHelpers(R_SUN_AU));

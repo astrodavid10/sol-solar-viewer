@@ -25,6 +25,34 @@ export interface LayerFlags {
 }
 
 /**
+ * The 3D eruption layer (`three/cme.ts`) — SHIPPED OFF, deliberately.
+ *
+ * Nothing is deleted: the module, the replay machinery, the event cards and the
+ * timeline marks all still exist and still build. This flag is the one wire
+ * between them and the guest, and it is false because the layer has not earned
+ * the default view yet. What sent it back: at the 2.8 R_sun home framing a CME
+ * that has propagated to 7-28 R_sun drives the cloud's `want` point size to
+ * 85-106 px against a 64 px ceiling, so three thousand clamped sprites overlap
+ * into a bright mass off to one side of the Sun with nothing to explain it.
+ * The DIRECTION is right — `dir_ecl` reproduces DONKI's own Stonyhurst lat/lon
+ * to 0.12 deg — and footgun 46(b) is not regressed; the layer is simply tuned
+ * for the replay framing (`CLOUD_POINT_FRAC`: "about 28 px per particle at the
+ * replay framing"), which is roughly 10x further out than where a guest lands.
+ *
+ * Turning it back on is this one line, and CLAUDE.md footgun 46(d) says how to
+ * re-tune it: sweep the alpha and point-size constants AT THE SCREEN, with the
+ * tab in the foreground, because additive blending has no highlight rolloff and
+ * those numbers are the whole difference between plasma and poster paint.
+ *
+ * Note this takes the flare flash with it — the flash is part of the same
+ * layer — and with it the "Watch it erupt" button, which `canReplay` already
+ * gates on this flag. The DONKI catalog itself is untouched: the timeline marks
+ * and the flare/CME cards still work, because those report what happened rather
+ * than simulating it.
+ */
+export const ERUPTIONS_ENABLED = false;
+
+/**
  * 3D-view layer toggles (M-W5/M-W6 consume these).
  *
  * `spacecraft` starts OFF deliberately. The Sun and its field are the story;
@@ -43,11 +71,11 @@ export const layers = reactive<LayerFlags>({
   // of the Sun" into "the Sun right now", and a guest who wants the clean disk
   // can say so. Off is the exception, not the default.
   regionLabels: true,
-  // ON, and it costs nothing to leave on: an eruption draws only during the few
-  // hours it was actually happening, so for most of the 72 h window this layer
-  // is two invisible meshes. Off would mean a guest who scrubs onto the one
-  // dramatic moment in the window sees nothing and never learns why.
-  eruptions: true,
+  // OFF while ERUPTIONS_ENABLED is false — see that flag for why. The layer is
+  // otherwise cheap to leave on (an eruption draws only during the few hours it
+  // was actually happening, so for most of the 72 h window it is two invisible
+  // meshes), which is what the default used to be.
+  eruptions: ERUPTIONS_ENABLED,
 });
 
 /** How the Sun's own surface is painted in the 3D view:

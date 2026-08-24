@@ -71,6 +71,7 @@ import { defineComponent } from "vue";
 
 import { product } from "../data/sdoCatalog";
 import {
+  ERUPTIONS_ENABLED,
   LayerFlags,
   TextureChannel,
   fieldColorMode,
@@ -152,7 +153,11 @@ export default defineComponent({
 
   computed: {
     rows(): Row[] {
-      return ROWS;
+      // The eruption row is filtered rather than deleted: ERUPTIONS_ENABLED is
+      // the single wire between that layer and the guest (see useAppState), and
+      // leaving the row here means turning the feature back on is one boolean
+      // rather than a hunt through three files.
+      return ERUPTIONS_ENABLED ? ROWS : ROWS.filter((row) => row.key !== "eruptions");
     },
 
     surfaces(): SurfaceOption[] {

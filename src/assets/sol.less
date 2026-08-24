@@ -153,7 +153,13 @@
   // KioskQrModal.vue is shared verbatim between data stories and paints with
   // the skeleton's generic accent tokens. Aliasing them here is how Sol dresses
   // it in the app's own accents without editing the copied component.
-  --accent-color: var(--sol-accent);
+  //
+  // NOT --sol-accent: the modal paints --accent-color on its panel border, its
+  // title, the QR card's border AND glow, and the close button -- five gold
+  // strokes on the single most guest-visible kiosk surface, i.e. exactly the
+  // yellow-on-dark chrome the LSU note above exists to keep out. The modal's
+  // accent is chrome, not data, so it gets the chrome's "on" neutral.
+  --accent-color: var(--sol-select);
   --accent-color2: var(--sol-accent2);
 }
 
@@ -181,8 +187,12 @@
   width: 3rem;
   height: 3rem;
   border-radius: 50%;
-  border: 4px solid rgba(var(--sol-accent-rgb), 0.25);
-  border-top-color: var(--sol-accent);
+  // Neutral, not gold: this ring is pure chrome (it spins before any data —
+  // or Sun — exists to mean anything), and it was one of the last two gold
+  // strokes outside the data vocabulary (the other was the QR modal alias
+  // below). Same "lit neutral" the switches use for their on state.
+  border: 4px solid rgba(var(--sol-select-rgb), 0.22);
+  border-top-color: var(--sol-select);
   animation: sol-spin 1s linear infinite;
 }
 

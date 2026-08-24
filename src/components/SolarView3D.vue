@@ -954,6 +954,14 @@ export default defineComponent({
         mode: this.surfaceMode,
         channel: this.textureChannel,
         debug: boolParam("debug"),
+        // Needed only to read gl.MAX_TEXTURE_SIZE, which is what decides
+        // whether the optional 8192-wide high-resolution map can exist on this
+        // device at all -- plenty of mobile GPUs cap at 4096, where loading it
+        // would simply fail. Without the renderer, hasHighRes() returns false
+        // forever, which is the right default but silently disables the
+        // feature: it MUST be passed the same renderer that will draw the
+        // texture, not a probe context.
+        renderer: rt.stage.renderer,
       }));
       rt.stage.scene.add(rt.surface.object3d);
 
@@ -1804,6 +1812,32 @@ export default defineComponent({
       if (!info || !earth || !Number.isFinite(info.subEarthCarrLonDeg)) { return; }
       if (earth.lengthSq() === 0) { return; }
       if (this.frameCount > 0 && this.frameT < this.frameCount - 1.001) { return; }
+      // The group quaternion is IDENTITY until frame data arrives — the slerp
+      // has nothing to slerp — while frameT parks at the newest slot from the
+      // manifest alone, so the old gates all passed with an unrotated probe.
+      // Every false SUSPECT this check ever printed reproduces exactly as
+      // acos(m(lon)·earth) with q = identity: lon 77.4° → 106.6° computed vs
+      // 107.2° logged, 118.0° → 147.1° vs 147.8°, 80.6° → 109.8° vs 110.4°
+      // (the residual ~0.6° is B0). Wait for the full window.
+      if (this.loadedCount < this.frameCount) { return; }
+      // The texture also lags the playhead by one async decode: showFrame()
+      // only rewrites info's scalars when the new frame's pixels adopt
+      // (sunSurface.ts), so right after a park/scrub the info can describe a
+      // frame hours from the one the playhead asked for. Only measure once
+      // the sphere shows the frame nearest the playhead — which is NOT
+      // always the last one: a stale PFSS window (16:14 against a 20:00
+      // newest texture slot, today) legitimately parks on frames.length-2.
+      const frames = info.frames;
+      if (frames.length > 0) {
+        const unix = this.sceneUnix();
+        let want = 0;
+        let gap = Number.POSITIVE_INFINITY;
+        frames.forEach((frame, i) => {
+          const g = Math.abs(frame.targetUnix - unix);
+          if (g < gap) { gap = g; want = i; }
+        });
+        if (info.activeFrame !== want) { return; }
+      }
       rt.textureChecked = true;
 
       const lon = (info.subEarthCarrLonDeg * Math.PI) / 180;
@@ -1960,6 +1994,13 @@ export default defineComponent({
   );
   right: 0.5rem;
   z-index: 4; // above `.sv-buttons` (E7) -- it's the popover FROM that stack
+  // An abspos box's shrink-to-fit can EXCEED the space its anchor leaves when
+  // the content's min-content is wider -- and `.lp-segments`' six unwrappable
+  // buttons measure 392px, so at 320/360/390px viewports the popover hung 81/
+  // 41/11px off the LEFT edge of the screen, with the switches (the left side
+  // of every row) in the clipped part. Cap it so the left edge mirrors the
+  // 0.5rem right inset; `.lp-segments` wraps below 900px to fit (LayerPanel).
+  max-width: calc(100% - 1rem);
 
   // `.layer-panel` alone runs ~400px tall (6 rows * ~48px + the Surface
   // `.lp-group` block's ~78px + 2rem of panel padding) with no cap of its
@@ -2123,7 +2164,12 @@ export default defineComponent({
 // this constant happened to be tuned for.
 .sv-unobserved {
   position: absolute;
-  top: calc(env(safe-area-inset-top) + 3.6rem);
+  // 4rem, not the 3.6rem E3b landed on: that cleared `.sol-title` (bottom
+  // 38px) but not `.sol-brand` (top safe+0.75rem + 48px tall = bottom 60px),
+  // which the note's box overlapped by 2.4px at every narrow viewport
+  // (measured at 320: note top 57.6 vs brand bottom 60). Both carry the same
+  // safe-area term, so 64px keeps 4px of air on notched phones too.
+  top: calc(env(safe-area-inset-top) + 4rem);
   left: 0.5rem;
   right: 3.75rem; // clears .sv-buttons (44px + 0.5rem inset ~= 3.25rem) with margin to spare
   max-width: 24rem;

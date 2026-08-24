@@ -306,8 +306,14 @@ export default defineComponent({
 
 .lp-segments {
   display: flex;
+  // One row of six on the desktop rail; on a phone the popover is capped at
+  // the viewport (SolarView3D's `.sv-layer-popover` max-width) and six
+  // don't fit -- "Chromosphere" alone is ~72px of unbreakable text, so six
+  // segments' min-content is 392px against ~272px of 320px-viewport popover.
   gap: 0.3rem;
+  flex-wrap: wrap;
 }
+
 
 // 44 px tall, as everywhere else in this panel: a one-handed guest gets the
 // same target here as on the switches above.
@@ -336,6 +342,22 @@ export default defineComponent({
     border-color: rgba(var(--sol-select-rgb), 0.75);
     background: rgba(var(--sol-select-rgb), 0.14);
     color: var(--sol-text);
+  }
+}
+
+// Below the rail breakpoint (sol.vue's WIDE_QUERY, 900px) this renders only
+// inside `.sv-layer-popover`, which is now capped at the viewport width
+// (SolarView3D.vue) -- six segments' min-content is 392px, so they must wrap.
+// Basis 30% forces an even 3+3 and `flex-grow: 1` fills each row; 30% of the
+// 320px viewport's ~270px content box is ~81px, which holds "Chromosphere"
+// (~72px of unbreakable text at 0.72rem). Without the wrap the row shrank
+// every segment to 38px and clipped all six labels.
+// MUST come after the `.lp-segment` rule above: its `flex: 1 1 0` shorthand
+// resets flex-basis, and at equal specificity source order decides.
+@media (max-width: 899px) {
+  .lp-segment {
+    flex-basis: 30%;
+    min-width: 0;
   }
 }
 </style>

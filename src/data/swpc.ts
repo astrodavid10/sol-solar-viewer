@@ -139,11 +139,90 @@ export function parseMagField(json: unknown): Parsed<MagInfo> | null {
 
 // --- planetary K index ----------------------------------------------------
 
+/** One point of a measured time series: unix SECONDS and a value. */
+export interface SeriesPoint {
+  t: number;
+  v: number;
+}
+
 /**
- * Two shapes seen in the wild:
+ * Every Kp point SWPC published, not just the newest.
+ *
+ * `noaa-planetary-k-index.json` is a **3-hourly time series about seven days
+ * long** — measured 2026-08-24, it began 2026-08-17T00:00 — and the app was
+ * fetching all of it and keeping one point. That made the aurora chip read
+ * "now" no matter where the playhead sat, which is the same dishonesty the
+ * sunspot chip was fixed for. Since the fetch already happens, following the
+ * scrubber here costs nothing at all.
+ *
+ * Handles BOTH shapes `parseKp` handles, for the same reason it does: SWPC has
+ * served this endpoint as an array-of-arrays with a header row and as an array
+ * of objects, and a reader that knows only one silently returns nothing.
+ */
+export function parseKpSeries(json: unknown): SeriesPoint[] {
+  if (!Array.isArray(json) || json.length === 0) { return []; }
+  const out: SeriesPoint[] = [];
+
+  const first = json[0];
+  if (Array.isArray(first)) {
+    let kpCol = 1;
+    let timeCol = 0;
+    let start = 0;
+    const names = first.map((h) => String(h).toLowerCase());
+    const foundKp = names.indexOf("kp");
+    const foundTime = names.indexOf("time_tag");
+    if (foundKp >= 0 || foundTime >= 0) {
+      if (foundKp >= 0) { kpCol = foundKp; }
+      if (foundTime >= 0) { timeCol = foundTime; }
+      start = 1;                       // that first row was the header
+    }
+    for (let i = start; i < json.length; i++) {
+      const row = json[i];
+      if (!Array.isArray(row)) { continue; }
+      const v = Number(row[kpCol]);
+      const t = parseTimeTag(typeof row[timeCol] === "string" ? row[timeCol] as string : null);
+      if (Number.isFinite(v) && t !== null) { out.push({ t: t / 1000, v }); }
+    }
+  } else {
+    for (const row of json) {
+      if (!isDict(row)) { continue; }
+      const v = Number(row["Kp"] ?? row["kp"] ?? row["kp_index"]);
+      const tag = row["time_tag"];
+      const t = parseTimeTag(typeof tag === "string" ? tag : null);
+      if (Number.isFinite(v) && t !== null) { out.push({ t: t / 1000, v }); }
+    }
+  }
+  out.sort((a, b) => a.t - b.t);
+  return out;
+}
+
+/**
+ * The series point nearest a moment, or null when there is none within
+ * `toleranceHours`.
+ *
+ * NEAREST, not the last one before: Kp is a 3-hourly average, so a playhead
+ * between two samples is genuinely closer to one of them. The tolerance is what
+ * stops a gap in the feed from being papered over with a value hours away —
+ * better to fall back to the live reading and say so.
+ */
+export function seriesAt(
+  points: SeriesPoint[], unixSeconds: number, toleranceHours = 3,
+): SeriesPoint | null {
+  if (!points.length || !Number.isFinite(unixSeconds)) { return null; }
+  let best = points[0];
+  let bestGap = Math.abs(points[0].t - unixSeconds);
+  for (let i = 1; i < points.length; i++) {
+    const gap = Math.abs(points[i].t - unixSeconds);
+    if (gap < bestGap) { best = points[i]; bestGap = gap; }
+  }
+  return bestGap <= toleranceHours * 3600 ? best : null;
+}
+
+/**
+ * The NEWEST Kp point. Two shapes seen in the wild:
  *   array-of-arrays with a header row: [["time_tag","kp",...], ["...", "2.33", ...]]
  *   array-of-objects:                  [{time_tag: "...", Kp: 1.33, ...}]
- * Either way we want the LAST row.
+ * Either way we want the LAST row. See parseKpSeries for the whole series.
  */
 export function parseKp(json: unknown): Parsed<number> | null {
   if (!Array.isArray(json) || json.length === 0) { return null; }

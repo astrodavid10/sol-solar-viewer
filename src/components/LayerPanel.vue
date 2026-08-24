@@ -126,6 +126,8 @@ const ROWS: Row[] = [
   { key: "spacecraft", label: "Spacecraft", hint: "Parker Solar Probe and Solar Orbiter" },
   { key: "orbits", label: "Planet orbits", hint: "Rings showing where the planets travel" },
   { key: "glow", label: "Corona glow", hint: "Soft halo around the Sun" },
+  { key: "regionLabels", label: "Region labels",
+    hint: "Name the numbered active regions on the disk" },
 ];
 
 // "Live SDO" is the default and falls back to "Artist" on its own while no

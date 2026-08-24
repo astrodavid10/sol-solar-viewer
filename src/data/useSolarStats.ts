@@ -30,11 +30,13 @@ import {
   XRAY_FLARES_URL,
   parseFlares,
   parseKp,
+  parseKpSeries,
   parseMagField,
   parseScales,
   parseTimeTag,
   parseWindSpeed,
 } from "./swpc";
+import type { SeriesPoint } from "./swpc";
 
 /** One measured quantity plus everything the UI needs to be honest about it. */
 export interface StatField<T> {
@@ -88,6 +90,17 @@ export interface SolarStats {
   wind: StatField<number>;
   mag: StatField<MagInfo>;
   kp: StatField<number>;
+  /**
+   * Every Kp point in the feed, not just the newest.
+   *
+   * A field of its own rather than more data on `kp`, following the
+   * `flareHistory` precedent below: `kp` is "the reading now" and drives the
+   * storm alert, while this drives the chip under a scrubbed playhead, and one
+   * must not be able to blank the other. Same fetch, no extra request — the
+   * endpoint has always returned ~7 days at a 3 h cadence and the app was
+   * keeping one point of it.
+   */
+  kpSeries: StatField<SeriesPoint[]>;
   scales: StatField<ScaleInfo>;
   snapshot: StatField<SnapshotInfo>;
   /**
@@ -141,6 +154,7 @@ const stats = reactive<SolarStats>({
   wind: emptyField<number>(),
   mag: emptyField<MagInfo>(),
   kp: emptyField<number>(),
+  kpSeries: emptyField<SeriesPoint[]>(),
   scales: emptyField<ScaleInfo>(),
   snapshot: emptyField<SnapshotInfo>(),
   flareHistory: emptyField<FlareWindow>(),
@@ -405,7 +419,14 @@ export async function refresh(force = false): Promise<void> {
     tasks.push(settle(fetchJson(MAG_FIELD_URL).then((j) => commit(stats.mag, parseMagField(j)))));
   }
   if (force || !isFresh(stats.kp, TTL_SLOW_MS)) {
-    tasks.push(settle(fetchJson(KP_URL).then((j) => commit(stats.kp, parseKp(j)))));
+    // ONE fetch, TWO fields: the newest reading and the whole series come out
+    // of the same document, and they commit independently so a shape change
+    // that defeats one cannot blank the other.
+    tasks.push(settle(fetchJson(KP_URL).then((j) => {
+      commit(stats.kp, parseKp(j));
+      const series = parseKpSeries(j);
+      if (series.length) { commit(stats.kpSeries, { value: series, timeTag: null }); }
+    })));
   }
   if (force || !isFresh(stats.scales, TTL_SLOW_MS)) {
     tasks.push(settle(fetchJson(SCALES_URL).then((j) => commit(stats.scales, parseScales(j)))));

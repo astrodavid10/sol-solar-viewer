@@ -36,11 +36,14 @@
         />
 
         <!-- Places ON the Sun. Deliberately NOT gated on layers.fieldLines:
-             the regions belong to the surface, and they are the anchors the
-             whole 3D story hangs on. -->
+             the regions belong to the surface, not to the field. They have
+             their own switch, because on a small phone four numbered pills on
+             the disk is sometimes more than a guest wants -- but it defaults ON,
+             since naming the regions is most of what makes this the Sun RIGHT
+             NOW rather than a picture of the Sun. -->
         <region-label
           v-for="chip in regionChips"
-          v-show="chip.visible"
+          v-show="layers.regionLabels && chip.visible"
           :key="chip.id"
           :label="chip.label"
           :description="chip.description"
@@ -50,17 +53,6 @@
           @select="select(chip.id)"
         />
 
-        <region-label
-          v-show="earthChip.visible"
-          variant="earth"
-          glyph="⊕"
-          :label="earthChip.label"
-          :description="earthChip.description"
-          :x="earthChip.x"
-          :y="earthChip.y"
-          :selected="selectedId === earthChip.id"
-          @select="select(earthChip.id)"
-        />
       </div>
 
       <!-- One vertical stack, top right. The app title used to sit in a
@@ -396,8 +388,6 @@ const LABEL_SPREAD_PX = 96;
 /** Below this the chip is close enough to its marker to need no leader. */
 const LABEL_LEADER_MIN_PX = 6;
 
-/** The sub-Earth marker's id in the shared selection slot. */
-const SUB_EARTH_ID = "sub-earth";
 
 /** Active-region ids carry this so they can't collide with an ephemeris body. */
 const AR_PREFIX = "ar:";
@@ -562,7 +552,7 @@ function makeRuntime(): Runtime {
     projected: [],
     regions: [],
     regionLocal: [],
-    markerTargets: [{ id: SUB_EARTH_ID, position: new Vector3() }],
+    markerTargets: [] as ProjectTarget[],
     markerProjected: [],
     scratch: [0, 0, 0],
     cameraWorld: new Vector3(),
@@ -627,14 +617,6 @@ export default defineComponent({
 
       chips: [] as Chip[],
       regionChips: [] as RegionChip[],
-      earthChip: {
-        id: SUB_EARTH_ID,
-        label: "Facing Earth",
-        description: "The point on the Sun that faces Earth right now",
-        x: 0,
-        y: 0,
-        visible: false,
-      } as RegionChip,
       selectedId: "",
       /** 0..1 — how much of the hemisphere in view was never observed. */
       /** `events/events.json`, or null while it loads / when it is absent. */
@@ -695,15 +677,6 @@ export default defineComponent({
     selectedCard(): CardInfo | null {
       const id = this.selectedId;
       if (!id) { return null; }
-      if (id === SUB_EARTH_ID) {
-        return {
-          name: "Facing Earth",
-          detail: "",
-          compare: "",
-          blurb: "This side of the Sun is facing Earth right now — "
-            + "it's the view in Sun Now.",
-        };
-      }
       if (id.indexOf(AR_PREFIX) === 0) { return this.regionCard(id.slice(AR_PREFIX.length)); }
       if (id.indexOf(EVENT_PREFIX) === 0) { return this.eventCard(); }
       return this.selectedBody;
@@ -1450,12 +1423,11 @@ export default defineComponent({
       this.selectedId = this.selectedId === id ? "" : id;
     },
 
-    // --- surface markers (active regions + sub-Earth) ----------------------
+    // --- surface markers (active regions) ----------------------------------
 
     /** True for the ids that belong to the Sun's surface, not to a body. */
     isSurfaceId(id: string): boolean {
-      return id === SUB_EARTH_ID || id.indexOf(AR_PREFIX) === 0
-        || id.indexOf(EVENT_PREFIX) === 0;
+      return id.indexOf(AR_PREFIX) === 0 || id.indexOf(EVENT_PREFIX) === 0;
     },
 
     /**
@@ -1492,8 +1464,10 @@ export default defineComponent({
         regionVector(region, MARKER_RADIUS, local);
         return new Vector3(local[0], local[1], local[2]);
       });
-      // Index 0 stays the sub-Earth point; the regions follow it in order.
-      rt.markerTargets.length = 1;
+      // One target per region, and nothing else. Index 0 used to be the
+      // sub-Earth point, which is why the projection loop below had an `i === 0`
+      // special case and an `i - 1` on every region; both are gone with it.
+      rt.markerTargets.length = 0;
       regions.forEach((region) => {
         rt.markerTargets.push({
           id: `${AR_PREFIX}${region.number}`,
@@ -1512,8 +1486,8 @@ export default defineComponent({
     },
 
     /**
-     * Active-region and sub-Earth chips, at the same 20 Hz DOM cadence as the
-     * spacecraft labels.
+     * Active-region chips, at the same 20 Hz DOM cadence as the spacecraft
+     * labels.
      *
      * The regions arrive in the Carrington LOCAL frame, so each is turned by the
      * SAME slerped quaternion the surface and the field lines use — read off the
@@ -1534,16 +1508,6 @@ export default defineComponent({
         target.position.copy(point);
         if (orientation) { target.position.applyQuaternion(orientation); }
       });
-
-      // Earth under the PLAYHEAD (updateSpacecraft wrote it moments ago in this
-      // same pass), projected onto the marker sphere. Earth moves ~1.5°/day, so
-      // scrubbing 72 h back barely moves this point — but taking it from the
-      // playhead keeps it consistent with the surface rotating underneath it.
-      const earth = rt.positions.get("earth");
-      const haveEarth = !!earth && earth.lengthSq() > 0;
-      if (earth && haveEarth) {
-        rt.markerTargets[0].position.copy(earth).setLength(MARKER_RADIUS);
-      }
 
       // Occluder radius 0 on purpose. projectTargets' sphere test is built for
       // bodies out in SPACE — for a point sitting ON the sphere it misfires,
@@ -1566,19 +1530,12 @@ export default defineComponent({
       const cameraLength = rt.cameraWorld.length();
       const scale = cameraLength > 0 ? 1 / (MARKER_RADIUS * cameraLength) : 0;
       rt.markerProjected.forEach((point, i) => {
-        const facing = rt.markerTargets[i].position.dot(rt.cameraWorld) * scale > FACING_MIN_DOT;
-        const visible = point.visible && facing;
-        if (i === 0) {
-          this.earthChip.x = point.xCss;
-          this.earthChip.y = point.yCss;
-          this.earthChip.visible = visible && haveEarth;
-          return;
-        }
-        const chip = this.regionChips[i - 1];
+        const chip = this.regionChips[i];
         if (!chip) { return; }
+        const facing = rt.markerTargets[i].position.dot(rt.cameraWorld) * scale > FACING_MIN_DOT;
         chip.x = point.xCss;
         chip.y = point.yCss;
-        chip.visible = visible;
+        chip.visible = point.visible && facing;
       });
     },
 
@@ -1604,8 +1561,11 @@ export default defineComponent({
       if (this.layers.spacecraft) {
         this.chips.forEach((chip) => collect(chip, chip.visible));
       }
-      this.regionChips.forEach((chip) => collect(chip, chip.visible));
-      collect(this.earthChip, this.earthChip.visible);
+      // A hidden layer must not reserve vertical space: including a chip the
+      // guest cannot see would push the visible ones apart for no reason.
+      if (this.layers.regionLabels) {
+        this.regionChips.forEach((chip) => collect(chip, chip.visible));
+      }
 
       deCollideLabels(boxes, { strideY: LABEL_STRIDE_PX, spreadX: LABEL_SPREAD_PX });
 

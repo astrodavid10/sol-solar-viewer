@@ -41,10 +41,11 @@
 import { defineComponent, PropType } from "vue";
 
 import StatChip from "./StatChip.vue";
-import { STALE_MS, useSolarStats } from "../data/useSolarStats";
+import { STALE_MS, flareMagnitude, useSolarStats } from "../data/useSolarStats";
 import { flareLabel, kpLabel, sunspotLabel, windLabel } from "../data/swpc";
 import { dataBaseUrl } from "../data/pfss";
 import { RegionDay, loadRegionHistory, regionDayAt, utDate } from "../data/regions";
+import { seriesAt } from "../data/swpc";
 import { sceneUnix } from "../state/useAppState";
 
 interface Chip {
@@ -60,6 +61,23 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "Aug 21" from a `YYYY-MM-DD` UT date, parsed as UTC rather than local. */
+/**
+ * A short UT stamp for a scrubbed value, e.g. "Aug 21, 16:00 UT".
+ *
+ * Always UT and always says so. Every time in this app's data is UT -- NOAA
+ * issues on UT days, the PFSS slots are a UT grid -- and a local-time label
+ * beside a UT-gridded number invites the guest to compare two different clocks.
+ */
+function timeLabel(unixSeconds: number): string {
+  if (!Number.isFinite(unixSeconds)) { return ""; }
+  const d = new Date(unixSeconds * 1000);
+  const month = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+  const day = d.getUTCDate();
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${month} ${day}, ${hh}:${mm} UT`;
+}
+
 function dayLabel(date: string): string {
   const parts = date.split("-");
   const month = Number(parts[1]) - 1;
@@ -130,19 +148,32 @@ export default defineComponent({
       const kp = this.stats.kp;
       const snapshot = this.stats.snapshot;
 
-      const flareText = flareLabel(flare.value ? flare.value.currentClass : null);
       const windText = windLabel(wind.value);
-      const kpText = kpLabel(kp.value);
       const spots = this.spotDay;
+      const kpNow = this.kpAtPlayhead;
+      const flareNow = this.flareAtPlayhead;
+      const kpText = kpLabel(kpNow.value);
+      // A scrubbed slot with no flare in it is INFORMATION, not missing data:
+      // we know nothing happened. flareLabel(null) returns NO_DATA ("—", "no
+      // data right now"), which would tell the guest the opposite -- that we
+      // could not find out. Most 4 h windows on the Sun contain no flare, so
+      // this is the common case, not an edge one.
+      const flareText = (!flareNow.live && flareNow.cls === null)
+        ? { headline: "Quiet", detail: "" }
+        : flareLabel(flareNow.cls);
 
       return [
         {
           key: "flare",
           label: "Flare",
           value: flareText.headline,
-          detail: flareText.detail,
-          observedMs: flare.observedMs,
-          stale: this.isStale(flare.fetchedAt),
+          detail: flareNow.live ? flareText.detail : flareNow.detail,
+          // Same rule as the sunspot chip: the freshness dot answers "how long
+          // ago did we MEASURE this", and for a deliberately historical value
+          // that question has no useful answer. A green dot beside a
+          // three-day-old reading is a lie told in colour.
+          observedMs: flareNow.live ? flare.observedMs : null,
+          stale: flareNow.live ? this.isStale(flare.fetchedAt) : false,
         },
         {
           key: "wind",
@@ -156,9 +187,9 @@ export default defineComponent({
           key: "kp",
           label: "Aurora",
           value: kpText.headline,
-          detail: kpText.detail,
-          observedMs: kp.observedMs,
-          stale: this.isStale(kp.fetchedAt),
+          detail: kpNow.live ? kpText.detail : kpNow.detail,
+          observedMs: kpNow.live ? kp.observedMs : null,
+          stale: kpNow.live ? this.isStale(kp.fetchedAt) : false,
         },
         {
           key: "sunspots",
@@ -174,6 +205,81 @@ export default defineComponent({
           stale: false,
         },
       ];
+    },
+
+    /**
+     * Is the playhead resting at "now"?
+     *
+     * Within one Kp cadence (3 h) of the newest data counts as now: the
+     * scrubber's newest slot is snapped to a 4 h grid and the live readings are
+     * minutes old, so demanding exact equality would label the resting state
+     * "historical" and drop the freshness dot the guest should be seeing.
+     */
+    atNow(): boolean {
+      return Date.now() / 1000 - this.sceneUnix < 3 * 3600;
+    },
+
+    /**
+     * Kp for the moment under the playhead.
+     *
+     * `noaa-planetary-k-index.json` has always been a 3-hourly series about a
+     * week long -- the app fetched all of it and kept the last point, so the
+     * aurora chip read "now" wherever the scrubber sat. Measured 2026-08-24 the
+     * values across the 72 h window were 1.67 / 0.67 / 1.67 / 2.67, so this was
+     * not a distinction without a difference.
+     *
+     * Falls back to the live reading when the series is missing or has no point
+     * near the playhead, and says which through `live`.
+     */
+    kpAtPlayhead(): { value: number | null; detail: string; live: boolean } {
+      const live = { value: this.stats.kp.value, detail: "", live: true };
+      if (this.atNow) { return live; }
+      const series = this.stats.kpSeries.value;
+      if (!series || !series.length) { return live; }
+      const point = seriesAt(series, this.sceneUnix);
+      if (!point) { return live; }
+      return {
+        value: point.v,
+        detail: `3-hour index · ${timeLabel(point.t)}`,
+        live: false,
+      };
+    },
+
+    /**
+     * The strongest flare near the playhead, from the window the pipeline
+     * already publishes.
+     *
+     * A DIFFERENT QUANTITY from the live chip, and the copy has to admit it.
+     * Live, this chip shows GOES's *current* X-ray class -- an instantaneous
+     * background measurement. There is no history of that, so a scrubbed
+     * playhead instead answers the question the guest is actually asking:
+     * "was anything happening then?" -- the biggest flare whose peak lands in
+     * the same 4 h slot. "Quiet" when nothing did, which is honest: most 4 h
+     * windows on the Sun contain no flare at all.
+     */
+    flareAtPlayhead(): { cls: string | null; detail: string; live: boolean } {
+      if (this.atNow) {
+        const f = this.stats.flare.value;
+        return { cls: f ? f.currentClass : null, detail: "", live: true };
+      }
+      const window = this.stats.flareHistory.value;
+      const events = window ? window.events : [];
+      const half = 2 * 3600;                       // half the 4 h slot spacing
+      let best: { cls: string; peakUnix: number } | null = null;
+      for (const event of events) {
+        if (Math.abs(event.peakUnix - this.sceneUnix) > half) { continue; }
+        if (!best || flareMagnitude(event.cls) > flareMagnitude(best.cls)) {
+          best = { cls: event.cls, peakUnix: event.peakUnix };
+        }
+      }
+      if (!best) {
+        return { cls: null, detail: `no flare · ${timeLabel(this.sceneUnix)}`, live: false };
+      }
+      return {
+        cls: best.cls,
+        detail: `peaked ${timeLabel(best.peakUnix)}`,
+        live: false,
+      };
     },
 
     /**

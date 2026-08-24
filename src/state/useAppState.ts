@@ -20,6 +20,7 @@ export interface LayerFlags {
   spacecraft: boolean;
   orbits: boolean;
   glow: boolean;
+  regionLabels: boolean;
 }
 
 /**
@@ -37,6 +38,10 @@ export const layers = reactive<LayerFlags>({
   spacecraft: false,
   orbits: false,
   glow: true,
+  // ON by default: naming the active regions is most of what turns "a picture
+  // of the Sun" into "the Sun right now", and a guest who wants the clean disk
+  // can say so. Off is the exception, not the default.
+  regionLabels: true,
 });
 
 /** How the Sun's own surface is painted in the 3D view:

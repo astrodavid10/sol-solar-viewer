@@ -451,6 +451,130 @@ Through the dev server, so the data contract is proven rather than assumed:
 4096x2048), an individual history frame returns as a 150 KB JPEG, and `sol.ar/3`
 serves 4 history days each carrying its regions' positions.
 
+### The palette read as LSU. That was measurable, and it is fixed.
+
+Reported as "a little too much LSU colors", which was exactly right, and not a
+matter of taste:
+
+| | hue |
+|---|---|
+| LSU purple `#461D7C` | 265.9 deg |
+| the surface I shipped `#0E0526` | **256.4 deg** — 9.5 deg away |
+| LSU gold `#FDD023` | 47.6 deg |
+| the accent I kept `#FFC850` | **41.1 deg** — 6.5 deg away |
+
+Two colours that close to a famous pair, used in the same relationship (dark
+ground, bright accent), read as that pair. The error was twofold: taking
+Spaceberry literally for the surfaces AND keeping gold as the UI's "on" state —
+which also quietly defeated the original brief, "away from the yellow on brown
+grey", because it preserved the yellow-on-dark relationship the brief was asking
+to leave.
+
+Two fixes, each independently defensible:
+
+1. **Surfaces move to hue ~230** — navy, 36 deg clear of LSU purple and much
+   closer to Spacebubble (238) than Spaceberry (263). "Deep space" was always
+   the brief; navy says it and grape does not. Contrast IMPROVES: body text over
+   a bright disk goes 14.05 → 14.73:1.
+2. **Gold leaves the chrome entirely.** It now appears only where it carries
+   data meaning: closed field lines, a C-class flare diamond, the ring that
+   means "active region". Selection is a brand neutral (`--sol-select`, Nova
+   White) at 16.37:1 against gold's 12.66:1, and unconfusable with any physics
+   colour — which gold genuinely was, a gold-bordered switch sitting inches from
+   gold closed-field lines meaning something else entirely.
+
+That swept **28 gold sites**, including the app's own title, every `InfoModal`
+heading and every `is-active` state. Warnings keep amber through a new semantic
+`--sol-warn`, because "caution" is what amber means almost universally and
+warnings are rare, brief and never adjacent to a field line — but as a separate
+token, so "warning" and "closed magnetic field" stop being the same string. The
+kiosk take-home pill goes ember, one of exactly three places the ember guard-rail
+permits it. Roughly 20 ad-hoc `rgba(255,255,255,x)` greys were unified onto
+`--sol-hairline` / `--sol-hover`.
+
+### The layer panel was misaligned by 43.6 px, measured
+
+A row's label starts after the 34 px switch and its 0.6rem gap
+(0.5rem + 34 + 0.6rem = 51.6 px); the "Surface" group label started at the bare
+0.5rem = 8 px — with `font-size: 0.85rem; font-weight: 600`, **byte for byte
+identical to the row labels**. Identical styling at a different indent is the
+worst of both readings: it looks like a peer of the rows and lines up with
+nothing. It is now a real section header using the global `.sol-section-head`
+class, which carries the kit's own convention (letterspaced caps over a thin
+rule) and matches every other heading in the app instead of being this
+component's private invention. Vertical padding was three numbers for one rhythm
+(0.3 / 0.35 / 0.4rem); it is one now.
+
+**Measuring the switch caught a bug in my own first values.** At 0.42 alpha the
+on/off change was 2.88:1, under the 3.0 a state change needs to be
+unmistakable, and the off track sat at 1.24:1 against the panel — a switch you
+cannot see until you turn it on. Now 0.55 on / 0.28 off: 3.45:1 between states,
+1.56:1 for the off track, and the knob keeps 3.29:1 against the lit track plus a
+dark ring at 5.59:1, because the knob's POSITION is the only thing that says
+which way the switch is thrown. Keyboard focus was also invisible on every row
+and segment (`border: none`, no outline rule).
+
+### Opt-in 4K sphere texture (`--with-hires`, `sol.texture/4`)
+
+A per-layer `high_res` block holding one 8192x4096 map of the NEWEST frame,
+built from SDO's 4096 px browse still. Off by default in the pipeline AND in the
+app. → **footgun 40**, which has the whole rationale; the essentials:
+
+- **8192, not 4096, is the point.** Half a plate-carree map is the visible
+  hemisphere, so a 4096-wide map gives 2048 px across a disk carrying ~3204 px of
+  real detail in a 4096 source. The normal map was discarding most of a 4K frame.
+- **0304 is excluded and that is the guard working.** Its limb fits +2.28% at a
+  2048 source (inside tolerance) but **+4.4% at 4096** — `r_pred` doubles
+  exactly with resolution, `r_fit` comes out 30 px wider than twice the 2048 fit,
+  because 0304 is He II 304 A with the most extended chromospheric limb of the
+  AIA channels and more ray samples cross a diffuse edge further out. Do NOT
+  raise `TEX_LIMB_RADIUS_TOL`: it exists to catch SDO re-cropping the browse
+  product, and a 4% radius error displaces every feature on the disk. Four of
+  five channels get 4K; the failure is soft and the app hides the option per
+  channel.
+- **GPU is the binding constraint, not bytes.** ~1.1-3.5 MB on the wire against
+  ~134 MB decoded. `hasHighRes()` reads `gl.MAX_TEXTURE_SIZE` from the real
+  renderer and returns false when it does not fit (many phones cap at 4096) —
+  and false when no renderer was passed, which fails closed but silently
+  disables the feature, so `SolarView3D` must keep passing `rt.stage.renderer`.
+  The texture lives in its own slot OUTSIDE the LRU, because at 3x the whole
+  budget it would evict everything on sight.
+- **Never in CI:** ~100-230 s per 8192 reprojection, ~11 min for four channels.
+  Workstation/dome only, published by hand.
+
+Measured: 0171 1.32 MB / 232 s · 0193 1.06 MB / 218 s · HMIIC 1.10 MB / 126 s ·
+HMIB 3.46 MB / 99 s · 0304 skipped. ~7 MB added.
+
+**The UI toggle is NOT built yet** — `sunSurface` exposes `hasHighRes()`,
+`setHighRes()`, `highResActive()`, `maxTextureSize()` and nothing calls them.
+
+### A NameError hid in a rarely-taken branch for several runs
+
+`TEX_HIST_TOLERANCE_HOURS` was used in a `cli.py` log message but never added to
+that module's `from .config import (...)`. It sits on the branch that only runs
+when a timeline slot has no usable source image, so it never fired on the happy
+path — and when it did, it killed the texture stage **after four minutes of
+reprojection**, rolled the product back and published nothing.
+
+Two things worth keeping from it. First, **the failure policy worked**:
+`index.json` correctly reported texture as `ok`, "not regenerated this run", not
+stale, and the previously-published product was left serving. Nothing was
+damaged. Second, **it was read past once.** A grep for
+`history:|capped|omitted|layer(s)` partially matched, the reuse conclusion drawn
+from it was correct, and the crash below it went unnoticed. Check exit codes, not
+greps.
+
+`scripts/check_pipeline_names.py` now catches the whole class. `pipeline/` had no
+Python linting of any kind — no pyflakes, flake8 or ruff, no config — and its
+only real test is the validator, which needs a complete run to say anything. The
+script uses Python's own `symtable` (no dependencies) to find every name a
+function expects in module globals and check the module has it. **Negative-tested**
+against a throwaway module reproducing the exact bug shape plus a plain typo: it
+flagged both, and returns clean when removed. 26 modules, 0 problems.
+→ **footgun 41** also records why background pipeline runs need `python -u`: a
+killed run without it leaves a ZERO-BYTE log, and the only evidence of what
+happened is the mtimes on `.staging`.
+
 ### ⚠ NOT VERIFIED IN A BROWSER
 
 **This session had no browser automation available.** Everything above passes

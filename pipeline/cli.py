@@ -53,7 +53,8 @@ from .config import (CACHE_DIR, DEFAULT_OUT, FRAME_SPACING_HOURS,
                      MIN_FRAMES_TO_PUBLISH, PIPELINE_VERSION, SCHEMA_INDEX,
                      EVENTS_MAX_BYTES, EVENTS_WINDOW_SLACK_HOURS,
                      STALE_HOURS, TEX_CHANNELS, TEX_HIST_H,
-                     TEX_HIST_MAX_NEW_PER_RUN, TEX_HIST_W,
+                     TEX_HIST_MAX_NEW_PER_RUN, TEX_HIST_TOLERANCE_HOURS,
+                     TEX_HIST_W,
                      TEX_OUT_H, TEX_OUT_W, WINDOW_HOURS)
 from .io_utils import (PipelineError, Staging, age_hours, human_bytes, iso_z,
                        json_dumps, parse_iso_z, prune_dirs, read_json, unix_s,
@@ -99,6 +100,7 @@ class Ctx:
     simulate_donki_outage: bool = False
     with_texture: bool = False
     max_new_textures: Optional[int] = None
+    with_hires: bool = False
 
     def log(self, msg: str) -> None:
         if self.verbose:
@@ -124,6 +126,7 @@ def make_ctx(args: argparse.Namespace) -> Ctx:
             getattr(args, "simulate_donki_outage", False)),
         with_texture=bool(getattr(args, "with_texture", False)),
         max_new_textures=getattr(args, "max_new_textures", None),
+        with_hires=bool(getattr(args, "with_hires", False)),
     )
 
 
@@ -596,13 +599,32 @@ def _texture_history(ctx: Ctx, layers: List[dict], primary: dict) -> dict:
            else int(ctx.max_new_textures))
     budget = cap
     todo: List[Tuple[datetime, str]] = []
+    from .texture.export import HIST_NAME_RE
+
     for target in reversed(targets[:-1]):             # newest history first
         for code in by_code:
             key = (code, iso_z(target))
             have = published.get(key)
-            if have and (ctx.out / "texture" / str(have.get("url"))).exists():
+            url = str((have or {}).get("url") or "")
+            # A published entry is only reusable if it names a genuine HISTORY
+            # file. The newest map's name is stable and NOT time-keyed
+            # (`sdo0171_carrington_4096x2048.jpg`), so when the window advances
+            # by one slot the PREVIOUS newest slot becomes a history slot whose
+            # published url still points at that stable name -- and the file is
+            # still there, because this very run just overwrote it with the NEW
+            # newest frame. Reusing it published two different target times
+            # pointing at one file, the older of them showing the newer Sun.
+            #
+            # Caught by the validator on the first run after the window rolled
+            # ("0171 frame 14 is 2048x1024 -- got 4096x2048"), which is also why
+            # a same-window test could not see it: nothing is demoted until the
+            # 4 h boundary passes. A demoted slot must be REBUILT at history
+            # resolution, so it falls through to `todo`.
+            reusable = (have is not None and bool(HIST_NAME_RE.match(url))
+                        and (ctx.out / "texture" / url).exists())
+            if reusable:
                 frames[code][iso_z(target)] = have
-                ctx.staging.note("texture/" + str(have["url"]))
+                ctx.staging.note("texture/" + url)
                 reused += 1
             else:
                 todo.append((target, code))
@@ -619,7 +641,15 @@ def _texture_history(ctx: Ctx, layers: List[dict], primary: dict) -> dict:
             # substituting today's Sun for a three-day-old one is not.
             print("    {0} {1}: {2}".format(code, iso_z(target), exc))
             failed += 1
-            budget -= 1
+            # A failure does NOT consume the budget. The budget exists to bound
+            # REPROJECTION time, and this exception is raised by fetch_source_at
+            # before any reprojection happens -- the day listing is already
+            # cached, so an unresolvable slot costs almost nothing. Charging for
+            # it let a persistent archive gap eat the whole allowance: measured
+            # 2026-08-24, the SDO gap on 2026-08-21 spans 3 slots x 5 channels =
+            # 15 attempts, exactly the default cap, so a run could spend its
+            # entire budget failing and build nothing. Bounded anyway by the
+            # total slot count.
             continue
         ctx.staging.write_bytes("texture/" + meta["url"], blob)
         frames[code][iso_z(target)] = meta
@@ -685,6 +715,13 @@ def run_texture(ctx: Ctx) -> ProductResult:
     channel being down (or in eclipse) should cost the guest that one option,
     not the whole textured Sun. Losing the DEFAULT channel is different — with
     no top-level document there is nothing to publish, so that propagates.
+
+    With ``ctx.with_hires`` (opt-in, off by default — CLAUDE.md hard
+    constraint), each channel also gets an 8192x4096 ``high_res`` block
+    (newest frame only; see TEX_HIRES_* in config.py). A hi-res failure is
+    ALWAYS soft, even for the default channel: it is a bonus a guest never
+    sees unless they opt in, so it is worth strictly less than the normal map
+    it rides alongside.
     """
     from .texture import export as texture_export
     print("[texture]")
@@ -713,7 +750,31 @@ def run_texture(ctx: Ctx) -> ProductResult:
             doc["off_limb"]["url"], human_bytes(len(offlimb)),
             doc["off_limb"]["half_width_rsun"]))
         total_bytes += len(blob) + len(offlimb)
-        layers.append({
+
+        # Opt-in, newest-frame-only, off unless --with-hires (hard constraint
+        # 4). A failure here is SOFTER than losing the default channel's
+        # normal map: it only costs the guest a bonus they never asked for by
+        # default, so it is logged and skipped rather than raised, even for
+        # the default channel -- the `high_res` key is simply absent from
+        # this layer (additive-only contract, see SCHEMA_TEXTURE's docstring).
+        if ctx.with_hires:
+            t_hires = time.perf_counter()
+            try:
+                hires_blob, hires_meta = texture_export.build_hires_texture(
+                    ctx.now, code=code, verbose=ctx.verbose)
+            except Exception as exc:                      # noqa: BLE001
+                print("    {0} hi-res skipped: {1}".format(code, exc))
+            else:
+                ctx.staging.write_bytes(
+                    "texture/" + hires_meta["url"], hires_blob)
+                doc["high_res"] = hires_meta
+                total_bytes += len(hires_blob)
+                print("    hi-res {0}x{1} {2} ({3}, {4:.1f}s)".format(
+                    hires_meta["width"], hires_meta["height"],
+                    hires_meta["url"], human_bytes(len(hires_blob)),
+                    time.perf_counter() - t_hires))
+
+        layer_entry = {
             "channel": doc["channel"],
             "label": doc["label"],
             "wavelength_angstrom": doc["wavelength_angstrom"],
@@ -725,7 +786,10 @@ def run_texture(ctx: Ctx) -> ProductResult:
             "sub_earth_carr_lon_deg": doc["sub_earth_carr_lon_deg"],
             "sub_earth_lat_deg": doc["sub_earth_lat_deg"],
             "source_url": doc["source_url"],
-        })
+        }
+        if doc.get("high_res"):
+            layer_entry["high_res"] = doc["high_res"]
+        layers.append(layer_entry)
         if primary_doc is None:
             primary_doc = doc
             primary_info = info
@@ -1020,6 +1084,13 @@ def _prune_orphan_textures(ctx: Ctx, results: List[ProductResult]) -> None:
         for fr in (layer.get("frames") or []):
             if fr.get("url"):
                 keep.add(str(fr["url"]))
+        # The opt-in high-res map: absent when the layer was built without
+        # --with-hires (or its hi-res build failed), present as its own
+        # sibling .jpg otherwise. Missing this would delete the file the
+        # SAME run just wrote, on its very first publish.
+        hires = layer.get("high_res")
+        if isinstance(hires, dict) and hires.get("url"):
+            keep.add(str(hires["url"]))
     # A manifest that named nothing would make every file an orphan. Refuse.
     if not keep:
         print("  WARN texture.json references no images; skipping prune")
@@ -1325,6 +1396,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(p)
     p.add_argument("--with-texture", action="store_true",
                    help="also build texture/ (default ON in the CI workflow)")
+    p.add_argument("--with-hires", action="store_true",
+                   help="also build the opt-in high-res newest-frame map per "
+                        "channel (only takes effect with --with-texture; "
+                        "off by default everywhere -- CI included, see "
+                        "TEX_HIRES_* in config.py)")
     p.set_defaults(func=cmd_all)
 
     p = sub.add_parser("pfss", help="PFSS field-line frames")
@@ -1345,6 +1421,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("texture", help="AIA 171 Carrington sphere texture")
     _add_common(p, pfss_flags=False)
+    p.add_argument("--with-hires", action="store_true",
+                   help="also build the opt-in high-res newest-frame map per "
+                        "channel (off by default -- see TEX_HIRES_* in "
+                        "config.py; expect several extra minutes, "
+                        "footgun-grade reprojection cost at 8192x4096)")
     p.set_defaults(func=lambda a: _single(a, "texture"))
 
     p = sub.add_parser("events", help="flare + CME catalog (CCMC DONKI)")

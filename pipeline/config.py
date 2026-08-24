@@ -30,7 +30,7 @@ SCHEMA_PFSS = "sol.pfss/1"
 SCHEMA_EPHEM = "sol.ephem/1"
 SCHEMA_AR = "sol.ar/3"        # /2 adds `history`; /3 adds its positions
 SCHEMA_STATS = "sol.stats/1"
-SCHEMA_TEXTURE = "sol.texture/3"   # /3 adds per-layer `frames`
+SCHEMA_TEXTURE = "sol.texture/4"   # /3 adds per-layer `frames`; /4 adds `high_res`
 SCHEMA_EVENTS = "sol.events/1"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -261,13 +261,54 @@ TEX_MAX_OBS_AGE_HOURS = 24.0              # older than this -> status degraded
 SDO_BROWSE_BASE = "https://sdo.gsfc.nasa.gov/assets/img/browse"
 SDO_LATEST_BASE = "https://sdo.gsfc.nasa.gov/assets/img/latest"
 TEX_SRC_RES = 2048
-def tex_src_scale(channel_scale: float) -> float:
-    """arcsec/px of the browse still we actually download, for one channel."""
-    return channel_scale * (4096 // TEX_SRC_RES)
+def tex_src_scale(channel_scale: float, src_res: int = TEX_SRC_RES) -> float:
+    """arcsec/px of the browse still actually downloaded, for one channel.
+
+    ``channel_scale`` (TEX_CHANNELS[...]["scale"]) is the plate scale of
+    SDO's NATIVE 4096 px product; a still fetched at a coarser ``src_res``
+    has proportionally fewer, proportionally bigger pixels across the same
+    disk. Parameterized (rather than hard-coded to the module's TEX_SRC_RES)
+    so the SAME function serves the normal 2048 px source and the high-res
+    4096 px one below -- at src_res=4096 this returns channel_scale
+    unchanged, which is correct: the native still needs no upscaling factor.
+    """
+    return channel_scale * (4096 // src_res)
 
 
 TEX_SRC_SCALE_ARCSEC = tex_src_scale(0.6)   # AIA default, kept for callers
 TEX_LIMB_RADIUS_TOL = 0.03                # warn if the fitted limb is >3% off
+
+# ── Opt-in high-resolution newest-frame texture (--with-hires) ──────────────
+# TEX_OUT_W/H (4096x2048) resamples the 2048 px browse still, and half of a
+# plate-carree map is the visible hemisphere -- so the near side the guest
+# actually sees only ever gets 2048 px across 180 deg of longitude. SDO's
+# browse tree also publishes a 4096 px native still (footgun 7); at that
+# resolution the AIA disk (fills 0.7824 of the frame, TEX_LIMB_RADIUS_TOL's
+# derivation) is ~3204 px across -- more real detail than the 2048x1024
+# near-side output can show at all. TEX_HIRES_W/H is TEX_OUT_W/H exactly
+# doubled, so the near side gets 4096 px and the source detail is actually
+# used rather than thrown away on the way in.
+#
+# NEWEST FRAME ONLY (hard constraint from the task that added this: no
+# history sequence at this size -- 19 slots x 5 channels x 4x the pixels is
+# not a defensible CI cost) and OFF by default at both ends: the pipeline
+# needs --with-hires (cli.py), and the app needs a guest opt-in
+# (sunSurface.ts's setHighRes()) because the decoded texture is a real GPU
+# memory commitment (see TEX_HIRES_W/H's docstring math below) that a phone
+# guest must never pay for just because the product exists.
+TEX_HIRES_SRC_RES = 4096                  # SDO's native browse resolution
+TEX_HIRES_W, TEX_HIRES_H = 8192, 4096
+# Measured 2026-08-23, `python -m pipeline texture --with-hires` (5 channels,
+# TEX_HIRES_JPEG_QUALITY below): see HANDOFF.md / the session report for the
+# per-channel wall-clock and byte counts that justified this number. Sized
+# with headroom over the largest observed channel, the same way TEX_MAX_BYTES
+# (1.6 MB, ~600 KB typical at 4096x2048) leaves headroom over its typical size
+# -- this is a SEPARATE budget rather than a raised TEX_MAX_BYTES because an
+# 8192x4096 JPEG at the same quality is measured several times bigger than the
+# 4096x2048 one, and a shared ceiling would either fail every normal-res
+# build or let a hi-res build through many times bigger than intended.
+TEX_HIRES_JPEG_QUALITY = 82                # same as TEX_JPEG_QUALITY; see below
+TEX_HIRES_MAX_BYTES = 4_500_000
 
 # ── Off-limb annulus ────────────────────────────────────────────────────────
 # The Carrington reprojection maps the SURFACE, so everything outside the limb
@@ -294,6 +335,11 @@ TEX_OFFLIMB_MAX_BYTES = 400_000
 # hides any sub-pixel disagreement between the two.
 TEX_OFFLIMB_INNER = (0.985, 1.02)
 TEX_LIMB_CENTER_TOL_PX = 25.0             # warn if the disk is not centered
+# ^ measured/tuned at TEX_SRC_RES (2048 px); fit_limb() scales this by
+# src_res / TEX_SRC_RES before comparing, because a pixel offset scales
+# linearly with resolution -- without that, the 4096 px hi-res source (same
+# real disk-center offset, exactly 2x the pixels) would fail this check for
+# being MORE precise, not less.
 
 # SDO has two eclipse seasons a year (mid-Feb to mid-Mar, mid-Aug to mid-Sep)
 # with a daily blackout of up to ~72 min, so near-black browse frames are

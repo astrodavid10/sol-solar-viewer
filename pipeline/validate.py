@@ -24,7 +24,11 @@ getting it wrong produces a *silent* visual bug rather than an error:
                        size, byte budget, sub_earth longitude in [0, 360), and
                        the observation age AT GENERATION TIME (both timestamps
                        live in the file, so the answer never drifts with the
-                       wall clock the way "now - obs_iso" would).
+                       wall clock the way "now - obs_iso" would). Each
+                       layer's opt-in `high_res` block (schema /4) gets the
+                       same JPEG checks when present, and is skipped cleanly
+                       when absent -- additive only, most trees will not
+                       have run with --with-hires.
 """
 
 from __future__ import annotations
@@ -41,7 +45,8 @@ import numpy as np
 from .config import (CME_MIN_SPEED_KMS, EVENTS_MAX_BYTES,
                      EVENTS_WINDOW_SLACK_HOURS, LIM_RSUN, SCHEMA_AR,
                      SCHEMA_EPHEM, SCHEMA_EVENTS, SCHEMA_INDEX, SCHEMA_PFSS,
-                     SCHEMA_STATS, SCHEMA_TEXTURE, TEX_MAX_BYTES,
+                     SCHEMA_STATS, SCHEMA_TEXTURE, TEX_HIRES_H,
+                     TEX_HIRES_MAX_BYTES, TEX_HIRES_W, TEX_MAX_BYTES,
                      TEX_MAX_OBS_AGE_HOURS, TEX_OFFLIMB_MAX_BYTES,
                      TEX_OUT_H, TEX_OUT_W, TEX_HIST_H, TEX_HIST_W,
                      TEX_HIST_MAX_BYTES, TEX_HIST_TOLERANCE_HOURS,
@@ -782,6 +787,7 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
             _check_texture_jpeg(rep, get, doc, lay.get("url"), lay)
             _check_offlimb(rep, get, lay)
             _check_texture_frames(rep, get, doc, lay)
+            _check_hires(rep, get, lay)
     else:
         rep.check(False, "texture.json has a non-empty layers array",
                   "got {0!r}".format(layers))
@@ -959,6 +965,58 @@ def _check_offlimb(rep: Report, get, layer: dict) -> None:
     rep.check(float(core.mean()) < 4.0,
               "{0} disk center is blacked out".format(name),
               "center mean {0:.1f}".format(float(core.mean())))
+
+
+_HIRES_KEYS = ("url", "width", "height", "bytes", "obs_iso",
+              "sub_earth_carr_lon_deg", "sub_earth_lat_deg", "source_url")
+
+
+def _check_hires(rep: Report, get, layer: dict) -> None:
+    """One channel's OPT-IN high-res newest-frame map (SCHEMA_TEXTURE /4).
+
+    ADDITIVE ONLY: most published trees will never have run with
+    --with-hires, so an ABSENT block is not a failure -- only a malformed
+    PRESENT one is. This is the same discipline TEX_CHANNELS' `frames` and
+    `off_limb` already follow, extended to a field that is also opt-in at
+    build time, not just sometimes-empty.
+    """
+    channel = layer.get("channel")
+    hires = layer.get("high_res")
+    if hires is None:
+        rep.info("{0} has no high_res block (pipeline run without "
+                  "--with-hires, or this channel's hi-res build failed)"
+                  .format(channel))
+        return
+    if not rep.check(isinstance(hires, dict),
+                     "{0} high_res is an object".format(channel),
+                     "got {0!r}".format(type(hires).__name__)):
+        return
+    missing = [k for k in _HIRES_KEYS if k not in hires]
+    rep.check(not missing, "{0} high_res keys complete".format(channel),
+              "missing {0}".format(missing))
+    rep.check((hires.get("width"), hires.get("height"))
+              == (TEX_HIRES_W, TEX_HIRES_H),
+              "{0} high_res is {1}x{2}".format(channel, TEX_HIRES_W,
+                                               TEX_HIRES_H),
+              "got {0}x{1}".format(hires.get("width"), hires.get("height")))
+    lon = hires.get("sub_earth_carr_lon_deg")
+    rep.check(isinstance(lon, (int, float)) and 0.0 <= float(lon) < 360.0,
+              "{0} high_res sub_earth_carr_lon_deg in [0, 360)".format(
+                  channel),
+              "got {0!r}".format(lon))
+    blat = hires.get("sub_earth_lat_deg")
+    rep.check(isinstance(blat, (int, float)) and abs(float(blat)) <= 7.5,
+              "{0} high_res sub_earth_lat_deg within +/-7.5".format(channel),
+              "got {0!r}".format(blat))
+    rep.check(parse_iso_z(hires.get("obs_iso") or "") is not None,
+              "{0} high_res obs_iso parses".format(channel),
+              "got {0!r}".format(hires.get("obs_iso")))
+    # Reuses _check_texture_jpeg exactly as the normal map and every history
+    # frame do (fetch, byte budget, decode, declared-size match, not
+    # blank/flat) -- an empty `doc` is fine because `entry` (== hires) always
+    # carries its OWN width/height, so the doc-level fallback never fires.
+    _check_texture_jpeg(rep, get, {}, hires.get("url"), hires,
+                        max_bytes=TEX_HIRES_MAX_BYTES)
 
 
 def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict,

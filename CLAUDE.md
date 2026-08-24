@@ -30,6 +30,8 @@ Pipeline (Python, conda env `sdo`):
 conda run -n sdo python -m pipeline all --out public\data -v    # dev data for yarn serve
 conda run -n sdo python -m pipeline pfss --from-cache --out public\data  # fast re-export (~2 s)
 conda run -n sdo python -m pipeline validate --root public\data --strict
+python scripts/check_pipeline_names.py          # undefined globals; run BEFORE a long build
+node scripts/check_label_layout.mjs             # label de-collision invariants
 # fallback if conda run misbehaves:
 & "$env:USERPROFILE\anaconda3\envs\sdo\python.exe" -m pipeline all --out public\data -v
 ```
@@ -333,6 +335,18 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     `cap - len(TEX_CHANNELS)` per run, because one new slot per channel scrolls into the
     window every 4 h just to stand still. A cap at or below the channel count never
     converges. Locally, `--max-new-textures 200` fills the whole window in one ~13 min pass.
+    **A slot DEMOTED from newest to history must be REBUILT, never reused** — the subtlest
+    part of this, and it shipped broken once. The newest map's filename is deliberately
+    stable and NOT time-keyed (`sdo0171_carrington_4096x2048.jpg`), so when the window
+    advances the previous newest slot becomes a history slot whose published url still names
+    that stable file — and the file is still on disk, because the same run just overwrote it
+    with the NEW newest frame. The reuse check therefore accepted it and published TWO target
+    times pointing at ONE file, the older of them showing the newer Sun. `_texture_history`
+    now requires `HIST_NAME_RE` to match before reusing anything. Note this is invisible to
+    any test that does not cross a 4 h boundary: a same-window re-run reuses everything and
+    passes. The validator caught it (`0171 frame 14 is 2048x1024 -- got 4096x2048`), which is
+    the argument for asserting a frame's declared size against the file rather than trusting
+    the manifest. Steady state is therefore 5 newest maps + 5 demoted-slot rebuilds per run.
 37. **The GONG relay rewrites URLs at REQUEST TIME ONLY** (`sources/gong.py:_relay`). Every
     URL stored in a cache key, a manifest, or a log line stays canonical
     (`gong2.nso.edu`) — two reasons, and both matter. `gong_file_key` derives the traced-frame
@@ -374,6 +388,50 @@ conda run -n sdo python -m pipeline validate --root public\data --strict
     only where it is NOT over the canvas (the kiosk QR modal) — and if you add one, add the
     `-webkit-` prefix too, or older Safari silently skips it and the page looks fine on the
     one device you tested.
+
+40. **The opt-in 4K sphere texture: why it needs an 8192-wide map, and why 0304 does not get
+    one.** `--with-hires` publishes a per-layer `high_res` block (`sol.texture/4`) holding a
+    single 8192x4096 map of the NEWEST frame only, built from SDO's 4096 px browse still
+    instead of the usual 2048.
+    **Why 8192 and not 4096:** half of a plate-carree map is the visible hemisphere, so a
+    4096-wide map gives only 2048 px across a disk that carries ~3204 px of real detail in a
+    4096 source (the disk fills 0.7824 of an AIA frame, footgun 21). The normal map was
+    therefore throwing away most of a 4K frame, and 8192 is the width that actually shows it.
+    **0304 is EXCLUDED, and this is the guard working, not a bug.** Measured 2026-08-23, the
+    limb fit against the synthesized WCS:
+      2048 source: r_fit 807.4 vs r_pred 789.4  = +2.28%  (inside TEX_LIMB_RADIUS_TOL's 3%)
+      4096 source: r_fit 1644.8 vs r_pred 1578.8 = +4.18%  (REFUSED)
+    `r_pred` doubles exactly with the source resolution; `r_fit` does not — it comes out 30 px
+    wider than twice the 2048 fit. The fitter finds a systematically larger limb at higher
+    sampling, and 0304 is He II 304 A, the AIA channel with the most extended chromospheric
+    limb brightening: a diffuse edge, so more ray samples cross it further out. **Do NOT
+    "fix" this by raising `TEX_LIMB_RADIUS_TOL`.** That tolerance exists to catch SDO
+    re-cropping the browse product, which would silently ship a map misregistered by several
+    percent — exactly what footgun 21 is about. A 4% radius error displaces every feature on
+    the disk. The failure is SOFT by design: the channel simply has no `high_res` key
+    (additive-only contract, footgun 22), the app hides the option for it, and four of five
+    channels still get 4K. If it must be fixed properly, fix the FITTER to be
+    resolution-independent — and note that doing so risks the already-validated 2048 path.
+    **GPU, not bytes, is the binding constraint.** 8192x4096 RGBA is ~134 MB decoded, against
+    ~1.1-3.6 MB on the wire. Many mobile GPUs cap `MAX_TEXTURE_SIZE` at 4096, where loading it
+    fails outright — so `sunSurface.hasHighRes()` reads
+    `gl.getParameter(gl.MAX_TEXTURE_SIZE)` from the REAL renderer and returns false when it
+    does not fit. It also returns false when no renderer was passed, which fails closed but
+    silently disables the feature: `SolarView3D` must keep passing `rt.stage.renderer`.
+    The texture is held in its own slot OUTSIDE `TEXTURE_BUDGET_BYTES`' LRU, because at 3x the
+    whole budget it would evict everything else on sight; it is never an eviction candidate and
+    must be disposed explicitly.
+    **Never enable this in CI.** Each 8192 reprojection is ~3 minutes (4x the pixels of the
+    normal map, three colour planes each), so a five-channel run is ~16 min against a ~9 min
+    job budget. It is a workstation/dome option, published by hand.
+41. **Run background pipeline commands with `python -u`.** Without it, stdout is block-buffered
+    and a run that gets killed — a tool timeout, a Ctrl-C — leaves a **zero-byte log** even
+    though it did minutes of work and left files in `.staging`. Measured: a `--with-hires` run
+    was reported as exit 0 with an empty log and no published output, and the only evidence of
+    what happened was the mtimes on the staging files. `-u` costs nothing and is the difference
+    between a diagnosis and a re-run. (See also footgun 35: a killed run leaves `.staging`
+    behind, and the NEXT run's `Staging.reset()` will delete it, so there is exactly one chance
+    to look.)
 
 ## Data sources (verified live 2026-08)
 

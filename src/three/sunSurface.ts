@@ -64,6 +64,7 @@ import {
   Texture,
   TextureLoader,
   Vector3,
+  WebGLRenderer,
 } from "three";
 
 import { SOLID_SIDE } from "./winding";
@@ -91,6 +92,15 @@ export interface SunSurfaceOptions {
   channel?: string;
   /** Paint the Carrington longitude markers (`?debug=1`). */
   debug?: boolean;
+  /**
+   * The renderer whose GL context will actually receive the high-res
+   * texture. Used ONLY to read `gl.getParameter(gl.MAX_TEXTURE_SIZE)` for
+   * `hasHighRes()` (many mobile GPUs cap at 4096; TEX_HIRES_W is 8192 --
+   * see pipeline/config.py). Omitting it makes `hasHighRes()` always
+   * report false: refusing an untested GPU is the safe default, not a
+   * guess at one that might not fit.
+   */
+  renderer?: WebGLRenderer;
 }
 
 /**
@@ -111,6 +121,23 @@ export interface SunTextureFrame {
   url: string;
   width: number;
   height: number;
+  obsIso: string;
+  subEarthCarrLonDeg: number;
+  subEarthLatDeg: number;
+}
+
+/**
+ * One channel's OPT-IN high-resolution newest-frame map (`texture.json`'s
+ * per-layer `high_res` block, schema `sol.texture/4`). NEWEST FRAME ONLY --
+ * there is no history sequence at this size, so there is exactly one of
+ * these per channel, never an array.
+ */
+export interface SunHighRes {
+  /** Absolute URL, already cache-busted. */
+  url: string;
+  width: number;
+  height: number;
+  bytes: number;
   obsIso: string;
   subEarthCarrLonDeg: number;
   subEarthLatDeg: number;
@@ -154,6 +181,13 @@ export interface SunTextureInfo {
   frames: SunTextureFrame[];
   /** Index into `frames` of the map currently on the sphere; -1 before load. */
   activeFrame: number;
+  /**
+   * This channel's opt-in high-res newest-frame map, or null when the
+   * pipeline was not run with `--with-hires` for it (or its build failed).
+   * Describes what is AVAILABLE, not what is on screen -- see
+   * `SunSurface.highResActive()` for that.
+   */
+  highRes: SunHighRes | null;
 }
 
 export interface SunSurface {
@@ -196,6 +230,42 @@ export interface SunSurface {
   setSpots: (spots: SunSpot[]) => void;
   /** Null until the SDO texture has loaded. */
   textureInfo: () => SunTextureInfo | null;
+  /**
+   * True when the ACTIVE channel published a high-res newest-frame map AND
+   * it fits this GPU's MAX_TEXTURE_SIZE (many mobile GPUs cap at 4096;
+   * TEX_HIRES_W is 8192 -- pipeline/config.py). Callers show/hide the
+   * opt-in toggle based on this. `setHighRes(true)` when this is false is a
+   * harmless no-op, not an error.
+   */
+  hasHighRes: () => boolean;
+  /**
+   * Guest opt-in for the high-res newest-frame map. OFF by default (a
+   * phone guest who never calls this pays zero extra bytes and zero extra
+   * GPU memory -- the JPEG and its ~134 MB decoded RGBA texture, 8192x4096,
+   * are fetched ONLY once this is true).
+   *
+   * Takes effect immediately when the playhead is on the newest frame and
+   * `hasHighRes()` is true; otherwise the request is remembered and applied
+   * automatically the moment both become true (the playhead returns to
+   * "now" via `setFrameTime`, or a `setChannel` switch lands on a channel
+   * that published one). Disabling it falls back to whatever normal-res
+   * frame is logically active, the same frame the scrubber would show.
+   */
+  setHighRes: (enabled: boolean) => void;
+  /**
+   * True while the high-res map is the one ACTUALLY painted on the sphere
+   * right now -- both the toggle is on and the playhead is on the newest
+   * frame. Distinct from `hasHighRes()`, which only says the option exists;
+   * this is what a caller checks to show e.g. a "4K" badge.
+   */
+  highResActive: () => boolean;
+  /**
+   * This device's `MAX_TEXTURE_SIZE`, or 0 if unknown (no `renderer` was
+   * passed to `createSunSurface`, or the query failed). Exposed for a
+   * caller that wants to explain WHY the toggle is hidden rather than just
+   * hiding it.
+   */
+  maxTextureSize: () => number;
   /**
    * Sub-Earth direction and projected solar north, in WORLD space, for the
    * off-limb billboard. Both are carried through this group's own Carrington
@@ -484,6 +554,17 @@ interface RawFrame {
   sub_earth_lat_deg?: number;
 }
 
+interface RawHighRes {
+  url?: string;
+  width?: number;
+  height?: number;
+  bytes?: number;
+  obs_iso?: string;
+  sub_earth_carr_lon_deg?: number;
+  sub_earth_lat_deg?: number;
+  source_url?: string;
+}
+
 interface RawLayer {
   channel?: string;
   label?: string;
@@ -496,6 +577,9 @@ interface RawLayer {
   sub_earth_carr_lon_deg?: number;
   /** schema sol.texture/3: one map per PFSS timeline slot, OLDEST FIRST. */
   frames?: RawFrame[];
+  /** schema sol.texture/4: opt-in, newest-frame-only, absent unless the
+   *  pipeline ran with --with-hires and this channel's build succeeded. */
+  high_res?: RawHighRes;
 }
 
 interface RawTexture {
@@ -678,6 +762,27 @@ async function fetchTextureInfo(
   // actually scrubs.
   const newest = frames.length ? frames[frames.length - 1] : null;
 
+  /* eslint-disable-next-line @typescript-eslint/naming-convention -- pipeline JSON keys */
+  const rawHighRes = chosen.high_res;
+  const highRes: SunHighRes | null = (typeof rawHighRes?.url === "string"
+    && rawHighRes.url !== ""
+    && typeof rawHighRes.width === "number"
+    && typeof rawHighRes.height === "number")
+    ? {
+      url: withStamp(new URL(rawHighRes.url, manifestUrl)).href,
+      width: rawHighRes.width,
+      height: rawHighRes.height,
+      bytes: typeof rawHighRes.bytes === "number" ? rawHighRes.bytes : 0,
+      obsIso: typeof rawHighRes.obs_iso === "string" ? rawHighRes.obs_iso : "",
+      subEarthCarrLonDeg: typeof rawHighRes.sub_earth_carr_lon_deg === "number"
+        ? rawHighRes.sub_earth_carr_lon_deg
+        : Number.NaN,
+      subEarthLatDeg: typeof rawHighRes.sub_earth_lat_deg === "number"
+        ? rawHighRes.sub_earth_lat_deg
+        : 0,
+    }
+    : null;
+
   return {
     url: newest ? newest.url : imageUrl.href,
     obsIso: newest ? newest.obsIso
@@ -703,6 +808,7 @@ async function fetchTextureInfo(
     available,
     frames,
     activeFrame: newest ? newest.index : -1,
+    highRes,
   };
 }
 
@@ -728,6 +834,30 @@ function frameForUnix(frames: SunTextureFrame[], unixSeconds: number): SunTextur
     }
   }
   return best;
+}
+
+/**
+ * `gl.getParameter(gl.MAX_TEXTURE_SIZE)` for the renderer that will actually
+ * receive the high-res texture, or 0 when unknown.
+ *
+ * Read from the LIVE renderer rather than assumed: many mobile GPUs cap at
+ * 4096 and TEX_HIRES_W is 8192 (pipeline/config.py), so this is a real wall,
+ * not a formality. No throwaway-canvas fallback when `renderer` is omitted
+ * -- a scratch WebGL context can report a different limit than the one
+ * actually in use (a software fallback context, a different power
+ * preference), and guessing wrong in the OPTIMISTIC direction is exactly
+ * the failure mode hard constraint 1 exists to prevent. 0 means
+ * `hasHighRes()` is always false, which is the safe reading of "unknown".
+ */
+function detectMaxTextureSize(renderer?: WebGLRenderer): number {
+  if (!renderer) { return 0; }
+  try {
+    const gl = renderer.getContext();
+    const size = gl.getParameter(gl.MAX_TEXTURE_SIZE) as unknown;
+    return typeof size === "number" && size > 0 ? size : 0;
+  } catch {
+    return 0;
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -854,6 +984,38 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
   // texture CORS-clean if the data tree ever moves to a CDN.
   loader.crossOrigin = "anonymous";
 
+  // --- opt-in high-res newest-frame map (hard constraints 1, 2, 4) --------
+  // Read once: a real driver limit does not change over a page's lifetime,
+  // and detectMaxTextureSize() does a getParameter() round-trip that has no
+  // business running on a hot path.
+  const maxTextureSize = detectMaxTextureSize(options.renderer);
+  /** Guest opt-in, remembered independently of whether it is applicable
+   *  RIGHT NOW (wrong channel, scrubbed off newest) so it re-applies the
+   *  moment it becomes applicable again. Default OFF (hard constraint 4). */
+  let hiresWanted = false;
+  /** True while the hi-res map is the one actually painted on the sphere. */
+  let hiresOnScreen = false;
+  let hiresLoading = false;
+  /**
+   * The one resident high-res texture, if any -- deliberately NOT part of
+   * the `resident` LRU above.
+   *
+   * An 8192x4096 RGBA texture is ~134 MB (hard constraint 2), more than 3x
+   * TEXTURE_BUDGET_BYTES by itself. Folding it into the shared LRU would
+   * mean either it evicts every prefetched history frame the instant a
+   * guest opts in (defeating the scrub-ahead prefetch for no reason -- nothing
+   * scrubbing does needs the hi-res map to be evicted), or -- once a second
+   * texture is resident -- it becomes eligible for eviction itself under
+   * budget pressure while still on screen, which the "never evict the frame
+   * on screen" rule only protects when it is the LRU's SOLE entry. Since it
+   * is single-purpose (one channel, the newest slot, opt-in), it gets its
+   * own one-slot cache instead: at most one resident at a time, disposed
+   * explicitly on replace or teardown, and never counted against
+   * TEXTURE_BUDGET_BYTES because it can never be an LRU eviction candidate.
+   */
+  let hiresTexture: Texture | null = null;
+  let hiresUrl: string | null = null;
+
   function effective(): SunSurfaceMode {
     if (requested === "sdo" && !texture) { return "synthetic"; }
     return requested;
@@ -924,6 +1086,118 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     if (residentBytes < 0) { residentBytes = 0; }
   }
 
+  /** Where Earth was when the map now on screen was made -- drives the
+   *  far-side dimming in sdo's fragment shader (onBeforeCompile above). */
+  function applyFarSide(l0Deg: number, latDeg: number): void {
+    const l0 = Number.isFinite(l0Deg) ? l0Deg : 0;
+    const b0 = (latDeg * Math.PI) / 180;
+    (farSide.uSubEarth.value as Vector3).set(
+      (l0 * Math.PI) / 180, Math.sin(b0), Math.cos(b0));
+  }
+
+  /** True once the manifest has no `frames` (schema-2: one map, and it IS
+   *  the newest) or the active frame is the last one. The single source for
+   *  both the exported `atNewestFrame()` and the hi-res gate below, so they
+   *  can never disagree about what "newest" means. */
+  function isAtNewestFrame(): boolean {
+    if (!info || !info.frames.length) { return true; }
+    return info.activeFrame === info.frames.length - 1;
+  }
+
+  function hiresFits(meta: SunHighRes | null): meta is SunHighRes {
+    return !!meta && maxTextureSize > 0
+      && meta.width <= maxTextureSize && meta.height <= maxTextureSize;
+  }
+
+  function disposeHighRes(): void {
+    hiresTexture?.dispose();
+    hiresTexture = null;
+    hiresUrl = null;
+  }
+
+  /** Paint the (already loaded) high-res texture over whatever normal-res
+   *  paint adoptTexture just did. Does NOT touch `info`'s own url/obsIso/
+   *  sub-earth fields -- those keep describing the normal-res frame (see
+   *  `SunSurface.textureInfo`'s doc), so `checkTexture`'s "has the manifest
+   *  actually changed" comparison stays meaningful while hi-res is showing.
+   *  `subEarthFrame`/`unobservedFraction` read the hi-res map's OWN
+   *  sub-earth point instead, via `activeSubEarthDeg` below. */
+  function paintHighRes(tex: Texture, meta: SunHighRes): void {
+    if (destroyed) { return; }
+    tex.colorSpace = SRGBColorSpace;
+    tex.wrapS = RepeatWrapping;
+    tex.anisotropy = 4;
+    tex.needsUpdate = true;
+    sdo.map = tex;
+    sdo.needsUpdate = true;
+    applyFarSide(meta.subEarthCarrLonDeg, meta.subEarthLatDeg);
+    hiresOnScreen = true;
+  }
+
+  function loadHighRes(meta: SunHighRes): void {
+    if (hiresLoading) { return; }
+    if (hiresTexture && hiresUrl === meta.url) {
+      // Already decoded (guest toggled off and back on, or scrubbed away
+      // from "now" and straight back) -- paint synchronously.
+      paintHighRes(hiresTexture, meta);
+      return;
+    }
+    hiresLoading = true;
+    loader.load(
+      meta.url,
+      (loaded) => {
+        hiresLoading = false;
+        if (destroyed) {
+          loaded.dispose();
+          return;
+        }
+        disposeHighRes();      // at most one resident at a time (see above)
+        hiresTexture = loaded;
+        hiresUrl = meta.url;
+        paintHighRes(loaded, meta);
+      },
+      undefined,
+      () => {
+        hiresLoading = false;
+        // Nothing to say to the guest: the normal-res frame adoptTexture
+        // already painted stays up, which is the honest fallback.
+        console.warn(`[sunSurface] high-res texture unavailable: ${meta.url}`);
+      },
+    );
+  }
+
+  /**
+   * Load and paint the active channel's high-res map IF the guest opted in,
+   * it fits this GPU, and the playhead is on the newest slot -- otherwise a
+   * no-op, leaving whatever normal-res paint just happened alone.
+   *
+   * Called at the tail of every `adoptTexture` (so scrubbing off the newest
+   * slot falls back to the normal frame automatically: adoptTexture already
+   * repainted it before this runs and finds nothing to override) and from
+   * `setHighRes(true)`.
+   */
+  function applyHighRes(): void {
+    if (destroyed || !info) { return; }
+    if (hiresWanted && isAtNewestFrame() && hiresFits(info.highRes)) {
+      loadHighRes(info.highRes);
+    }
+  }
+
+  /** The sub-earth point of whatever is ACTUALLY painted right now, for
+   *  subEarthFrame()/unobservedFraction() -- the hi-res map's own value
+   *  while it is on screen (see paintHighRes), the normal frame's otherwise.
+   *  Never more than ~0.05 deg apart in practice (both are "the newest
+   *  usable browse frame", fetched minutes apart at worst), but there is no
+   *  reason to be sloppy about which one a fragment shader and a billboard
+   *  orientation actually agree with. */
+  function activeSubEarthDeg(): { lonDeg: number; latDeg: number } | null {
+    if (!info) { return null; }
+    if (hiresOnScreen && info.highRes) {
+      return { lonDeg: info.highRes.subEarthCarrLonDeg, latDeg: info.highRes.subEarthLatDeg };
+    }
+    return { lonDeg: info.subEarthCarrLonDeg, latDeg: info.subEarthLatDeg };
+  }
+
   function adoptTexture(next: Texture, meta: SunTextureInfo): void {
     if (destroyed) {
       next.dispose();
@@ -945,18 +1219,21 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
         (next.image as { width?: number } | undefined)?.width ?? 0,
         (next.image as { height?: number } | undefined)?.height ?? 0));
 
-    // Where Earth was when THIS map was made. Per-texture, not per-frame: the
-    // observed band belongs to the image, so a future per-frame texture
-    // sequence gets the sweeping terminator for free.
-    const l0 = Number.isFinite(meta.subEarthCarrLonDeg) ? meta.subEarthCarrLonDeg : 0;
-    const b0 = (meta.subEarthLatDeg * Math.PI) / 180;
-    (farSide.uSubEarth.value as Vector3).set(
-      (l0 * Math.PI) / 180, Math.sin(b0), Math.cos(b0));
+    // Per-texture, not per-frame: the observed band belongs to the image, so
+    // a future per-frame texture sequence gets the sweeping terminator for
+    // free.
+    applyFarSide(meta.subEarthCarrLonDeg, meta.subEarthLatDeg);
 
     sdo.needsUpdate = true;
     // No dispose here any more: `touchResident` owns every decoded map's
     // lifetime, so stepping back to a frame we just left is free.
     applyMode();
+    // A normal-res frame just got painted, so any hi-res override on screen
+    // is stale until applyHighRes() re-asserts it (still wanted, still on
+    // the newest slot) -- which is exactly how scrubbing off "now" falls
+    // back to the normal frame with no separate code path.
+    hiresOnScreen = false;
+    applyHighRes();
   }
 
   function loadTexture(next: SunTextureInfo): void {
@@ -1149,12 +1426,11 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       showFrame(frame);
     },
 
-    atNewestFrame(): boolean {
-      // No frames array means a schema-2 manifest: there is exactly one map and
-      // it IS the newest, so the off-limb billboard belongs with it.
-      if (!info || !info.frames.length) { return true; }
-      return info.activeFrame === info.frames.length - 1;
-    },
+    // No frames array means a schema-2 manifest: there is exactly one map and
+    // it IS the newest, so the off-limb billboard belongs with it. The one
+    // implementation lives in isAtNewestFrame() so this and applyHighRes()'s
+    // gate can never disagree about what "newest" means.
+    atNewestFrame: isAtNewestFrame,
 
     effectiveMode: effective,
 
@@ -1170,10 +1446,38 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
 
     textureInfo: () => info,
 
+    hasHighRes: () => hiresFits(info?.highRes ?? null),
+
+    setHighRes(enabled: boolean): void {
+      if (hiresWanted === enabled) { return; }
+      hiresWanted = enabled;
+      if (!info) { return; }
+      if (enabled) {
+        applyHighRes();
+        return;
+      }
+      if (hiresOnScreen) {
+        // Revert to whatever normal-res frame is logically active -- the
+        // same frame the scrubber would already be showing had hi-res never
+        // been on. `info.url` still names it (paintHighRes never touches
+        // info), and it is virtually certain still resident: nothing evicts
+        // it from the LRU while parked on "now" with hi-res painted over it
+        // (no OTHER touchResident call happens in between), so this is a
+        // synchronous re-paint, not a re-fetch.
+        hiresOnScreen = false;
+        loadTexture(info);
+      }
+    },
+
+    highResActive: () => hiresOnScreen,
+
+    maxTextureSize: () => maxTextureSize,
+
     subEarthFrame(dir: Vector3, up: Vector3): boolean {
-      if (!info) { return false; }
-      const l0 = (info.subEarthCarrLonDeg * Math.PI) / 180;
-      const b0 = (info.subEarthLatDeg * Math.PI) / 180;
+      const sub = activeSubEarthDeg();
+      if (!sub) { return false; }
+      const l0 = (sub.lonDeg * Math.PI) / 180;
+      const b0 = (sub.latDeg * Math.PI) / 180;
       dir.set(Math.cos(b0) * Math.cos(l0), Math.cos(b0) * Math.sin(l0), Math.sin(b0))
         .applyQuaternion(group.quaternion);
       // Solar north in the same frame is simply +Z of the Carrington basis.
@@ -1190,13 +1494,15 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       if (effective() !== "sdo" || !info) { return null; }
       const camera = synthetic.uniforms.uCameraPos.value as Vector3;
       if (camera.lengthSq() === 0) { return null; }
+      const sub = activeSubEarthDeg();
+      if (!sub) { return null; }
       // Sub-Earth direction in the SAME local frame the texture is mapped in,
       // then carried into world space by the group's Carrington quaternion —
       // the one the field lines set. Doing it through the group rather than
       // recomputing an ecliptic vector means this cannot drift out of step
       // with what is actually drawn.
-      const l0 = (info.subEarthCarrLonDeg * Math.PI) / 180;
-      const b0 = (info.subEarthLatDeg * Math.PI) / 180;
+      const l0 = (sub.lonDeg * Math.PI) / 180;
+      const b0 = (sub.latDeg * Math.PI) / 180;
       scratchSubEarth
         .set(Math.cos(b0) * Math.cos(l0), Math.cos(b0) * Math.sin(l0), Math.sin(b0))
         .applyQuaternion(group.quaternion);
@@ -1250,6 +1556,10 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       pending.clear();
       texture?.dispose();
       texture = null;
+      // Not part of `resident` (see its declaration above), so it needs its
+      // own disposal or it leaks a ~134 MB texture per teardown.
+      disposeHighRes();
+      hiresOnScreen = false;
     },
   };
 }

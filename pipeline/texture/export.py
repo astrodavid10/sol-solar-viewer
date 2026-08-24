@@ -78,7 +78,9 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       SDO_LATEST_BASE, TEX_AR_MAX_SUBEARTH_DEG,
                       TEX_AR_OFFSET_WARN_DEG, TEX_FARSIDE_NOISE_AMP,
                       TEX_FARSIDE_NOISE_TERMS, TEX_FARSIDE_SEED,
-                      TEX_FEATHER_DEG, TEX_JPEG_QUALITY, TEX_LAT_FADE_DEG,
+                      TEX_FEATHER_DEG, TEX_HIRES_JPEG_QUALITY,
+                      TEX_HIRES_MAX_BYTES, TEX_HIRES_SRC_RES, TEX_HIRES_W,
+                      TEX_HIRES_H, TEX_JPEG_QUALITY, TEX_LAT_FADE_DEG,
                       TEX_LIMB_CENTER_TOL_PX, TEX_LIMB_RADIUS_TOL,
                       TEX_MAX_BYTES, TEX_MAX_OBS_AGE_HOURS,
                       TEX_MAX_SOURCE_TRIES, TEX_MIN_DISK_MEAN, TEX_OUT_H,
@@ -104,6 +106,17 @@ def jpeg_name(code: str) -> str:
 def slot_stamp(target: datetime) -> str:
     """Compact UTC stamp used in history-frame file names."""
     return target.astimezone(timezone.utc).strftime("%Y%m%dT%H%MZ")
+
+
+def hires_jpeg_name(code: str) -> str:
+    """File name for one channel's OPT-IN high-resolution Carrington map.
+
+    Newest-frame only (no target-time stamp needed, unlike hist_jpeg_name):
+    there is exactly one of these per channel at any moment, so it is
+    overwritten in place on every run the same way jpeg_name's normal map is.
+    """
+    return "sdo{0}_carrington_hires_{1}x{2}.jpg".format(
+        code, TEX_HIRES_W, TEX_HIRES_H)
 
 
 def hist_jpeg_name(code: str, target: datetime) -> str:
@@ -185,15 +198,20 @@ def _day_listing(day: datetime) -> str:
 
 
 def browse_candidates(now: datetime, days: int = 2,
-                      code: str = None
+                      code: str = None, src_res: int = TEX_SRC_RES
                       ) -> List[Tuple[datetime, str]]:
     """(obstime, url) for every browse frame in the last ``days`` day dirs.
 
     Sorted oldest first.  Frames dated in the future are dropped: the day
     directory for "today" is written in UT and a clock skew would otherwise let
     us pick an image that does not exist yet.
+
+    ``src_res`` selects which of SDO's published resolutions to list (2048 for
+    the normal per-frame maps, 4096 -- TEX_HIRES_SRC_RES -- for the opt-in
+    high-res newest map); both live in the same day-directory listing, so
+    ``_day_listing``'s one-fetch-per-process cache still covers both.
     """
-    pat = re.compile(_BROWSE_RE_TMPL.format(res=TEX_SRC_RES,
+    pat = re.compile(_BROWSE_RE_TMPL.format(res=src_res,
                                            prod=code or DEFAULT_CODE))
     out: List[Tuple[datetime, str]] = []
     for d in range(days):
@@ -213,7 +231,8 @@ def browse_candidates(now: datetime, days: int = 2,
 
 def fetch_source_at(target: datetime, code: str = None,
                     tolerance_hours: float = TEX_HIST_TOLERANCE_HOURS,
-                    verbose: bool = False) -> SourceImage:
+                    verbose: bool = False,
+                    src_res: int = TEX_SRC_RES) -> SourceImage:
     """The browse frame closest to ``target``, walking outward on failure.
 
     Used for the history slots.  Unlike ``fetch_source`` this never falls back
@@ -223,7 +242,8 @@ def fetch_source_at(target: datetime, code: str = None,
     """
     code = code or DEFAULT_CODE
     # The target can sit in the previous UT day, so ask for both.
-    cands = [(t, u) for (t, u) in browse_candidates(target, days=2, code=code)
+    cands = [(t, u) for (t, u) in browse_candidates(target, days=2, code=code,
+                                                     src_res=src_res)
              if abs((t - target).total_seconds()) <= tolerance_hours * 3600.0]
     if not cands:
         raise PipelineError(
@@ -235,7 +255,7 @@ def fetch_source_at(target: datetime, code: str = None,
         name = url.rsplit("/", 1)[-1]
         try:
             raw, _ = http_get_full(url, timeout=60.0)
-            rgb = _decode(raw)
+            rgb = _decode(raw, src_res=src_res)
         except Exception as exc:                          # noqa: BLE001
             skipped.append("{0}: {1}".format(name, exc))
             continue
@@ -253,14 +273,21 @@ def fetch_source_at(target: datetime, code: str = None,
             iso_z(target), "; ".join(skipped[:3]) or "none tried"))
 
 
-def _decode(raw: bytes) -> np.ndarray:
+def _decode(raw: bytes, src_res: int = TEX_SRC_RES) -> np.ndarray:
+    """Decode a browse JPG and assert it is ``src_res`` square.
+
+    PARAMETERIZED rather than loosened: a silently wrong-sized source (SDO
+    re-cropping the browse product, or a caller passing the wrong resolution
+    for the still it actually fetched) is exactly what this assert exists to
+    catch, for either the normal 2048 px source or the high-res 4096 px one.
+    """
     from PIL import Image
     img = Image.open(io.BytesIO(raw))
     arr = np.asarray(img.convert("RGB"), dtype=np.float32)
-    if arr.shape[0] != TEX_SRC_RES or arr.shape[1] != TEX_SRC_RES:
+    if arr.shape[0] != src_res or arr.shape[1] != src_res:
         raise PipelineError(
             "source image is {0}x{1}, expected {2}x{2}".format(
-                arr.shape[1], arr.shape[0], TEX_SRC_RES))
+                arr.shape[1], arr.shape[0], src_res))
     return arr
 
 
@@ -277,7 +304,7 @@ def disk_mean(rgb: np.ndarray) -> float:
 
 
 def fetch_source(now: datetime, verbose: bool = False,
-                 code: str = None) -> SourceImage:
+                 code: str = None, src_res: int = TEX_SRC_RES) -> SourceImage:
     """Newest usable browse frame, else the ``latest_*.jpg`` fallback.
 
     The browse frame is strongly preferred because its FILENAME carries the
@@ -287,15 +314,19 @@ def fetch_source(now: datetime, verbose: bool = False,
 
     Frames that fail to download, fail to decode, or are too dark to be a real
     exposure are skipped and the next older one tried.
+
+    ``src_res`` also serves the opt-in high-res build (TEX_HIRES_SRC_RES ==
+    4096, SDO's native browse resolution): same selection logic, same
+    fallback, just a bigger still.
     """
     skipped: List[str] = []
     code = code or DEFAULT_CODE
-    candidates = browse_candidates(now, code=code)
+    candidates = browse_candidates(now, code=code, src_res=src_res)
     for t, url in candidates[::-1][:TEX_MAX_SOURCE_TRIES]:
         name = url.rsplit("/", 1)[-1]
         try:
             raw, _ = http_get_full(url, timeout=60.0)
-            rgb = _decode(raw)
+            rgb = _decode(raw, src_res=src_res)
         except Exception as exc:
             skipped.append("{0}: {1}".format(name, exc))
             continue
@@ -309,11 +340,11 @@ def fetch_source(now: datetime, verbose: bool = False,
                 len(skipped), "; ".join(skipped if verbose else skipped[:2])))
         return SourceImage(rgb, t, url, "browse", len(raw))
 
-    url = "{0}/latest_{1}_{2}.jpg".format(SDO_LATEST_BASE, TEX_SRC_RES, code)
+    url = "{0}/latest_{1}_{2}.jpg".format(SDO_LATEST_BASE, src_res, code)
     print("  no usable browse frame ({0}); trying latest_*.jpg".format(
         "; ".join(skipped[:3]) or "empty listing"))
     raw, headers = http_get_full(url, timeout=60.0)
-    rgb = _decode(raw)
+    rgb = _decode(raw, src_res=src_res)
     mean = disk_mean(rgb)
     if mean < TEX_MIN_DISK_MEAN:
         raise PipelineError(
@@ -382,7 +413,11 @@ def input_header(src: SourceImage, obstime, observer,
     from sunpy.map.header_helper import make_fitswcs_header
 
     channel = channel_for(DEFAULT_CODE) if channel is None else channel
-    scale = tex_src_scale(channel["scale"])
+    # Derived from the DECODED image's own shape, not a module constant: this
+    # is what lets the same function serve the normal 2048 px source and the
+    # opt-in 4096 px one with no extra parameter, and stay correct if either
+    # ever changes.
+    scale = tex_src_scale(channel["scale"], src_res=src.rgb.shape[0])
     # HMI and AIA are different telescopes at different plate scales; saying
     # "AIA" for a magnetogram would put a false instrument in the WCS that the
     # reprojection then trusts.
@@ -720,26 +755,36 @@ def fit_limb(src: "SourceImage", channel: dict, obstime, quiet: bool = False):
 
     Returns (cx, cy, r_fit, r_pred, c_off, resid, n_rays).  Raises rather than
     ship a misregistered map -- see TEX_LIMB_RADIUS_TOL.
+
+    Resolution-agnostic by construction: everything pixel-scaled is derived
+    from ``src.rgb.shape`` rather than the module's TEX_SRC_RES, so this same
+    function checks the normal 2048 px source and the opt-in 4096 px one
+    without a resolution argument.
     """
     import astropy.units as u
     from sunpy.coordinates import sun
+    src_res = src.rgb.shape[0]
     r_pred = float(sun.angular_radius(obstime).to_value(u.arcsec)
-                   ) / tex_src_scale(channel["scale"])
+                   ) / tex_src_scale(channel["scale"], src_res=src_res)
     cx, cy, r_fit, resid, n_rays = measure_limb(src.rgb.mean(axis=-1), r_pred)
-    c_off = float(np.hypot(cx - (TEX_SRC_RES - 1) / 2.0,
-                           cy - (TEX_SRC_RES - 1) / 2.0))
+    c_off = float(np.hypot(cx - (src_res - 1) / 2.0, cy - (src_res - 1) / 2.0))
+    # TEX_LIMB_CENTER_TOL_PX was measured at TEX_SRC_RES (2048 px); a pixel
+    # offset scales linearly with resolution, so the tolerance must too, or
+    # the SAME real disk-center offset at 2x the pixels (the 4096 px hi-res
+    # source) would fail this check for being MORE precise, not less.
+    center_tol_px = TEX_LIMB_CENTER_TOL_PX * (src_res / float(TEX_SRC_RES))
     if not quiet:
         print("  limb fit: r {0:.1f} px vs {1:.1f} predicted ({2:+.2%}), "
               "center {3:.1f} px off, scatter {4:.1f} px ({5} rays)".format(
                   r_fit, r_pred, r_fit / r_pred - 1.0, c_off, resid, n_rays))
     if abs(r_fit / r_pred - 1.0) > TEX_LIMB_RADIUS_TOL \
-            or c_off > TEX_LIMB_CENTER_TOL_PX:
+            or c_off > center_tol_px:
         raise PipelineError(
             "browse JPG geometry has changed: limb radius {0:.1f} px vs "
             "{1:.1f} predicted ({2:+.1%}, tol {3:.0%}), disk center {4:.1f} "
             "px from the array center (tol {5:.0f}); the synthesized WCS is "
             "no longer valid".format(r_fit, r_pred, r_fit / r_pred - 1.0,
-                           TEX_LIMB_RADIUS_TOL, c_off, TEX_LIMB_CENTER_TOL_PX))
+                           TEX_LIMB_RADIUS_TOL, c_off, center_tol_px))
     return cx, cy, r_fit, r_pred, c_off, resid, n_rays
 
 
@@ -801,6 +846,51 @@ def build_history_frame(target: datetime, code: str, verbose: bool = False
         "bytes": len(blob),
         "width": TEX_HIST_W,
         "height": TEX_HIST_H,
+        "obs_iso": iso_z(src.obstime),
+        "sub_earth_carr_lon_deg": l0,
+        "sub_earth_lat_deg": b0,
+        "source_url": src.url,
+    }
+    return blob, meta
+
+
+def build_hires_texture(now: datetime, code: str = None,
+                        verbose: bool = False) -> Tuple[bytes, dict]:
+    """The NEWEST frame's opt-in high-resolution Carrington map.
+
+    Same geometry pipeline as ``build_texture`` (fetch -> solar_frame ->
+    fit_limb -> render_map -> encode_jpeg), reused rather than duplicated --
+    only the source/output resolutions and the JPEG budget differ. Two things
+    ``build_texture`` also does are deliberately SKIPPED here:
+
+      * the off-limb crop -- it stays newest-only at the NORMAL map's
+        resolution; a second billboard crop from the same picture would cost
+        bytes without changing what the guest sees (the billboard fades out
+        well before any resolution difference would be visible, footgun 29);
+      * the AR registration check -- that guard exists to catch build_texture's
+        OWN synthesized-WCS assumptions going wrong, and fit_limb() above
+        already re-derives and asserts the same geometry independently at
+        this resolution. Running the (fairly expensive) region-by-region scan
+        a second time would re-check a check, not the data.
+
+    Always calls ``fetch_source`` (newest usable), never ``fetch_source_at``:
+    there is no time-aligned history sequence at this resolution (hard
+    constraint), so "which frame" is not a question this function answers.
+    """
+    channel = channel_for(code or DEFAULT_CODE)
+    src = fetch_source(now, verbose=verbose, code=channel["code"],
+                       src_res=TEX_HIRES_SRC_RES)
+    obstime, observer, l0, b0, _p_deg = solar_frame(src)
+    fit_limb(src, channel, obstime, quiet=not verbose)
+    img = render_map(src, channel, obstime, observer, l0, b0,
+                     TEX_HIRES_W, TEX_HIRES_H)[0]
+    blob = encode_jpeg(img, quality=TEX_HIRES_JPEG_QUALITY,
+                       max_bytes=TEX_HIRES_MAX_BYTES)
+    meta = {
+        "url": hires_jpeg_name(channel["code"]),
+        "width": TEX_HIRES_W,
+        "height": TEX_HIRES_H,
+        "bytes": len(blob),
         "obs_iso": iso_z(src.obstime),
         "sub_earth_carr_lon_deg": l0,
         "sub_earth_lat_deg": b0,
@@ -971,10 +1061,11 @@ def texture_status(obs_age: float) -> str:
 
 __all__ = [
     "JPEG_NAME", "SourceImage", "browse_candidates", "disk_mean",
-    "jpeg_name", "channel_for", "DEFAULT_CODE",
+    "jpeg_name", "hires_jpeg_name", "channel_for", "DEFAULT_CODE",
     "hist_jpeg_name", "slot_stamp", "HIST_NAME_RE",
     "fetch_source", "fetch_source_at",
     "solar_frame", "fit_limb", "render_map", "build_history_frame",
+    "build_hires_texture",
     "measure_limb", "input_header", "output_header", "grid",
     "sub_earth_distance", "reproject_rgb", "quiet_sun_rgb",
     "farside_modulation", "feather_weight", "compose", "encode_jpeg",

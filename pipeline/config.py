@@ -285,7 +285,45 @@ TEX_MAX_OBS_AGE_HOURS = 24.0              # older than this -> status degraded
 # sunpy's angular_radius, i.e. agreement to 0.2%.
 SDO_BROWSE_BASE = "https://sdo.gsfc.nasa.gov/assets/img/browse"
 SDO_LATEST_BASE = "https://sdo.gsfc.nasa.gov/assets/img/latest"
+# Source still for the HISTORY frames. 2048 is right for them: their output is
+# 2048x1024, so the near side is 1024 px and a 2048 still's 1602 px disk is
+# already a downsample. Fetching 4096 for 75 frames would quadruple the download
+# for detail the output cannot hold.
 TEX_SRC_RES = 2048
+
+# Source still for the NEWEST map -- SDO's largest browse product.
+#
+# THIS IS THE SHARPNESS FIX, and the arithmetic is the whole argument. Half a
+# plate-carree map IS the visible hemisphere, so a 4096-wide map carries 2048 px
+# across the disk. The disk fills 0.7824 of an AIA frame (footgun 21), so:
+#
+#     2048 still -> 1602 px of disk -> stretched UP to 2048   = 1.28x UPSAMPLE
+#     4096 still -> 3205 px of disk -> resampled DOWN to 2048 = 0.64x, antialiased
+#
+# The default map was therefore soft by construction, and no amount of JPEG
+# quality or GPU work could recover detail the source never had. Switching the
+# source costs nothing that ships: identical output dimensions, identical
+# published bytes, identical 34 MB of GPU. Only the SERVER-side download grows,
+# 0.67 -> 2.6 MB per channel per run, on a runner, six times a day.
+#
+# 4096 is the ceiling: SDO's browse tree offers 256/512/1024/2048/3072/4096 and
+# nothing larger, so 3205 px across the disk is the most real detail obtainable.
+TEX_MAIN_SRC_RES = 4096
+
+# Resolution the limb fit is always performed at, whatever the source.
+#
+# measure_limb is resolution-DEPENDENT for a diffuse edge: more rays cross soft
+# limb emission further out, so the fitted radius creeps up with sampling. That
+# is why TEX_LIMB_RADIUS_TOL (calibrated here, at 2048) rejected 0304 outright at
+# 4096. Measured 2026-08-24, fit error against the predicted radius:
+#
+#     0304   native 2048 +2.02%   native 4096 +4.19%   4096 downsampled to 2048 +2.30%
+#     0171   native 2048 -1.44%   native 4096 +0.27%   4096 downsampled to 2048 -0.81%
+#
+# Fitting a downsampled copy reproduces the native-2048 answer to within 0.6
+# percentage points, so the tolerance means the same thing at every source
+# resolution and the guard keeps its calibration instead of being widened.
+TEX_LIMB_FIT_RES = 2048
 def tex_src_scale(channel_scale: float, src_res: int = TEX_SRC_RES) -> float:
     """arcsec/px of the browse still actually downloaded, for one channel.
 
@@ -334,29 +372,6 @@ TEX_HIRES_W, TEX_HIRES_H = 8192, 4096
 # build or let a hi-res build through many times bigger than intended.
 TEX_HIRES_JPEG_QUALITY = 82                # same as TEX_JPEG_QUALITY; see below
 
-# How far the hi-res limb fit may stray from EXACTLY twice the normal fit.
-#
-# The absolute check (TEX_LIMB_RADIUS_TOL, 3%) is the wrong instrument at this
-# resolution and rejected a channel it should not have. measure_limb is
-# resolution-DEPENDENT for a diffuse edge: more rays cross a soft limb further
-# out, so the fitted radius grows slightly with sampling. Measured 2026-08-24,
-# fitted radius at 2048 vs 4096 and the ratio against the ideal 2.0:
-#
-#     0171   788.0 -> 1582.3   ratio 2.0080   (+0.40%)
-#     0304   807.4 -> 1650.4   ratio 2.0441   (+2.20%)   <- fails a 3% ABSOLUTE
-#     HMIB   941.5 -> 1882.9   ratio 1.9999   (-0.01%)
-#
-# 0304 is He II 304 A, the AIA channel with the most extended chromospheric
-# limb, so it drifts most -- and its absolute error at 4096 (+4.4%) tripped a
-# guard aimed at something else entirely.
-#
-# The RATIO asks the question that actually matters for this build: is the 4096
-# still the same framing as the 2048 one at twice the scale? That is precisely
-# what makes the synthesized WCS valid at the higher resolution, and it does not
-# depend on modelling where a soft limb "really" is. It still catches the thing
-# TEX_LIMB_RADIUS_TOL exists for -- GSFC re-cropping one resolution and not the
-# other (footgun 21) would move this ratio immediately.
-TEX_HIRES_LIMB_RATIO_TOL = 0.03
 TEX_HIRES_MAX_BYTES = 4_500_000
 
 # ── Off-limb annulus ────────────────────────────────────────────────────────

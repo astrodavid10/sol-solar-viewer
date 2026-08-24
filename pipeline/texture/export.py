@@ -80,7 +80,7 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       TEX_FARSIDE_NOISE_TERMS, TEX_FARSIDE_SEED,
                       TEX_FEATHER_DEG, TEX_HIRES_JPEG_QUALITY,
                       TEX_HIRES_MAX_BYTES,
-                      TEX_HIRES_LIMB_RATIO_TOL, TEX_HIRES_SRC_RES, TEX_HIRES_W,
+                      TEX_HIRES_SRC_RES, TEX_HIRES_W,
                       TEX_HIRES_H, TEX_JPEG_QUALITY, TEX_LAT_FADE_DEG,
                       TEX_LIMB_CENTER_TOL_PX, TEX_LIMB_RADIUS_TOL,
                       TEX_MAX_BYTES, TEX_MAX_OBS_AGE_HOURS,
@@ -90,7 +90,8 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       TEX_POLE_FADE_DEG, TEX_POLE_FLOOR,
                       TEX_QUIET_ANNULUS_DEG, TEX_QUIET_PERCENTILE,
                       TEX_CHANNELS, TEX_OFFLIMB_INNER, TEX_OFFLIMB_QUALITY,
-                      TEX_OFFLIMB_SIZE, TEX_SRC_RES, tex_src_scale)
+                      TEX_OFFLIMB_SIZE, TEX_LIMB_FIT_RES,
+                      TEX_MAIN_SRC_RES, TEX_SRC_RES, tex_src_scale)
 from ..io_utils import (PipelineError, age_hours, http_get_full, human_bytes,
                         iso_z, unix_s)
 
@@ -752,7 +753,7 @@ def solar_frame(src: "SourceImage"):
 
 
 def fit_limb(src: "SourceImage", channel: dict, obstime,
-             quiet: bool = False, check: bool = True):
+             quiet: bool = False):
     """Fit the disk edge and assert the synthesized WCS still applies.
 
     Returns (cx, cy, r_fit, r_pred, c_off, resid, n_rays).  Raises rather than
@@ -763,19 +764,30 @@ def fit_limb(src: "SourceImage", channel: dict, obstime,
     function checks the normal 2048 px source and the opt-in 4096 px one
     without a resolution argument.
 
-    ``check=False`` measures without asserting, for a caller that has a SHARPER
-    guard than the absolute tolerance. build_hires_texture does: comparing the
-    4096 fit against the 2048 one asks whether the two resolutions agree, which
-    is what actually makes the synthesized WCS valid at both -- rather than
-    re-litigating a model of where a soft EUV limb "really" is. See
-    TEX_HIRES_LIMB_RATIO_TOL.
     """
     import astropy.units as u
     from sunpy.coordinates import sun
     src_res = src.rgb.shape[0]
     r_pred = float(sun.angular_radius(obstime).to_value(u.arcsec)
                    ) / tex_src_scale(channel["scale"], src_res=src_res)
-    cx, cy, r_fit, resid, n_rays = measure_limb(src.rgb.mean(axis=-1), r_pred)
+    # Fit at a FIXED resolution, then scale the answer back up. measure_limb
+    # creeps outward with sampling on a soft limb, so fitting the native pixels
+    # would make the calibrated tolerance mean something different at every
+    # source size -- see TEX_LIMB_FIT_RES for the measurements.
+    lum = src.rgb.mean(axis=-1)
+    fit_scale = 1.0
+    if src_res > TEX_LIMB_FIT_RES:
+        from PIL import Image
+        lum = np.asarray(
+            Image.fromarray(lum.astype(np.float32)).resize(
+                (TEX_LIMB_FIT_RES, TEX_LIMB_FIT_RES), Image.LANCZOS),
+            dtype=np.float32)
+        fit_scale = src_res / float(TEX_LIMB_FIT_RES)
+    cx, cy, r_fit, resid, n_rays = measure_limb(lum, r_pred / fit_scale)
+    cx *= fit_scale
+    cy *= fit_scale
+    r_fit *= fit_scale
+    resid *= fit_scale
     c_off = float(np.hypot(cx - (src_res - 1) / 2.0, cy - (src_res - 1) / 2.0))
     # TEX_LIMB_CENTER_TOL_PX was measured at TEX_SRC_RES (2048 px); a pixel
     # offset scales linearly with resolution, so the tolerance must too, or
@@ -786,8 +798,8 @@ def fit_limb(src: "SourceImage", channel: dict, obstime,
         print("  limb fit: r {0:.1f} px vs {1:.1f} predicted ({2:+.2%}), "
               "center {3:.1f} px off, scatter {4:.1f} px ({5} rays)".format(
                   r_fit, r_pred, r_fit / r_pred - 1.0, c_off, resid, n_rays))
-    if check and (abs(r_fit / r_pred - 1.0) > TEX_LIMB_RADIUS_TOL
-                  or c_off > center_tol_px):
+    if abs(r_fit / r_pred - 1.0) > TEX_LIMB_RADIUS_TOL \
+            or c_off > center_tol_px:
         raise PipelineError(
             "browse JPG geometry has changed: limb radius {0:.1f} px vs "
             "{1:.1f} predicted ({2:+.1%}, tol {3:.0%}), disk center {4:.1f} "
@@ -864,9 +876,7 @@ def build_history_frame(target: datetime, code: str, verbose: bool = False
 
 
 def build_hires_texture(now: datetime, code: str = None,
-                        verbose: bool = False,
-                        ref_limb_px: Optional[float] = None
-                        ) -> Tuple[bytes, dict]:
+                        verbose: bool = False) -> Tuple[bytes, dict]:
     """The NEWEST frame's opt-in high-resolution Carrington map.
 
     Same geometry pipeline as ``build_texture`` (fetch -> solar_frame ->
@@ -888,40 +898,17 @@ def build_hires_texture(now: datetime, code: str = None,
     there is no time-aligned history sequence at this resolution (hard
     constraint), so "which frame" is not a question this function answers.
 
-    ``ref_limb_px`` is the fitted limb radius of the NORMAL map built moments
-    ago in the same run, and when given it replaces the absolute geometry check
-    with a RATIO check -- see TEX_HIRES_LIMB_RATIO_TOL for why that is the right
-    instrument here and which channel the absolute one wrongly rejected. Passing
-    it costs nothing: the value is already in build_texture's info dict.
+    The geometry check is plain ``fit_limb``, which is resolution-independent
+    (TEX_LIMB_FIT_RES) -- so the same calibrated tolerance applies here as to
+    the normal map, and no special case is needed. An earlier version compared
+    the 4096 fit against the 2048 one as a ratio; that was a workaround for the
+    fit itself drifting with resolution, and fixing the fit removed the need.
     """
     channel = channel_for(code or DEFAULT_CODE)
     src = fetch_source(now, verbose=verbose, code=channel["code"],
                        src_res=TEX_HIRES_SRC_RES)
     obstime, observer, l0, b0, _p_deg = solar_frame(src)
-    if ref_limb_px and ref_limb_px > 0:
-        # Ratio guard. fit_limb's own absolute assert is skipped (quiet=True is
-        # not enough -- it RAISES), so the fit is measured directly here.
-        _cx, _cy, r_fit, _r_pred, _c_off, resid, n_rays = fit_limb(
-            src, channel, obstime, quiet=True, check=False)
-        want = float(TEX_HIRES_SRC_RES) / float(TEX_SRC_RES)
-        ratio = r_fit / ref_limb_px
-        off = abs(ratio / want - 1.0)
-        if verbose:
-            print("  hi-res limb: r {0:.1f} px vs {1:.1f} at {2} px "
-                  "(ratio {3:.4f}, want {4:.1f}, {5:+.2%}), scatter {6:.1f} px "
-                  "({7} rays)".format(r_fit, ref_limb_px, TEX_SRC_RES, ratio,
-                                      want, ratio / want - 1.0, resid, n_rays))
-        if off > TEX_HIRES_LIMB_RATIO_TOL:
-            raise PipelineError(
-                "the {0} px and {1} px browse stills disagree about the limb: "
-                "fitted radii {2:.1f} and {3:.1f} give a ratio of {4:.4f} where "
-                "{5:.1f} is required ({6:+.1%}, tol {7:.0%}) -- one of the two "
-                "resolutions has been re-cropped, so the synthesized WCS cannot "
-                "be valid for both".format(
-                    TEX_HIRES_SRC_RES, TEX_SRC_RES, r_fit, ref_limb_px, ratio,
-                    want, ratio / want - 1.0, TEX_HIRES_LIMB_RATIO_TOL))
-    else:
-        fit_limb(src, channel, obstime, quiet=not verbose)
+    fit_limb(src, channel, obstime, quiet=not verbose)
     img = render_map(src, channel, obstime, observer, l0, b0,
                      TEX_HIRES_W, TEX_HIRES_H)[0]
     blob = encode_jpeg(img, quality=TEX_HIRES_JPEG_QUALITY,
@@ -944,7 +931,11 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
                   ) -> Tuple[bytes, dict, dict, bytes]:
     """Fetch, reproject, composite, encode.  Returns (jpeg, doc, info)."""
     channel = channel_for(code or DEFAULT_CODE)
-    src = fetch_source(now, verbose=verbose, code=channel["code"])
+    # TEX_MAIN_SRC_RES, not TEX_SRC_RES: the newest map's near side is 2048 px
+    # and a 2048 still only carries 1602 px of disk, so the old source was being
+    # enlarged 1.28x. See TEX_MAIN_SRC_RES.
+    src = fetch_source(now, verbose=verbose, code=channel["code"],
+                       src_res=TEX_MAIN_SRC_RES)
     obs_age = age_hours(src.obstime, now)
     print("  source: {0} ({1}, {2}, obs {3}, age {4:.2f} h)".format(
         src.url.rsplit("/", 1)[-1], src.kind, human_bytes(src.nbytes),
@@ -1015,7 +1006,7 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
         "source": ("SDO/{0} {1} JPEG from sdo.gsfc.nasa.gov ({2} px, "
                    "solar-north-up), synthesized WCS at {3:.4f}\"/px, "
                    "reprojected with sunpy + reproject").format(
-                       channel["code"], src.kind, TEX_SRC_RES,
+                       channel["code"], src.kind, src.rgb.shape[0],
                        tex_src_scale(channel["scale"])),
         "source_url": src.url,
         "note": ("lon_deg = (x + 0.5) * 360/{0}, x = 0..{1} left to right; "

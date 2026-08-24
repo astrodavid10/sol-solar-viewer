@@ -115,6 +115,11 @@
   // it takes gold off every panel at once.
   --sol-panel-border: 1px solid rgba(148, 155, 175, 0.22);
   --sol-panel-radius: 14px;
+  // Radius for a CONTROL inside a panel, as distinct from the panel itself.
+  // The layer rows, the layer segments, the stat chips and the scrubber's own
+  // controls were at 9, 9, 10 and 12 px -- four values for one idea, which is
+  // most of why the three panels read as three different designs.
+  --sol-control-radius: 9px;
   // The inset hairline is a LIT TOP EDGE rather than a drawn box -- the whole
   // "modern" move, and it costs nothing because a comma list still fits in one
   // token, so no component needs editing.

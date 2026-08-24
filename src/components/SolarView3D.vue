@@ -59,21 +59,18 @@
            full-width banner above the stage with share and info at its far
            right, which spent a whole row of a phone screen on a wordmark and
            put four controls in two different places. -->
+      <!-- Order is deliberate: share, layers, information.
+           Layers sits BETWEEN them so that on a phone, where the layers
+           popover hangs off this stack, it opens over the information button
+           rather than over the share button a guest may be reaching for.
+           Recenter used to head this stack and was removed on request.
+           NOTE the consequence, because twist-to-rotate now exists: a guest who
+           orbits and rolls the Sun has no one-tap way back to the default
+           framing. The kiosk attract loop still calls resetView() on idle, so an
+           unattended exhibit self-recovers; a phone does not. If that turns out
+           to matter, resetView() is one line to expose again -- put it in the
+           layer panel rather than back on the stage. -->
       <div class="sv-buttons">
-        <button
-          type="button"
-          class="sv-icon-btn"
-          aria-label="Recenter the Sun"
-          title="Recenter the Sun"
-          @click="recenter"
-        >
-          <font-awesome-icon icon="rotate-left" />
-        </button>
-
-        <!-- Web Share of the current deep link (the URL already carries the
-             surface/channel state). Hidden on the kiosk — guests take THAT home
-             via the QR pill, and the exhibit machine shouldn't open share
-             sheets. -->
         <button
           v-if="!kiosk"
           type="button"
@@ -85,19 +82,7 @@
           <font-awesome-icon :icon="copied ? 'check' : 'share-nodes'" />
         </button>
 
-        <!-- Both redundant on desktop: the rail keeps these panels open. -->
-        <button
-          v-if="!wide"
-          type="button"
-          class="sv-icon-btn"
-          :class="{ 'is-active': sheet === 'info' }"
-          aria-label="About this app"
-          title="What am I looking at?"
-          @click="toggleInfo"
-        >
-          <font-awesome-icon icon="circle-info" />
-        </button>
-        <button
+<button
           v-if="!wide"
           type="button"
           class="sv-icon-btn"
@@ -107,6 +92,18 @@
           @click="toggleLayers"
         >
           <font-awesome-icon icon="layer-group" />
+        </button>
+
+<button
+          v-if="!wide"
+          type="button"
+          class="sv-icon-btn"
+          :class="{ 'is-active': sheet === 'info' }"
+          aria-label="About this app"
+          title="What am I looking at?"
+          @click="toggleInfo"
+        >
+          <font-awesome-icon icon="circle-info" />
         </button>
       </div>
 
@@ -747,9 +744,9 @@ export default defineComponent({
      * renders 3 (no share button) and floated the popover ~48px too low.
      */
     visibleButtonCount(): number {
-      let count = 1; // recenter — unconditional
-      if (!this.kiosk) { count += 1; } // share
-      if (!this.wide) { count += 2; } // info + layers
+      // share is the only unconditional one now that recenter is gone.
+      let count = this.kiosk ? 0 : 1;          // share (hidden in kiosk)
+      if (!this.wide) { count += 2; }          // layers + info
       return count;
     },
   },

@@ -525,6 +525,10 @@ export default defineComponent({
   // One gutter, one width, one rhythm. Each of these components can also
   // appear as a phone overlay, where they size themselves — so the rail sets
   // the geometry here rather than any of them assuming it.
+  // ONE inset for all three, horizontally AND vertically. The gutter used to
+  // be applied left/right here with a padding-bottom only on the stats item, so
+  // the top panel sat flush against the top edge while the bottom one was inset
+  // -- and the column read as slightly lopsided for no reason anyone could name.
   .sol-area-info,
   .sol-area-layers,
   .sol-area-stats {
@@ -532,8 +536,19 @@ export default defineComponent({
     padding-left: var(--sol-rail-gutter);
   }
 
+  // Every rail child is a PANEL of the same width. `.layer-panel` carries
+  // `min-width: 15rem` for the phone popover, where it has no column to fill;
+  // in the rail that is a floor its neighbours do not have, so at a narrow
+  // "wide" window (the breakpoint is 900px, giving this 35% column ~291px of
+  // content) it could force itself wider than the info panel above it. The
+  // column decides the width here, nothing else.
+  .sol-area-layers :deep(.layer-panel) {
+    min-width: 0;
+  }
+
   .sol-area-info {
     grid-area: info;
+    padding-top: var(--sol-rail-gutter);
     // Load-bearing: without it the info panel's content sets a floor on this
     // grid item's height and the 1fr row stops constraining anything.
     min-height: 0;
@@ -549,11 +564,21 @@ export default defineComponent({
     align-self: end;
     padding-bottom: var(--sol-rail-gutter);
 
-    // SunStats carries its own gutter for the phone layout; the rail owns it
-    // here, so the two must not add up to a wider inset than its neighbors.
+    // SunStats is a bare strip of chips on a phone, where it sits at the
+    // bottom of the screen and needs no frame. In the rail it is the third
+    // member of a column of cards, and being the only one without a border,
+    // a ground and a radius was the single biggest thing making the right-hand
+    // side look unfinished. Same tokens as `.layer-panel` and `.im-panel`, so
+    // all three are one design and cannot drift apart.
+    //
+    // Its own phone gutter is dropped: the rail already applies the inset, and
+    // the two would otherwise add up to a wider one than its neighbours have.
     :deep(.sun-stats) {
-      padding-right: 0;
-      padding-left: 0;
+      padding: var(--sol-panel-pad);
+      border: var(--sol-panel-border);
+      border-radius: var(--sol-panel-radius);
+      background: var(--sol-surface);
+      box-shadow: var(--sol-panel-shadow);
     }
   }
 }

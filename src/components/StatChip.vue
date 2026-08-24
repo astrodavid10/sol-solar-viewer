@@ -69,17 +69,33 @@ export default defineComponent({
   gap: 0.1rem;
   min-height: 56px;
   padding: 0.4rem 0.6rem;
+  // Deliberately identical to `.lp-segment` in LayerPanel.vue: hairline border,
+  // the shared control radius, transparent ground. These are the same KIND of
+  // thing -- a tappable tile inside a panel -- and they sit one above the other
+  // in the desktop rail, so any difference reads as an accident.
   border: 1px solid var(--sol-hairline);
-  border-radius: 10px;
-  background: rgba(var(--sol-select-rgb), 0.035);
+  border-radius: var(--sol-control-radius);
+  background: transparent;
   color: var(--sol-text);
   text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: border-color 150ms ease, opacity 200ms ease;
+  transition: border-color 150ms ease, background 160ms ease, opacity 200ms ease;
 
+  &:hover {
+    background: var(--sol-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--sol-select);
+    outline-offset: -2px;
+  }
+
+  // The layer panel's "on" treatment, to the letter: brighter border, faint
+  // neutral fill, full-strength text. Three signals, not one hue.
   &.is-active {
-    border-color: var(--sol-select);
+    border-color: rgba(var(--sol-select-rgb), 0.75);
+    background: rgba(var(--sol-select-rgb), 0.14);
   }
 
   // Stale values stay visible but stop shouting — they are last-known, not now.

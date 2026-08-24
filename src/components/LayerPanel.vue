@@ -252,7 +252,7 @@ export default defineComponent({
   min-height: 44px;
   padding: 0.3rem 0.5rem;
   border: none;
-  border-radius: 9px;
+  border-radius: var(--sol-control-radius);
   background: transparent;
   color: var(--sol-text);
   text-align: left;
@@ -363,7 +363,7 @@ export default defineComponent({
   min-height: 44px;
   padding: 0 0.2rem;
   border: 1px solid var(--sol-hairline);
-  border-radius: 9px;
+  border-radius: var(--sol-control-radius);
   background: transparent;
   color: var(--sol-text-dim);
   font-size: 0.72rem;

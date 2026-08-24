@@ -358,10 +358,20 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  padding: 0.4rem 0.6rem 0.5rem;
-  border-radius: 12px;
-  background: rgba(9, 2, 24, 0.72);
-  backdrop-filter: blur(6px);
+  padding: 0.5rem 0.6rem;
+  // The same panel treatment as the layer panel and the info panel, from the
+  // same tokens. It had its own radius (12 vs 14), its own translucent ground
+  // and its own blur -- three private decisions that made the one control every
+  // guest touches look unrelated to the rest of the app.
+  //
+  // The blur is gone for the reason in footgun 39: this panel is full-width and
+  // sits directly over the WebGL canvas, so a backdrop-filter here was the most
+  // expensive single thing in the overlay, re-blurring every frame whether
+  // anything moved or not.
+  border: var(--sol-panel-border);
+  border-radius: var(--sol-panel-radius);
+  background: var(--sol-surface);
+  box-shadow: var(--sol-panel-shadow);
 }
 
 .ts-banner {
@@ -388,10 +398,14 @@ export default defineComponent({
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(var(--sol-select-rgb), 0.5);
-  border-radius: 50%;
-  background: rgba(var(--sol-select-rgb), 0.12);
-  color: var(--sol-select);
+  // Was a 50% circle with its own border and fill alpha. It is a control in a
+  // panel, exactly like a layer segment, so it uses the segment's treatment and
+  // the shared control radius -- a lone circle among rounded rectangles was the
+  // most visible mismatch in the app.
+  border: 1px solid rgba(var(--sol-select-rgb), 0.75);
+  border-radius: var(--sol-control-radius);
+  background: rgba(var(--sol-select-rgb), 0.14);
+  color: var(--sol-text);
   font-size: 0.95rem;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;

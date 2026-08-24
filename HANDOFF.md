@@ -3,7 +3,7 @@
 **Living document.** Update it at the end of any session that changes project state. It exists
 so a fresh session (human or Claude) can pick the work up without re-deriving context.
 
-- **Last updated:** 2026-08-23 (third session that day)
+- **Last updated:** 2026-08-24 (fourth session — five phone/desktop layout fixes, §3zz)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
   enabled on `gh-pages` / root, and the deployed data tree passes
   `validate --url … --strict` at 0 failed / 0 warnings.
@@ -23,7 +23,7 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 
 ### Read these first, in this order
 
-1. `CLAUDE.md` — architecture + **30 numbered footguns**. Dense and authoritative. The
+1. `CLAUDE.md` — architecture + **45 numbered footguns**. Dense and authoritative. The
    footguns are hard-won; several document bugs that took hours to find. Do not "fix" them.
 2. This file — what is done, what is not, what is unverified.
 3. The original implementation plan — a local Claude Code planning document, not in this
@@ -131,7 +131,102 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3z. What changed on 2026-08-23 (THIRD session — most recent)
+## 3zz. What changed on 2026-08-24 (FOURTH session — most recent)
+
+Five items reported from a phone on the LAN dev server, all app-side, no pipeline change.
+`yarn lint`, `yarn build` and `node scripts/check_label_layout.mjs` are clean. Everything below
+was **measured in a browser** at 280/300/320/360/390/430/480/540/600/639/640/720/899px and at
+1920px for the rail; three of the five were confirmed as bugs by measurement before being
+touched, and one fix was caught being wrong by measurement after being written.
+
+### The layer popover: opens under its own button, equal gutters, actually scrollable
+
+It used to hang off the bottom of the WHOLE button stack and stop 1rem from the bottom of the
+stage — straight through the scrubber, which sits at z-index 5 and therefore painted over the
+panel's last rows and stole their taps (the reported "obscured by the scrubbable timeline").
+
+- Now hangs off the bottom edge of the LAYERS button (`--sv-layers-index`, 1 normally / 0 in
+  kiosk), ~48px higher, deliberately covering the information button below it — which is why
+  layers is the middle button of the three.
+- `left: 0.5rem` **and** `right: 0.5rem` (was `right` + a `max-width`): an abspos box with one
+  inset shrink-to-fits, so the other gutter was whatever the content left. Equal by construction
+  now at every width; measured left 8px / right 8px at both 320 and 390. Above ~34rem it stops
+  growing and centres, so the gutters stay equal without a 900px-wide line of text.
+- `max-height` reserves `--sv-bottom-h`, the **measured** height of `.sv-bottom` (a
+  ResizeObserver, `measure()`), not a constant — the scrubber's height moves with its stale
+  banner, the field-lines note and the guest's font size. Measured at 320x568: the panel ends
+  8px above the scrubber and scrolls (scrollHeight 500 vs clientHeight 277); at 390x844 it fits
+  whole (474/474).
+- **`data-camera-passthrough="false"`** — CLAUDE.md footgun 45. Dragging a row scrolled;
+  dragging the padding *between* rows orbited the Sun. Proven with synthetic PointerEvents,
+  including the control experiment on open sky.
+
+### Stat chips: two lines, 2x2 always, and the flare says how strong it was
+
+- **Never 3+1.** `auto-fit` cannot express "2 or 4, never 3" (footgun 44). Stated instead: 2
+  columns, 4 from 640px. Verified 280→899px.
+- **Two lines, not three.** The label now shares a BASELINE with the value, so each chip is
+  44px instead of ~58 and the block is 95px instead of ~122 — ~27px back to the Sun. The
+  freshness dot moved to the far end of that row.
+- **The flare's class is the headline**: `C1.4`, `M2.3`, `X5.0`, with the plain word demoted to
+  the detail line ("small flare · 16:28 UT"). "Small flare" could not answer the only question a
+  flare raises — C1.0 and C9.9 are a factor of ten apart and both read as "Small flare". A and B
+  are not flares, so they keep `Quiet` with the class as evidence ("B8.3 background"). The
+  explainer now unpacks the number as well as the letter. **The scrubbed path used to drop the
+  class entirely**, which is the bug the report named.
+- Text shortened to fit two columns on the narrowest screens: `SOLAR WIND` → `WIND`,
+  `5 spotted regions` → `in 5 regions`, `Storm — aurora possible!` → `Storm!` (the aurora
+  BANNER above the chips already carries that sentence on exactly the same Kp >= 5 condition),
+  and tile timestamps are time-only — the scrubber one line up states the date, and every chip
+  value is drawn from within ~2h of the playhead. The daily sunspot count keeps its date.
+- 280px (a Fold cover screen) is the one place it still ran out of room: `425 km/s` needed 66px
+  of 58. A `max-width: 300px` query tightens the head gaps and the value size; nothing clips
+  from 280px up, and the old single-column fallback below 340px is gone.
+
+### The desktop rail's three panels were three different widths
+
+Measured in a 1920px window: `.im-panel` 1263..1908, `.layer-panel` **1251..1920** (hard against
+the window edge), `.sun-stats` the same. Two separate causes, both footgun 43: the rail's gutter
+was **padding** on items that ARE the bordered panel, and the stats card's framing lived in a
+`:deep(.sun-stats)` block that matched **nothing** — it had shipped with `border: 0px none` and a
+transparent ground while its own comment described the card it was supposed to be. All three are
+now 1263..1908 and framed identically.
+
+### The share button did nothing on a phone — confirmed, and fixed
+
+Not a hit-testing problem. On `http://192.168.1.121:8080` `isSecureContext` is false, so
+`navigator.share` and `navigator.clipboard` are **both undefined**, and the old code's
+`navigator.clipboard.writeText` threw a TypeError into a bare `catch`. Four routes now: share
+sheet → async clipboard → `execCommand` → a toast that says the link is in the address bar.
+While fixing it, the first `execCommand` version **returned `true` and copied nothing** (footgun
+42: a textarea's value is not DOM text, so `Range.selectNodeContents` selected nothing). Now
+verified end to end against the Windows clipboard: click the button on the insecure origin,
+`Get-Clipboard` returns `http://192.168.1.121:8080/`.
+
+### `preview.jpg` regenerated at last
+
+The og:image had been the pre-redesign shot for three sessions, because it needs a screenshot of
+the running app. Recipe, so the next one takes two minutes: a **1500x788 iframe at the viewport
+origin with `transform: scale(0.8)`**, captured with the extension's `zoom` over the resulting
+1200x630 footprint (that action returns the region at native CSS resolution — see the browser
+recipe in §4). Rendering large and scaling down is what stops the rail's `1fr` info row being
+squeezed to a sliver: at a literal 1200x630 viewport it gets ~40px and the panel's own HEADING
+is cut through the middle of its glyphs, which reads as a broken app rather than as a panel with
+more to scroll. Cropped 631→630 rather than resampled, JPEG q88 progressive, 147 KB.
+
+### ⚠ Not verified in a browser (this session)
+
+- **Real-touch scrolling** of the layer popover. Synthetic PointerEvents prove the camera no
+  longer steals the drag, but they do not drive native scroll — `touch-action: auto`,
+  `overscroll-behavior: contain` and a programmatic `scrollTop` all check out, so this is by
+  construction. Needs one flick on the phone.
+- **iOS Safari's copy path.** The `contentEditable` + not-`readonly` + `setSelectionRange`
+  recipe is the documented iOS workaround and is verified on desktop Chrome only.
+- The **share-failure toast** has never rendered: every route above it succeeded.
+
+---
+
+## 3z. What changed on 2026-08-23 (THIRD session)
 
 A six-workstream plan was approved covering everything the user named: the off-brand palette,
 overlays that clip each other, the credit lockup, unreliable pinch zoom plus twist-to-rotate,
@@ -595,13 +690,13 @@ touch work has been seen running.** Specifically unverified:
 - GPU memory under a real scrub on a real phone.
 
 `preview.jpg` was NOT regenerated — it needs a screenshot of the running app, so
-it is still the pre-redesign image.
+it is still the pre-redesign image. **(Done in the fourth session, §3zz.)**
 
 ### Still not done from the approved plan
 
 **Browser and phone verification of everything this session touched** (see the
-warning above — this is now the single biggest gap) · `preview.jpg` ·
-deploying the GONG relay (`wrangler deploy` + two repo secrets; the code is
+warning above — this is now the single biggest gap) · ~~`preview.jpg`~~ (done in
+the fourth session) · deploying the GONG relay (`wrangler deploy` + two repo secrets; the code is
 ready) · our own planet orbits (§8.4f) · a texture cross-fade, if the 4 h snap
 reads badly · M-W9's CME eruption layer · Lighthouse mobile · kiosk soak.
 

@@ -432,6 +432,48 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     between a diagnosis and a re-run. (See also footgun 35: a killed run leaves `.staging`
     behind, and the NEXT run's `Staging.reset()` will delete it, so there is exactly one chance
     to look.)
+42. **Sharing over `http://` needs BOTH a fallback and a working selection — and
+    `execCommand("copy")` will lie to you.** On the LAN dev origin and on any locally served
+    kiosk (`http://192.168.1.121:8080`), `isSecureContext` is false, so `navigator.share` and
+    `navigator.clipboard` are **both `undefined`** — the old share button reached through the
+    latter, threw `TypeError: Cannot read properties of undefined (reading 'writeText')` into a
+    bare `catch`, and did nothing at all, silently, on every phone testing over LAN. The
+    surviving route is `document.execCommand("copy")`, which predates the secure-context rules.
+    Its trap: it copies a live SELECTION, and a `<textarea>`'s value is **not DOM text** —
+    assigning `.value` creates no child node, so `Range.selectNodeContents(area)` selects
+    NOTHING while `execCommand` still returns **`true`**. Measured 2026-08-24: the button showed
+    its success check and the OS clipboard still held its previous contents. Use the textarea's
+    own selection (`focus()` + `setSelectionRange`), never a document Range, and verify a copy
+    path against `Get-Clipboard` rather than against the return value. It also needs transient
+    user activation, so a `javascript_tool` probe returns false even when the code is correct —
+    test it from a real click.
+43. **Vue scoped `:deep(.x)` compiles to a DESCENDANT selector, so it silently matches nothing
+    when `.x` is the SAME element.** The desktop rail binds its classes onto child component
+    ROOTS (`.sol-area-stats` IS `.sun-stats`, `.sol-area-layers` IS `.layer-panel`; only
+    `.sol-area-info` wraps its panel). A `.sol-area-stats { :deep(.sun-stats) { border… } }`
+    block therefore styled no element in the document, and the stats card shipped for a whole
+    session with a computed `border: 0px none` and a transparent ground while its comment
+    described the framing it was supposed to have. Scoped CSS stamps a child's root with the
+    parent's scope id, so put the declarations directly on the item and drop the `:deep()`.
+    Same family of bug: the rail's gutter must be a **margin**, not padding — on the two items
+    that ARE the panel, padding lands inside the border, so those panels spanned the whole
+    column (hard against the window edge, 1251..1920 in a 1920px window) while the wrapped one
+    was inset to 1263..1908. And `.sun-stats`' own `width: 100%` then needs `width: auto` in the
+    rail, or that 100% resolves against the grid AREA and the margins push it back out.
+44. **`grid-template-columns: repeat(auto-fit, minmax(150px, 1fr))` cannot express "2 or 4,
+    never 3".** auto-fit does not know the item count, so between ~490px and ~640px of stats
+    width it fitted THREE columns and the fourth chip orphaned onto its own row. Four items want
+    the count stated: 2 columns, then 4 at the width where all four actually fit (`min-width:
+    640px` = 4*150 + gaps + the side padding). Verified across 280-899px: 2 up to 639, 4 from
+    640, never 3, never 1.
+45. **An overflow-scrolling overlay on the stage needs `data-camera-passthrough="false"`.**
+    `gestures.ts`' `isControl` exempts `button, a, input, select, textarea, [role=button]` and
+    that attribute; anything else a single finger lands on is claimed for the camera. So the
+    layer popover's ROWS (buttons) scrolled while its padding, its "Surface" heading and the
+    gaps between rows orbited the Sun instead — a panel that scrolls or not depending on which
+    3px of it you touch. The attribute is the intended escape hatch and the popover is its first
+    user. Verified by synthetic PointerEvents: the drag inside the panel leaves
+    `solDebug.camera` untouched, the identical drag on open sky moves lat by 9 degrees.
 
 ## Data sources (verified live 2026-08)
 

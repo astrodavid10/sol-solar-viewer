@@ -181,6 +181,26 @@ export default defineComponent({
   text-overflow: ellipsis;
 }
 
+// The narrowest screens still in circulation -- a Galaxy Fold's ~280px cover
+// screen -- and the only place this layout runs out of room. Measured at 280px:
+// two columns give each chip 107px of content, and "425 km/s" at 0.95rem needs
+// 66px of the 58px it gets, i.e. it ellipsises to "425 km/…" and loses the
+// unit, which is the half that carries the meaning. Tightening the two head
+// gaps recovers 4.8px and the smaller value another 6.3px, which clears it with
+// room to spare -- and both are recovered from SPACING and from a size that is
+// still the largest thing in the chip, so nothing has to be dropped and the
+// grid stays 2x2 as it is at every other width. 300px, not 320: an iPhone SE
+// (320px) has the room and should keep the full-size number.
+@media (max-width: 300px) {
+  .sc-head {
+    gap: 0.3rem;
+  }
+
+  .sc-value {
+    font-size: 0.86rem;
+  }
+}
+
 .sc-detail {
   font-size: 0.62rem;
   line-height: 1.3;

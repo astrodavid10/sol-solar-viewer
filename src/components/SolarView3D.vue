@@ -1804,23 +1804,39 @@ export default defineComponent({
     },
 
     /**
-     * Copy via the old selection-and-execCommand route. True if it took.
+     * Copy via the old focus-select-execCommand route. True if it took.
      *
-     * Every part of this is load-bearing, so it reads as cargo cult and isn't:
-     * `execCommand("copy")` copies the current SELECTION, and an element that
-     * is `display: none`, `visibility: hidden` or detached cannot hold one — so
-     * the textarea has to be in the document and rendered, and is instead moved
-     * off-screen and made transparent. iOS Safari additionally refuses to
-     * select inside a `readonly` field and ignores `select()` on a textarea,
-     * which is why the selection is built with a Range over a
-     * `contenteditable` node and then narrowed with `setSelectionRange`.
-     * `position: fixed` + `top: 0` keeps the page from scrolling to it, and a
-     * `font-size` of 16px keeps iOS from zooming the viewport at focus.
+     * Every line is load-bearing, so it reads as cargo cult and isn't:
+     *
+     * - The textarea has to be IN the document and rendered. `execCommand`
+     *   copies a live selection, and a `display: none` / `visibility: hidden` /
+     *   detached element cannot hold one — hence off-screen and transparent
+     *   rather than hidden.
+     * - The selection has to be the TEXTAREA'S OWN (`focus` +
+     *   `setSelectionRange`), never a document Range over the element. A
+     *   textarea's value is not DOM text: assigning `.value` creates no child
+     *   node, so `Range.selectNodeContents(area)` selects NOTHING. Measured
+     *   2026-08-23 over http:// on this dev server, that version returned
+     *   `true` from `execCommand` — the button went to its check mark — and
+     *   left the OS clipboard holding its previous contents. A copy path that
+     *   reports success and copies nothing is worse than the silent failure it
+     *   replaced, which is why this is verified against `Get-Clipboard` and not
+     *   against the return value.
+     * - `contentEditable` + not `readonly` is the iOS Safari workaround: it
+     *   refuses to select inside a readonly field, and ignores `select()` on a
+     *   textarea, so `setSelectionRange` is what has to do the work. (Verified
+     *   on desktop Chrome; the iOS half of this is by construction.)
+     * - `position: fixed` + `top: 0` keeps the page from scrolling to it, and
+     *   `font-size: 16px` keeps iOS from zooming the viewport on focus.
+     * - Focus is handed back afterwards: it was on the share button, and a
+     *   keyboard guest should not lose their place to a scratch element.
      */
     copyLegacy(text: string): boolean {
+      const previous = document.activeElement as HTMLElement | null;
       const area = document.createElement("textarea");
       area.value = text;
       area.contentEditable = "true";
+      area.readOnly = false;
       area.style.position = "fixed";
       area.style.top = "0";
       area.style.left = "0";
@@ -1833,18 +1849,14 @@ export default defineComponent({
       document.body.appendChild(area);
       let ok = false;
       try {
-        const range = document.createRange();
-        range.selectNodeContents(area);
-        const selection = window.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
+        area.focus();
         area.setSelectionRange(0, text.length);
         ok = document.execCommand("copy");
       } catch {
         ok = false;
       } finally {
-        window.getSelection()?.removeAllRanges();
         document.body.removeChild(area);
+        previous?.focus?.();
       }
       return ok;
     },
@@ -2191,7 +2203,7 @@ export default defineComponent({
   margin-inline: auto;
   z-index: 4; // above `.sv-buttons` (E7) -- it's the popover FROM that stack
 
-  // `.layer-panel` alone runs ~470px tall (8 rows * ~48px + the Surface
+  // `.layer-panel` alone runs ~420px tall (7 rows * ~48px + the Surface
   // `.lp-group` block's ~78px + 2rem of panel padding) with no cap of its
   // own, and on a landscape phone (e.g. 812x375 -- still `!wide`, since
   // 812 < 900) the stage is only 375px tall with `.solar-view-3d`'s

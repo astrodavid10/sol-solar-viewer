@@ -529,11 +529,25 @@ export default defineComponent({
   // be applied left/right here with a padding-bottom only on the stats item, so
   // the top panel sat flush against the top edge while the bottom one was inset
   // -- and the column read as slightly lopsided for no reason anyone could name.
+  //
+  // MARGIN, not padding, and that is the whole fix for "the layers panel sticks
+  // out farther left and right than the info panel and the stats": two of these
+  // three grid items ARE the bordered panel, because the rail's classes land on
+  // the component ROOTS -- `.sol-area-layers` is `.layer-panel` itself and
+  // `.sol-area-stats` is `.sun-stats` itself, while `.sol-area-info` is
+  // `.im-inline`, a WRAPPER around `.im-panel`. So a padding gutter landed
+  // inside two of the three borders: those panels' boxes spanned the entire
+  // column while the info panel's was inset by it. Measured 2026-08-24 in a
+  // 1920px window: layers 1251..1920 (hard against the window edge) against
+  // info's panel at 1263..1908. Margin sits OUTSIDE the border, so it insets
+  // the panel whether the item is the panel or a wrapper around one -- and as a
+  // bonus `.layer-panel` gets its own symmetric `--sol-panel-pad` back, which
+  // the padding gutter had been overriding to a lopsided `16px 12px`.
   .sol-area-info,
   .sol-area-layers,
   .sol-area-stats {
-    padding-right: var(--sol-rail-gutter);
-    padding-left: var(--sol-rail-gutter);
+    margin-right: var(--sol-rail-gutter);
+    margin-left: var(--sol-rail-gutter);
   }
 
   // Every rail child is a PANEL of the same width. `.layer-panel` carries
@@ -548,6 +562,12 @@ export default defineComponent({
 
   .sol-area-info {
     grid-area: info;
+    // PADDING here, unlike the side gutters above, and deliberately: this item
+    // is `.im-inline`, which carries `height: 100%` (InfoModal.vue) so that the
+    // panel can fill the 1fr row and scroll inside it. A grid item at 100%
+    // height plus a top MARGIN overflows its area by exactly the margin, and
+    // would push into the layers row below. Padding is inside that 100% and,
+    // on a wrapper with no border or ground of its own, is visually identical.
     padding-top: var(--sol-rail-gutter);
     // Load-bearing: without it the info panel's content sets a floor on this
     // grid item's height and the 1fr row stops constraining anything.
@@ -559,27 +579,44 @@ export default defineComponent({
     align-self: start;
   }
 
+  // SunStats is a bare strip of chips on a phone, where it sits at the bottom
+  // of the screen and needs no frame. In the rail it is the third member of a
+  // column of cards, and being the only one without a border, a ground and a
+  // radius was the single biggest thing making the right-hand side look
+  // unfinished. Same tokens as `.layer-panel` and `.im-panel`, so all three are
+  // one design and cannot drift apart.
+  //
+  // These five declarations sat in a nested `:deep(.sun-stats)` block and did
+  // NOTHING for it -- `:deep()` compiles to a DESCENDANT selector, and
+  // `.sun-stats` is not a descendant of `.sol-area-stats`, it IS that element
+  // (the rail class is bound onto the child component's root). So the rule
+  // matched no element in the document and the framing never shipped; measured
+  // 2026-08-24 the panel's computed border was `0px none` and its background
+  // `rgba(0, 0, 0, 0)`. They belong directly on the item: Vue's scoped CSS
+  // stamps a child component's ROOT node with this component's scope id, which
+  // is exactly why `.sol-area-stats` can style it and `:deep()` was never
+  // needed.
+  //
+  // The `padding` also replaces the phone gutter `.sun-stats` sets for itself
+  // (SunStats.vue) rather than adding to it -- one class deeper than that rule,
+  // so it wins -- because the rail's own inset is a margin now and two insets
+  // would make this panel's content narrower than its neighbours'.
   .sol-area-stats {
     grid-area: stats;
     align-self: end;
-    padding-bottom: var(--sol-rail-gutter);
-
-    // SunStats is a bare strip of chips on a phone, where it sits at the
-    // bottom of the screen and needs no frame. In the rail it is the third
-    // member of a column of cards, and being the only one without a border,
-    // a ground and a radius was the single biggest thing making the right-hand
-    // side look unfinished. Same tokens as `.layer-panel` and `.im-panel`, so
-    // all three are one design and cannot drift apart.
-    //
-    // Its own phone gutter is dropped: the rail already applies the inset, and
-    // the two would otherwise add up to a wider one than its neighbours have.
-    :deep(.sun-stats) {
-      padding: var(--sol-panel-pad);
-      border: var(--sol-panel-border);
-      border-radius: var(--sol-panel-radius);
-      background: var(--sol-surface);
-      box-shadow: var(--sol-panel-shadow);
-    }
+    margin-bottom: var(--sol-rail-gutter);
+    // `.sun-stats` sets `width: 100%` for the phone, where it is a strip at the
+    // bottom of the screen. On a grid item that 100% resolves against the whole
+    // grid AREA and then the side margins push it outward, so the panel ran 12px
+    // past the window's right edge (measured 1263..1932 in a 1920px window).
+    // `auto` lets the default `stretch` fill the area MINUS the margins, which
+    // is what makes this panel exactly as wide as the two above it.
+    width: auto;
+    padding: var(--sol-panel-pad);
+    border: var(--sol-panel-border);
+    border-radius: var(--sol-panel-radius);
+    background: var(--sol-surface);
+    box-shadow: var(--sol-panel-shadow);
   }
 }
 </style>

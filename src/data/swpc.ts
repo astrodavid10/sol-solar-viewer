@@ -326,19 +326,43 @@ export const NO_DATA: FriendlyValue = { headline: "—", detail: "no data right 
  */
 // A Map rather than an object literal: single-letter keys can't be camelCase,
 // which the repo's naming-convention rule requires of object properties.
-const FLARE_HEADLINES = new Map<string, string>([
-  ["X", "Big flare!"],
-  ["M", "Medium flare"],
-  ["C", "Small flare"],
-  ["B", "Quiet"],
-  ["A", "Quiet"],
+const FLARE_WORDS = new Map<string, string>([
+  ["X", "big flare!"],
+  ["M", "medium flare"],
+  ["C", "small flare"],
+  ["B", "background"],
+  ["A", "background"],
 ]);
 
+/** Is this class a flare a guest would call a flare, i.e. C or above? */
+function isFlareClass(letter: string): boolean {
+  return letter === "C" || letter === "M" || letter === "X";
+}
+
+/**
+ * The class designation is the HEADLINE, and the plain-language word the detail
+ * — the other way round from every other chip here, and deliberately so.
+ *
+ * "How strong was it?" is the question a flare actually raises, and "Small
+ * flare" cannot answer it: C1.0 and C9.9 are a factor of ten apart and both
+ * read as "Small flare". The class carries the strength, so it goes where the
+ * eye lands first. The word stays directly underneath (never the raw jargon
+ * ALONE, which is this module's rule), and the letter scale itself is unpacked
+ * one tap away in SunStats' explainer.
+ *
+ * A and B are not flares at all — they are the quiet background the Sun always
+ * emits — so those keep "Quiet" as the headline and carry the class in the
+ * detail, where it reads as evidence for "quiet" rather than as an event.
+ */
 export function flareLabel(xrayClass: string | null): FriendlyValue {
   if (!xrayClass) { return NO_DATA; }
-  const detail = xrayClass.trim().toUpperCase();
-  const letter = detail.charAt(0);
-  return { headline: FLARE_HEADLINES.get(letter) ?? "Quiet", detail };
+  const cls = xrayClass.trim().toUpperCase();
+  const letter = cls.charAt(0);
+  const word = FLARE_WORDS.get(letter) ?? "background";
+  if (!isFlareClass(letter)) {
+    return { headline: "Quiet", detail: `${cls} ${word}` };
+  }
+  return { headline: cls, detail: word };
 }
 
 /** km/s → mph is ×2,237 (1 km/s = 2,236.94 mph). */
@@ -357,7 +381,12 @@ export function kpLabel(kp: number | null): FriendlyValue {
   if (kp === null) { return NO_DATA; }
   // Round to 2 dp, then drop trailing zeros: 1.33 → "1.33", 2.00 → "2".
   const detail = `Kp ${Number(kp.toFixed(2))}`;
-  if (kp >= 5) { return { headline: "Storm — aurora possible!", detail }; }
+  // One word, not a sentence. The headline shares a line with the chip's label
+  // now (StatChip's `.sc-head`), so "Storm — aurora possible!" could only ever
+  // arrive ellipsised — and it was redundant anyway: `SunStats.auroraAlert`
+  // fires on exactly this condition (Kp >= 5) and puts the aurora sentence in
+  // a full-width banner directly above these chips, where it can be read.
+  if (kp >= 5) { return { headline: "Storm!", detail }; }
   if (kp >= 4) { return { headline: "Active", detail }; }
   return { headline: "Calm", detail };
 }

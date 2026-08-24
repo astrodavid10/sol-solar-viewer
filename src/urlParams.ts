@@ -10,6 +10,18 @@ export function boolParam(name: string): boolean {
   return v !== null && v !== "0" && v !== "false";
 }
 
+/**
+ * True unless the param is present AND explicitly "0" or "false".
+ *
+ * The mirror of boolParam, for a feature that is ON by default and needs an
+ * opt-OUT. boolParam cannot express this: "absent" and "?x=0" both read as
+ * false there, so a default-on flag written with it can never be turned off.
+ */
+export function boolParamDefaultTrue(name: string): boolean {
+  const v = queryParams().get(name);
+  return v === null || (v !== "0" && v !== "false");
+}
+
 export function stringParam(name: string): string | null {
   return queryParams().get(name);
 }

@@ -60,23 +60,32 @@ interface Chip {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** "Aug 21" from a `YYYY-MM-DD` UT date, parsed as UTC rather than local. */
 /**
- * A short UT stamp for a scrubbed value, e.g. "Aug 21, 16:00 UT".
+ * A short UT stamp for a scrubbed value, e.g. "16:00 UT".
  *
  * Always UT and always says so. Every time in this app's data is UT -- NOAA
  * issues on UT days, the PFSS slots are a UT grid -- and a local-time label
  * beside a UT-gridded number invites the guest to compare two different clocks.
+ *
+ * TIME ONLY, no date, and that is a deliberate trade for horizontal room: the
+ * scrubber sitting directly above these chips already states the playhead's
+ * full date ("Aug 23, 16:14 UTC"), and every value a chip stamps is drawn from
+ * within a couple of hours of that playhead -- one Kp bin, one hourly wind bin,
+ * half a 4 h flare slot. So the date would repeat what is on screen one line
+ * up, at the cost of the ~40px that used to push "hourly mean · Aug 23,
+ * 16:00 UT" past the end of a two-column chip on a 320px phone. The one place
+ * a date genuinely IS the value's identity -- the daily sunspot count, which
+ * has no time of day at all -- still carries it, via `dayLabel`.
  */
 function timeLabel(unixSeconds: number): string {
   if (!Number.isFinite(unixSeconds)) { return ""; }
   const d = new Date(unixSeconds * 1000);
-  const month = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
-  const day = d.getUTCDate();
   const hh = String(d.getUTCHours()).padStart(2, "0");
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${month} ${day}, ${hh}:${mm} UT`;
+  return `${hh}:${mm} UT`;
 }
+
+/** "Aug 21" from a `YYYY-MM-DD` UT date, parsed as UTC rather than local. */
 
 function dayLabel(date: string): string {
   const parts = date.split("-");
@@ -87,7 +96,7 @@ function dayLabel(date: string): string {
 
 /** One sentence each. No jargon that isn't immediately unpacked. */
 const EXPLAINERS: Record<string, string> = {
-  flare: "Flares are magnetic explosions on the Sun — NASA labels them A, B, C, M, X, and each letter is ten times stronger than the one before.",
+  flare: "Flares are magnetic explosions on the Sun. NASA labels their strength A, B, C, M, X — each letter is ten times stronger than the one before — and the number that follows fills in the steps between, so M9 is nearly an X and X5 is five times an X1.",
   wind: "The Sun blows a constant stream of charged particles past Earth; at these speeds it makes the trip in about four days.",
   kp: "Kp measures how hard the solar wind is shaking Earth's magnetic field — at 5 and above the northern lights push south.",
   sunspots: "The sunspots NOAA counted that day. Each is an island of magnetism strong enough to cool the surface, and the more there are, the busier the Sun is. NOAA publishes one count per day, so this steps as you scrub rather than sliding.",
@@ -160,15 +169,22 @@ export default defineComponent({
       // could not find out. Most 4 h windows on the Sun contain no flare, so
       // this is the common case, not an edge one.
       const flareText = (!flareNow.live && flareNow.cls === null)
-        ? { headline: "Quiet", detail: "" }
+        ? { headline: "Quiet", detail: "no flare" }
         : flareLabel(flareNow.cls);
+      // The chip's headline is now the CLASS ("M1.5"), so the plain-language
+      // word has to reach the detail line -- and for a scrubbed value it has to
+      // share that line with the timestamp. Composed here rather than in
+      // `flareAtPlayhead` because only `flareLabel` knows the word.
+      const flareDetail = flareNow.stamp
+        ? `${flareText.detail} · ${flareNow.stamp}`
+        : flareText.detail;
 
       return [
         {
           key: "flare",
           label: "Flare",
           value: flareText.headline,
-          detail: flareNow.live ? flareText.detail : flareNow.detail,
+          detail: flareDetail,
           // Same rule as the sunspot chip: the freshness dot answers "how long
           // ago did we MEASURE this", and for a deliberately historical value
           // that question has no useful answer. A green dot beside a
@@ -178,7 +194,15 @@ export default defineComponent({
         },
         {
           key: "wind",
-          label: "Solar wind",
+          // "Wind", not "Solar wind". The label shares a line with the value
+          // now (StatChip's `.sc-head`) and never shrinks, so every character it
+          // spends is one the value cannot have: "SOLAR WIND" + "425 km/s" +
+          // the freshness dot overran a two-column chip on a 320px phone by
+          // ~6px, and "WIND" leaves 37px of slack. Nothing is lost -- this is
+          // an app about the Sun, the explainer one tap below says "solar
+          // wind" in full, and the value's own unit (km/s) rules out the other
+          // reading.
+          label: "Wind",
           value: windText.headline,
           detail: windNow.live ? windText.detail : windNow.detail,
           observedMs: windNow.live ? wind.observedMs : null,
@@ -285,10 +309,10 @@ export default defineComponent({
      * the same 4 h slot. "Quiet" when nothing did, which is honest: most 4 h
      * windows on the Sun contain no flare at all.
      */
-    flareAtPlayhead(): { cls: string | null; detail: string; live: boolean } {
+    flareAtPlayhead(): { cls: string | null; stamp: string; live: boolean } {
       if (this.atNow) {
         const f = this.stats.flare.value;
-        return { cls: f ? f.currentClass : null, detail: "", live: true };
+        return { cls: f ? f.currentClass : null, stamp: "", live: true };
       }
       const window = this.stats.flareHistory.value;
       const events = window ? window.events : [];
@@ -301,11 +325,11 @@ export default defineComponent({
         }
       }
       if (!best) {
-        return { cls: null, detail: `no flare · ${timeLabel(this.sceneUnix)}`, live: false };
+        return { cls: null, stamp: timeLabel(this.sceneUnix), live: false };
       }
       return {
         cls: best.cls,
-        detail: `peaked ${timeLabel(best.peakUnix)}`,
+        stamp: timeLabel(best.peakUnix),
         live: false,
       };
     },
@@ -323,8 +347,15 @@ export default defineComponent({
     spotDay(): { headline: string; detail: string; live: boolean } {
       const day = regionDayAt(this.history, this.sceneUnix);
       if (day) {
+        // "in 5 regions", not "5 spotted regions": the shorter phrasing is what
+        // fits beside a date in a two-column chip (21 chars against the old
+        // 25), and "in" is what stops the count being misread as a second
+        // measurement of the same thing the headline already gives. Every
+        // region counted here has spots by construction -- `spottedRegionCount`
+        // is exactly that -- so the word "spotted" was carrying no information
+        // the sentence didn't already imply.
         const regions = day.spottedRegionCount === 1
-          ? "1 spotted region" : `${day.spottedRegionCount} spotted regions`;
+          ? "in 1 region" : `in ${day.spottedRegionCount} regions`;
         // Name the date always, not just when scrubbed: NOAA issues one report
         // a day, so even "now" is a number with a date on it, and saying so is
         // what stops the chip implying a live count it never had.
@@ -394,38 +425,35 @@ export default defineComponent({
   padding: 0.2rem 0.75rem 0.4rem;
 }
 
-// Content-driven, not breakpoint-driven. This was `repeat(2, 1fr)` with a
-// `@media (min-width: 381px)` override to `repeat(4, 1fr)`, which meant a
-// 390 px phone -- the single most common size there is -- got four 87 px
-// columns and clipped every chip: "Small flare", "Solar wind", "392 km/s" and
-// "5 spotted regions · today" all ran past their boxes (measured in a browser
-// at 390x844, 2026-08-23).
+// TWO columns, then FOUR. Never three, and never one.
 //
-// 150px is the measured floor: the widest chip content is "876,904 mph" and
-// "5 spotted regions · today", and both fit above it. auto-fit then chooses
-// 2 columns on a phone and 4 as soon as there is room, with no breakpoint to
-// get wrong -- and it cannot clip, because the track can never be narrower
-// than the content needs.
+// This was `repeat(auto-fit, minmax(150px, 1fr))`, which is content-driven and
+// therefore fits as many 150px columns as happen to go -- so between ~490px and
+// ~640px of stats width it chose THREE, and four chips in three columns is a
+// row of three with one orphan underneath (the reported "3 and 1"). auto-fit
+// has no way to say "2 or 4 but not 3": it does not know the count is four.
+//
+// So the count is stated instead. Two columns is the phone case and is what the
+// chips are now sized for -- at the narrowest screen worth supporting (320px)
+// two columns are (320 - 24 padding - 5.6 gap) / 2 = 145px each, 129px of it
+// text, against a widest content of ~106px ("hourly mean · 16:00 UT" at
+// 0.62rem). That headroom is what paid for dropping the old single-column
+// fallback below 340px: the two-line chip (StatChip.vue) and the shorter detail
+// strings (`timeLabel`, above) fit where the old three-line chip did not.
 .ss-grid {
   display: grid;
-  gap: 0.4rem;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.35rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-// Two 150px columns cost 150*2 + the 0.4rem gap + `.sun-stats`'s own
-// 0.75rem*2 side padding = 330.4px of viewport (E6). Below that -- an
-// iPhone SE 1st gen (320px) or a Galaxy Fold's cover screen (~280px) --
-// there is nowhere left for a second column to shrink to: 150px is already
-// the measured floor for THIS content (comment above -- "876,904 mph" and
-// "5 spotted regions · today" both need it), so lowering the floor would
-// bring back the exact clipping bug that comment describes. `.sol-root`'s
-// `overflow: hidden` (sol.vue) then clips the row instead of scrolling it,
-// silently. A single column below the breakeven point costs vertical
-// space, never truncated text -- the floor stays exactly where the comment
-// above says it has to.
-@media (max-width: 340px) {
+// One row of four, but only once ALL FOUR fit -- 4 * 150px + 3 gaps + the
+// 0.75rem*2 side padding = 640px. Landscape phones and tablets are still
+// `!wide` (sol.vue's 900px query) and there vertical space is the scarce
+// dimension, so a single row keeps the Sun taller; the jump straight from 2 to
+// 4 is what stops the 3+1 orphan appearing in between.
+@media (min-width: 640px) {
   .ss-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 

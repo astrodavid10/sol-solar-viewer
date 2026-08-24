@@ -33,7 +33,14 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Raised from 25 when the 8192x4096 sphere maps became the default: each
+    # one is ~120-150 s of reprojection (4x the pixels of the normal map, three
+    # colour planes each) and there are five, so a run went from ~5 min to
+    # ~17. Actions is free and unlimited on public repos, and these run every
+    # 4 h against nothing else, so wall-clock is the only cost. Headroom is
+    # deliberate: PFSS solve+trace for 19 frames is not in these numbers yet
+    # (GONG is unreachable from runners -- footgun 33), and will add to them.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -125,9 +132,14 @@ jobs:
           SOL_GONG_PROXY_TOKEN: ${{ secrets.SOL_GONG_PROXY_TOKEN }}
         run: |
           # --with-texture is ON here and off by default locally: it costs a
-          # 700 KB download plus ~10 s of reprojection, and a failure is soft
-          # (never changes the exit code, so it cannot block the publish).
-          ARGS="all --out dist-data -v --with-texture"
+          # download plus reprojection time, and a failure is soft (never
+          # changes the exit code, so it cannot block the publish).
+          #
+          # --with-hires publishes the 8192x4096 maps, which the app now uses by
+          # DEFAULT (?hires=0 opts out). Without them the app silently keeps the
+          # 4096 maps, so this flag is what makes the default real rather than
+          # aspirational. ~12 min of the run; see timeout-minutes above.
+          ARGS="all --out dist-data -v --with-texture --with-hires"
           if [ "$FORCE" = "true" ]; then ARGS="$ARGS --force"; fi
           if [ -n "$MAX_FRAMES" ]; then ARGS="$ARGS --max-frames $MAX_FRAMES"; fi
           python -m pipeline $ARGS

@@ -35,24 +35,6 @@
       </span>
     </button>
 
-    <!-- Hidden entirely unless the device AND the published data can honour it
-         (see canHighRes) -- a toggle that does nothing is worse than none. -->
-    <button
-      v-if="canHighRes"
-      type="button"
-      class="lp-row"
-      :aria-pressed="highRes"
-      @click="toggleHighRes"
-    >
-      <span class="lp-switch" :class="{ 'is-on': highRes }">
-        <span class="lp-knob"></span>
-      </span>
-      <span class="lp-text">
-        <span class="lp-label">Full resolution</span>
-        <span class="lp-hint">Four times the surface detail. Uses a lot more memory.</span>
-      </span>
-    </button>
-
     <div class="lp-group" role="radiogroup" aria-label="Surface">
       <!-- A SECTION HEADER, not another row label.
            It used to be `font-size: 0.85rem; font-weight: 600` -- byte for byte
@@ -92,8 +74,6 @@ import {
   LayerFlags,
   TextureChannel,
   fieldColorMode,
-  highRes,
-  highResAvailable,
   layers,
   surfaceMode,
   textureChannel,
@@ -161,10 +141,7 @@ export default defineComponent({
   name: "LayerPanel",
 
   setup() {
-    return {
-      layers, surfaceMode, fieldColorMode, textureChannel,
-      highRes, highResAvailable,
-    };
+    return { layers, surfaceMode, fieldColorMode, textureChannel };
   },
 
   computed: {
@@ -186,17 +163,6 @@ export default defineComponent({
       return this.surfaceMode === "sdo" ? this.textureChannel : "artist";
     },
 
-    /**
-     * Offer the high-resolution map at all?
-     *
-     * Only when the device can hold an 8192-wide texture AND the published tree
-     * has one, both of which `hasHighRes` answers, AND we are showing real SDO
-     * imagery -- there is no high-res version of the synthetic surface, so the
-     * control would do nothing in Artist mode.
-     */
-    canHighRes(): boolean {
-      return this.surfaceMode === "sdo" && this.highResAvailable;
-    },
 
   },
 
@@ -218,9 +184,6 @@ export default defineComponent({
       this.fieldColorMode = this.polarityOn ? "blue" : "polarity";
     },
 
-    toggleHighRes(): void {
-      this.highRes = !this.highRes;
-    },
   },
 });
 </script>

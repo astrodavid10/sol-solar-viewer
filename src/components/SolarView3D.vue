@@ -2,7 +2,11 @@
   <div
     ref="root"
     class="solar-view-3d"
-    :style="{ '--sv-btn-count': visibleButtonCount }"
+    :style="{
+      '--sv-layers-index': layersButtonIndex,
+      '--sv-btn-count': visibleButtonCount,
+      '--sv-bottom-h': bottomHeightCss,
+    }"
   >
     <!-- The engine's own div; the canvas is appended inside it. -->
     <WorldWideTelescope wwt-namespace="wwt-sol" />
@@ -107,8 +111,28 @@
         </button>
       </div>
 
+      <!-- Only ever the FAILURE case (see share()): a successful copy already
+           turns the button into a check mark, and a toast for the normal path
+           would be one more thing floating over the Sun. `role="status"` so a
+           screen reader hears it without the focus moving. -->
       <transition name="fade">
-        <div v-if="!wide && sheet === 'layers'" class="sv-layer-popover">
+        <p v-if="shareNote" class="sv-share-note" role="status">{{ shareNote }}</p>
+      </transition>
+
+      <!-- `data-camera-passthrough="false"` is `gestures.ts`' own escape hatch
+           (its `isControl` selector), and this is the first thing to need it.
+           Without it a one-finger drag that starts anywhere in this panel but
+           on a control -- its padding, the "Surface" heading, the gap between
+           two rows -- is claimed for the camera, so the panel refuses to
+           SCROLL and the Sun spins behind it instead. A row is a <button> and
+           was already exempt, which is exactly why this was easy to miss:
+           dragging on a row scrolled, dragging between two rows orbited. -->
+      <transition name="fade">
+        <div
+          v-if="!wide && sheet === 'layers'"
+          class="sv-layer-popover"
+          data-camera-passthrough="false"
+        >
           <layer-panel />
         </div>
       </transition>
@@ -164,7 +188,7 @@
           </div>
         </transition>
 
-        <div class="sv-bottom">
+        <div ref="bottom" class="sv-bottom">
           <p v-if="fieldLinesAbsent" class="sv-note">
             Field lines aren't available right now — the rest of the view still works.
           </p>
@@ -286,7 +310,6 @@ import {
   attractDrift,
   fieldColorMode,
   highRes,
-  highResAvailable,
   frameT,
   frameTimes,
   getAppHandle,
@@ -621,6 +644,19 @@ export default defineComponent({
       /** Share button feedback on the clipboard-fallback path. */
       copied: false,
       copiedTimer: 0,
+      /**
+       * Said out loud only when sharing FAILED — see share(). Success already
+       * has feedback (the button's icon becomes a check), and a toast for the
+       * normal case would be noise over the Sun.
+       */
+      shareNote: "",
+      shareNoteTimer: 0,
+      /**
+       * `.sv-bottom`'s measured height in CSS px; 0 until first measured.
+       * The layer popover reserves it so it stops above the scrubber instead
+       * of underneath it (see `.sv-layer-popover`'s max-height).
+       */
+      bottomHeight: 0,
       /** One entry per chip de-collision had to move; see layoutLabels(). */
       leaders: [] as { id: string; style: Record<string, string> }[],
 
@@ -734,30 +770,53 @@ export default defineComponent({
     },
 
     /**
-     * How many 44px buttons `.sv-buttons` is actually rendering right now:
-     * recenter (always), share (hidden in kiosk), info + layers (both hidden
-     * when `wide` — the desktop rail covers them). Written onto the root
-     * element as `--sv-btn-count` (see the template's root `:style`) so the
-     * layer popover's `top` offset (below, in `<style>`) can hang itself off
-     * the stack's REAL length instead of the literal `4` it used to have —
-     * that number was only ever right in narrow+non-kiosk; narrow+kiosk
-     * renders 3 (no share button) and floated the popover ~48px too low.
+     * Where the LAYERS button sits in `.sv-buttons`, counting from 0.
+     *
+     * Written onto the root element as `--sv-layers-index` (see the template's
+     * root `:style`) so the layer popover can hang off the bottom edge of its
+     * OWN button — computed here because only the template's `v-if`s know which
+     * buttons exist: share leads the stack unless `kiosk`, layers follows it,
+     * and the popover only renders at all when `!wide`.
+     *
+     * This replaced a `--sv-btn-count`, which measured the whole stack because
+     * the popover used to open below ALL of it. (That one in turn replaced a
+     * literal `4` whose comment claimed it was derived — it was not, and in
+     * narrow+kiosk, where only 3 buttons render, the popover floated ~48px
+     * below the stack it was meant to hang off.)
+     */
+    layersButtonIndex(): number {
+      return this.kiosk ? 0 : 1;               // share leads unless kiosk
+    },
+
+    /**
+     * How many 44px buttons `.sv-buttons` is rendering right now: share
+     * (hidden in kiosk), layers + info (both hidden when `wide` — the desktop
+     * rail carries them). Written out as `--sv-btn-count`; the share note
+     * hangs off the bottom of the whole stack, so unlike the layer popover it
+     * needs the stack's LENGTH rather than one button's position.
      */
     visibleButtonCount(): number {
-      // share is the only unconditional one now that recenter is gone.
       let count = this.kiosk ? 0 : 1;          // share (hidden in kiosk)
       if (!this.wide) { count += 2; }          // layers + info
       return count;
     },
+
+    /**
+     * `.sv-bottom`'s measured height as a CSS length, or null before it has
+     * been measured.
+     *
+     * Null rather than "0px" on purpose: the layer popover's `max-height`
+     * subtracts `var(--sv-bottom-h, 5rem)`, and a property that is ABSENT is
+     * what lets that 5rem fallback apply. Written as "0px" the first paint
+     * would reserve nothing and the panel would open straight over the
+     * scrubber -- the exact bug the measurement exists to fix.
+     */
+    bottomHeightCss(): string | null {
+      return this.bottomHeight > 0 ? `${this.bottomHeight}px` : null;
+    },
   },
 
   watch: {
-    // The guest flipping "Full resolution". setHighRes is a no-op when the
-    // option is not actually available, so no guard is needed here -- and the
-    // panel hides the control in that case anyway.
-    highRes(value: boolean) {
-      this.rt.surface?.setHighRes(value);
-    },
 
     resetToken() {
       this.recenter();
@@ -879,6 +938,7 @@ export default defineComponent({
     window.removeEventListener("resize", this.onResize);
     window.removeEventListener("orientationchange", this.onResize);
     window.clearTimeout(this.copiedTimer);
+    window.clearTimeout(this.shareNoteTimer);
     rt.observer?.disconnect();
     rt.gestures?.dispose();
     rt.abort?.abort();
@@ -943,12 +1003,12 @@ export default defineComponent({
         renderer: rt.stage.renderer,
       }));
       rt.stage.scene.add(rt.surface.object3d);
-      // Tell the layer panel whether the option exists at all. This is the only
-      // place that can answer it: hasHighRes() needs the renderer's
-      // MAX_TEXTURE_SIZE, and the panel is also mounted outside this component
-      // (sol.vue's desktop rail), so the answer travels as shared state.
-      highResAvailable.value = rt.surface.hasHighRes();
-      if (highRes.value) { rt.surface.setHighRes(true); }
+      // ON by default (?hires=0 opts out), and only when the tree actually has
+      // the maps and this GPU can hold an 8192-wide texture -- hasHighRes()
+      // answers both, so a phone capped at 4096 silently keeps the 4096 map.
+      if (highRes.value && rt.surface.hasHighRes()) {
+        rt.surface.setHighRes(true);
+      }
 
       // The part of the image that is NOT on the sphere. Created next to the
       // surface because it is the same picture, and it takes its texture from
@@ -1345,15 +1405,6 @@ export default defineComponent({
       // it mounts and unmounts a <transition>-wrapped, backdrop-filtered element
       // several times a second. Show above 0.58, hide below 0.50, and in the
       // band between keep doing whatever it was doing.
-      // hasHighRes() cannot be true at creation: it needs the `high_res` block
-      // from texture.json, which is fetched asynchronously well after
-      // createStage() runs. So re-ask on the throttled cadence -- a boolean
-      // compare -- rather than only once, or the control would never appear.
-      // Guarded so it stays a no-op: this is reactive state, and writing it
-      // every pass would dirty the whole overlay's render effect (the same trap
-      // the far-side hint fell into).
-      const canHi = this.rt.surface?.hasHighRes() ?? false;
-      if (canHi !== highResAvailable.value) { highResAvailable.value = canHi; }
 
       const frac = this.rt.surface?.unobservedFraction() ?? 0;
       this.rt.unobservedFrac = frac;
@@ -1684,27 +1735,118 @@ export default defineComponent({
      * Moved here from TopBar when the banner became a title pill: the control
      * belongs with the other three, not on its own in a row of its own.
      */
+    /**
+     * Share this view — four routes, tried in order, and it now SAYS SO when
+     * none of them worked.
+     *
+     * The bug this fixes: on a phone over http:// the button did nothing at
+     * all, silently. Both of the APIs it used are restricted to secure
+     * contexts, and http://192.168.1.x:8080 — LAN testing, and any planetarium
+     * kiosk served from a local box — is not one, so `navigator.share` was
+     * undefined AND `navigator.clipboard` was undefined, making
+     * `navigator.clipboard.writeText` a TypeError that the catch below
+     * swallowed. Its own comment admitted as much ("the button just does
+     * nothing"), which is the part that was wrong: a control that looks
+     * enabled and does nothing reads as a broken app, and a guest cannot tell
+     * the difference between "insecure context" and "this app is broken".
+     *
+     * `document.execCommand("copy")` is the route that actually works there:
+     * deprecated, but it predates the secure-context rules and is the only
+     * copy path available over http://. Production (GitHub Pages, https) still
+     * takes the first route and never reaches it.
+     */
     async share(): Promise<void> {
       const url = window.location.href;
       const nav = navigator as Navigator & {
         share?: (data: { title: string; url: string }) => Promise<void>;
       };
+      // 1. The OS share sheet, where it exists. Secure contexts only.
       if (nav.share) {
         try {
           await nav.share({ title: "Sol — the Sun right now", url });
-        } catch {
-          // Guest closed the sheet — not an error.
+          return;
+        } catch (err) {
+          // A guest closing the sheet is not an error, and must not fall
+          // through to copying — they said no. Anything else (NotAllowedError
+          // from a permissions policy, an unsupported payload) means the sheet
+          // never opened, so the other routes are still worth trying.
+          if ((err as DOMException | null)?.name === "AbortError") { return; }
         }
-        return;
       }
+      // 2. The async clipboard. Also secure contexts only — and the guard is
+      //    the fix, not decoration: `navigator.clipboard` is UNDEFINED over
+      //    http://, so the old unguarded `navigator.clipboard.writeText(...)`
+      //    threw a TypeError before any promise existed.
+      if (navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(url);
+          this.flashCopied();
+          return;
+        } catch {
+          // Present but refused (a permissions policy, or Safari without a
+          // user-gesture chain it likes). Fall through.
+        }
+      }
+      // 3. The pre-secure-context copy path, which is what an http:// phone
+      //    actually lands on.
+      if (this.copyLegacy(url)) { this.flashCopied(); return; }
+      // 4. Out of routes. Say what happened, so the button is honest.
+      this.shareNote = "Couldn't copy — the link is in the address bar";
+      window.clearTimeout(this.shareNoteTimer);
+      this.shareNoteTimer = window.setTimeout(() => { this.shareNote = ""; }, 4000);
+    },
+
+    /** The check-mark confirmation on the share button, for ~2 s. */
+    flashCopied(): void {
+      this.copied = true;
+      window.clearTimeout(this.copiedTimer);
+      this.copiedTimer = window.setTimeout(() => { this.copied = false; }, 2000);
+    },
+
+    /**
+     * Copy via the old selection-and-execCommand route. True if it took.
+     *
+     * Every part of this is load-bearing, so it reads as cargo cult and isn't:
+     * `execCommand("copy")` copies the current SELECTION, and an element that
+     * is `display: none`, `visibility: hidden` or detached cannot hold one — so
+     * the textarea has to be in the document and rendered, and is instead moved
+     * off-screen and made transparent. iOS Safari additionally refuses to
+     * select inside a `readonly` field and ignores `select()` on a textarea,
+     * which is why the selection is built with a Range over a
+     * `contenteditable` node and then narrowed with `setSelectionRange`.
+     * `position: fixed` + `top: 0` keeps the page from scrolling to it, and a
+     * `font-size` of 16px keeps iOS from zooming the viewport at focus.
+     */
+    copyLegacy(text: string): boolean {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.contentEditable = "true";
+      area.style.position = "fixed";
+      area.style.top = "0";
+      area.style.left = "0";
+      area.style.width = "1px";
+      area.style.height = "1px";
+      area.style.padding = "0";
+      area.style.border = "none";
+      area.style.opacity = "0";
+      area.style.fontSize = "16px";
+      document.body.appendChild(area);
+      let ok = false;
       try {
-        await navigator.clipboard.writeText(url);
-        this.copied = true;
-        window.clearTimeout(this.copiedTimer);
-        this.copiedTimer = window.setTimeout(() => { this.copied = false; }, 2000);
+        const range = document.createRange();
+        range.selectNodeContents(area);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        area.setSelectionRange(0, text.length);
+        ok = document.execCommand("copy");
       } catch {
-        // Clipboard blocked (http:// LAN testing) — the button just does nothing.
+        ok = false;
+      } finally {
+        window.getSelection()?.removeAllRanges();
+        document.body.removeChild(area);
       }
+      return ok;
     },
 
     measure(): void {
@@ -1712,6 +1854,12 @@ export default defineComponent({
       if (!root) { return; }
       this.rt.widthCss = root.clientWidth;
       this.rt.heightCss = root.clientHeight;
+      // Not the whole `.sv-bottom-stack`: the card above the scrubber is itself
+      // a transient overlay, and reserving room for it would shrink the layer
+      // panel by a third for something that is only there sometimes. Two
+      // transient panels overlapping is fine; the scrubber is permanent.
+      const bottom = this.$refs.bottom as HTMLElement | undefined;
+      if (bottom) { this.bottomHeight = bottom.offsetHeight; }
       this.syncLineResolution();
     },
 
@@ -1741,6 +1889,13 @@ export default defineComponent({
       if (!root || typeof ResizeObserver === "undefined") { return; }
       const observer = new ResizeObserver(() => this.measure());
       observer.observe(root);
+      // The scrubber block too, and NOT because the stage resized: its height
+      // changes on its own when the stale banner appears, when the "field lines
+      // aren't available" note does, or when a guest's larger font wraps its
+      // label. None of those touch the root's size, so observing only the root
+      // would leave the layer popover reserving a stale number.
+      const bottom = this.$refs.bottom as HTMLElement | undefined;
+      if (bottom) { observer.observe(bottom); }
       this.rt.observer = observer;
     },
 
@@ -1959,53 +2114,115 @@ export default defineComponent({
   }
 }
 
-// Below the whole stack. `--sv-btn-count` (set on `.solar-view-3d`'s root
-// `:style` from the `visibleButtonCount` computed) is the ACTUAL number of
-// 44px buttons `.sv-buttons` is rendering right now -- recenter always,
-// share unless `kiosk`, info+layers unless `wide`. This used to be a
-// literal `4`, and the comment here claimed it was "derived rather than
-// typed as a magic number" -- it was not. In narrow+kiosk only 3 buttons
-// render (no share button), and the popover floated ~48px below the real
-// stack it was meant to hang off (E2).
-.sv-layer-popover {
+// Under the button stack, and deliberately NOT beside it: the stack occupies
+// the full right-hand inset, so a note anchored there would have to be either
+// narrow or overlapping. z-index 5 to clear the popover (4) -- if a guest taps
+// share while the layer panel is open, the answer to what they just did has to
+// be the thing they can see.
+.sv-share-note {
   position: absolute;
+  // Below the whole stack, from its REAL length (`--sv-btn-count`) rather than
+  // a literal — narrow renders 3 buttons, `wide` only 1, and kiosk never shows
+  // this note at all because it has no share button. E2 is the standing
+  // reminder about typing that number in by hand.
   top: calc(
     env(safe-area-inset-top) + 0.5rem
       + (var(--sv-btn-count) * 44px) + ((var(--sv-btn-count) - 1) * 0.4rem)
       + 0.4rem
   );
   right: 0.5rem;
-  z-index: 4; // above `.sv-buttons` (E7) -- it's the popover FROM that stack
-  // An abspos box's shrink-to-fit can EXCEED the space its anchor leaves when
-  // the content's min-content is wider -- and `.lp-segments`' six unwrappable
-  // buttons measure 392px, so at 320/360/390px viewports the popover hung 81/
-  // 41/11px off the LEFT edge of the screen, with the switches (the left side
-  // of every row) in the clipped part. Cap it so the left edge mirrors the
-  // 0.5rem right inset; `.lp-segments` wraps below 900px to fit (LayerPanel).
-  max-width: calc(100% - 1rem);
+  left: 0.5rem;
+  z-index: 5;
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  border: var(--sol-panel-border);
+  border-radius: 10px;
+  background: var(--sol-surface);
+  color: var(--sol-text);
+  font-size: 0.75rem;
+  text-align: right;
+  pointer-events: none;
+}
 
-  // `.layer-panel` alone runs ~400px tall (6 rows * ~48px + the Surface
+// Hangs off the bottom edge of its OWN button, not the bottom of the whole
+// stack -- so it opens OVER the information button below it rather than below
+// everything, which is ~48px further up the screen and is that much less of
+// the panel left for the scrubber to obscure. `--sv-layers-index` (set on
+// `.solar-view-3d`'s root `:style` from the `layersButtonIndex` computed) is
+// which slot the layers button occupies: 1 normally, 0 in kiosk (no share
+// button). It must come from the component, because only the template's
+// `v-if`s know which buttons exist -- a literal here has been wrong twice
+// already (E2).
+//
+// The buttons it covers are unreachable while the panel is open, which is the
+// point: layers is deliberately the MIDDLE button of the three so the panel
+// lands on `information` (a one-tap modal a guest can open next) instead of on
+// `share`. Tapping the layers button again closes it.
+.sv-layer-popover {
+  position: absolute;
+  // Named, because `max-height` below has to subtract the exact same length --
+  // and the two formulas HAD been written out twice, in full, character for
+  // character (E2 fixed both; a third edit would have had to notice both).
+  --sv-popover-top: calc(
+    env(safe-area-inset-top) + 0.5rem
+      + ((var(--sv-layers-index) + 1) * 44px)
+      + (var(--sv-layers-index) * 0.4rem)
+      + 0.4rem
+  );
+  top: var(--sv-popover-top);
+  // EQUAL gutters at every width, which is why both insets are set (and not
+  // `right` + a `max-width`, as this was). An abspos box with only `right` set
+  // shrink-to-fits, so its left gutter is whatever the CONTENT happens to
+  // leave -- 0.5rem on the right against 60px on the left of a 420px phone,
+  // and on a narrower one the opposite failure: shrink-to-fit can EXCEED the
+  // space the anchor leaves when the content's min-content is wider, and
+  // `.lp-segments`' six unwrappable buttons measure 392px, so at 320/360/390px
+  // the panel hung 81/41/11px off the LEFT edge with every row's switch in the
+  // clipped part. Both insets stated: the gutters are equal by construction at
+  // any width, the panel can never overhang, and `.lp-segments` wraps below
+  // 900px to fit the width it is given (LayerPanel).
+  left: 0.5rem;
+  right: 0.5rem;
+  // Above ~34rem + gutters the panel stops growing and CENTRES (`auto` margins
+  // on an over-constrained abspos box), so the gutters stay equal without the
+  // rows becoming a 900px-wide line of text. Only reachable between ~560px and
+  // the 900px rail breakpoint -- a big phone in landscape, a small tablet.
+  max-width: 34rem;
+  margin-inline: auto;
+  z-index: 4; // above `.sv-buttons` (E7) -- it's the popover FROM that stack
+
+  // `.layer-panel` alone runs ~470px tall (8 rows * ~48px + the Surface
   // `.lp-group` block's ~78px + 2rem of panel padding) with no cap of its
   // own, and on a landscape phone (e.g. 812x375 -- still `!wide`, since
   // 812 < 900) the stage is only 375px tall with `.solar-view-3d`'s
   // `overflow: hidden` (above) clipping whatever doesn't fit -- silently,
-  // with no scrollbar (E4). `max-height` reuses the exact formula `top`
-  // uses above: whatever room `top` doesn't take, minus 1rem of breathing
-  // room at the bottom of the stage. Unlike footgun 28's `1fr`-row case,
-  // this cap is a hard length (not a flexible track share `.layer-panel`'s
-  // own content size could inflate), so `max-height` + `overflow-y: auto`
-  // alone are enough to turn "clipped with no scrollbar" into "scrollable" --
-  // the `min-height: 0` on `.layer-panel` (LayerPanel.vue) is kept anyway,
-  // as cheap insurance matching this codebase's usual pattern for a
-  // scrollable panel, in case that ever changes to a flexible allocation.
+  // with no scrollbar (E4). Unlike footgun 28's `1fr`-row case, this cap is a
+  // hard length (not a flexible track share `.layer-panel`'s own content size
+  // could inflate), so `max-height` + `overflow-y: auto` alone are enough to
+  // turn "clipped with no scrollbar" into "scrollable" -- the `min-height: 0`
+  // on `.layer-panel` (LayerPanel.vue) is kept anyway, as cheap insurance
+  // matching this codebase's usual pattern for a scrollable panel, in case
+  // that ever changes to a flexible allocation.
+  //
+  // What the cap RESERVES is the whole reason the panel looked broken: it used
+  // to stop 1rem from the bottom of the STAGE, straight through the scrubber,
+  // which sits at z-index 5 (`.sv-bottom-stack`) and therefore painted over
+  // the panel's last rows and stole their taps. `--sv-bottom-h` is
+  // `.sv-bottom`'s MEASURED height (a ResizeObserver, see `measure()`), for
+  // the same reason the card/scrubber pair became a flex column (E1): the
+  // scrubber's height changes with its stale banner, a wrapped label or a
+  // guest's font size, and a constant here would go stale the moment any of
+  // those did. The 5rem fallback covers the first frame and any browser
+  // without ResizeObserver. `0.4rem` is the stack's own bottom inset;
+  // `0.5rem` is the gap left between the two panels.
   max-height: calc(
-    100% - (
-      env(safe-area-inset-top) + 0.5rem
-        + (var(--sv-btn-count) * 44px) + ((var(--sv-btn-count) - 1) * 0.4rem)
-        + 0.4rem
-    ) - 1rem
+    100% - var(--sv-popover-top) - var(--sv-bottom-h, 5rem) - 0.4rem - 0.5rem
   );
   overflow-y: auto;
+  // Keep a flick that runs off the end of the list inside this panel: without
+  // it the overscroll chains to the page, which on iOS is the rubber-band the
+  // whole app spends `main.ts` and `gestures.ts` avoiding.
+  overscroll-behavior: contain;
   pointer-events: auto;
 }
 

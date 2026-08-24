@@ -6,13 +6,19 @@
     :aria-pressed="active"
     @click="$emit('select')"
   >
-    <span class="sc-top">
+    <!-- TWO lines, not three. The label used to own a line of its own above the
+         value, which cost every chip ~15px of a phone screen to say a word the
+         guest reads once and then ignores — four chips deep, that is a visible
+         bite out of the Sun. Label and value share a BASELINE here, so the pair
+         reads as one "name: number" statement and the row is only as tall as
+         the value it contains. -->
+    <span class="sc-head">
       <span class="sc-label">{{ label }}</span>
+      <span class="sc-value">{{ value }}</span>
       <!-- Freshness is never hidden: green under 15 min, amber under an hour,
            gray beyond. The title carries the actual time for anyone who cares. -->
       <span class="sc-dot" :class="'is-' + tier" :title="freshnessTitle"></span>
     </span>
-    <span class="sc-value">{{ value }}</span>
     <span class="sc-detail">{{ detailText }}</span>
   </button>
 </template>
@@ -66,9 +72,13 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.1rem;
-  min-height: 56px;
-  padding: 0.4rem 0.6rem;
+  gap: 0.05rem;
+  // 44px, not the 56px this was: the floor is now the touch-target minimum
+  // rather than a number sized for three stacked lines. Two lines of real
+  // content measure ~41px inside this padding, so the min-height is doing what
+  // a min-height should — guaranteeing the tap target, not setting the height.
+  min-height: 44px;
+  padding: 0.34rem 0.5rem;
   // Deliberately identical to `.lp-segment` in LayerPanel.vue: hairline border,
   // the shared control radius, transparent ground. These are the same KIND of
   // thing -- a tappable tile inside a panel -- and they sit one above the other
@@ -104,28 +114,40 @@ export default defineComponent({
   }
 }
 
-.sc-top {
+.sc-head {
   display: flex;
-  align-items: center;
-  gap: 0.35rem;
+  // The label sits on the value's baseline, which is what keeps a 0.58rem word
+  // and a 0.95rem number reading as one line rather than two things that happen
+  // to overlap vertically.
+  align-items: baseline;
+  gap: 0.45rem;
   width: 100%;
 }
 
+// `flex: 0 0 auto` — the label never shrinks, the VALUE does (below). Backwards
+// from the old three-line layout, where the label owned the row and pushed the
+// freshness dot to the far end. Here the label is a fixed short word (the
+// longest is "SUNSPOTS", ~50px) and the value is the variable-length part, so
+// the value is the only sane place to spend or reclaim space. Ellipsising the
+// label instead would truncate the one word that says WHICH number this is.
 .sc-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 0.62rem;
+  flex: 0 0 auto;
+  font-size: 0.58rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--sol-text-dim);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .sc-dot {
   flex: 0 0 auto;
+  // Pushed to the far end of the row, past the value. `align-self` because a
+  // 7px empty span has no text baseline worth aligning to — in a
+  // baseline-aligned row its bottom margin edge becomes the baseline, which
+  // would hang it below the label.
+  margin-left: auto;
+  align-self: center;
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -144,19 +166,24 @@ export default defineComponent({
   }
 }
 
+// The one part of the row that gives up space when there isn't enough, hence
+// `1 1 auto` + `min-width: 0` (a flex item's default `min-width: auto` refuses
+// to shrink below its content and would push the freshness dot off the edge).
 .sc-value {
-  font-size: 1.02rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.95rem;
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.1;
   color: var(--sol-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
 }
 
 .sc-detail {
-  font-size: 0.66rem;
+  font-size: 0.62rem;
+  line-height: 1.3;
   color: var(--sol-text-dim);
   white-space: nowrap;
   overflow: hidden;

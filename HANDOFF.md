@@ -260,23 +260,45 @@ uniform, the off-limb billboard basis, `subEarthFrame`, the marker facing dots,
    matrices: drag right 150 px → +0.112 NDC x, drag down 110 px → −0.092 NDC y. Both still
    follow the finger; both signs stand.
 
-### Found along the way, NOT fixed (separate bug, needs a decision)
+### Found along the way: every active-region chip was on the WRONG region (FIXED)
 
-**`SolarView3D.updateSurfaceMarkers()` has an off-by-one and every active-region chip is
-anchored to the WRONG region.** `rt.regionLocal.forEach((point, i) => rt.markerTargets[i + 1])`
-is a leftover from the session that removed the sub-Earth entry at index 0 (the comment right
-above it says "Index 0 used to be the sub-Earth point … both are gone with it" — the `i + 1`
-is not). So `markerTargets[0]` is never written and stays at the Sun's centre, each chip is
-drawn at the PREVIOUS region's position, and the last region's position is never used at all.
-Observed live with four regions: a chip labelled "AR 4513" sits unpositioned while "AR 4515",
-"AR 4516" and "AR 4517" are drawn at 4513's, 4515's and 4516's locations. One-character fix
-(`[i + 1]` → `[i]`), but it is guest-visible and outside the scope of the frame work, so it is
-flagged rather than folded in.
+`SolarView3D.updateSurfaceMarkers()` read `rt.markerTargets[i + 1]` while walking
+`rt.regionLocal` — a leftover from `2821576`, which deleted the sub-Earth entry that used to
+sit at index 0. That commit removed the projection loop's `i - 1` and its `i === 0` case (the
+comment above the loop even says "both are gone with it") but left the write loop's `+ 1`. The
+four arrays — `regionLocal`, `markerTargets`, `markerProjected`, `regionChips` — are
+index-parallel, so the consequence was: target 0 never written and parked at the Sun's centre,
+every chip drawn at the PREVIOUS region's position, and the last region's position never used.
 
-Also worth knowing, though not a bug: the large bright mass that appears near the Sun at wide
-zooms is the **eruption layer** — two live CMEs in the current window. Toggling "Eruptions" off
-removes it. It reads as a saturated white blob at some zooms, which may be worth re-sweeping
-against footgun 46(d)'s alpha constants.
+Observed live with four regions before the fix: a chip reading "AR 4513" sat unplaced while
+"AR 4515", "AR 4516" and "AR 4517" were drawn over 4513, 4515 and 4516. Fixed to `[i]`.
+
+Verified against an independent prediction rather than "it looks different now". The regions'
+published Carrington longitudes are 4513 → 50°, 4515 → 39°, 4516 → 119°, 4517 → 64°, and the
+sub-Earth meridian was at 69°, so the Stonyhurst longitudes are -19, -30, +50 and -5 and the
+left-to-right screen order must be **4515, 4513, 4517, 4516**. Measured chip centres after the
+fix: 397, 428, 474, 628 px — that exact order, with 4516 far to the right as its +50° requires,
+and all four chips visible where only three were before.
+
+### Investigated, NOT changed: the eruption layer at the default framing
+
+The large bright mass near the Sun is the **eruption layer** (two live CMEs); toggling
+"Eruptions" off removes it. Chased it down because it looked like a defect. It is not:
+
+- **The direction data is right.** `events.json`'s `dir_ecl` reproduces DONKI's own published
+  Stonyhurst lat/lon to **0.12°** for all five CMEs in the window (the residual is the
+  low-precision Earth ephemeris used to check it). They cluster near ecliptic +Y because they
+  genuinely launched 93-126° from the Sun-Earth line — DONKI's own longitudes are 95-130°.
+- **Footgun 46(b) is not regressed.** `want = uSize·uRadius·uPixelScale/|mv.z|` still varies
+  with distance; nothing is pinned at every zoom.
+
+What IS true is that the layer is tuned for the **replay** framing — `CLOUD_POINT_FRAC`'s
+comment says "about 28 px per particle at the replay framing", and the replay zooms out to
+`zoomForRadii(21.5)`. The default guest framing is 2.8 R_sun, roughly 10x closer, so for a CME
+that has propagated to 7-28 R_sun `want` comes out 85-106 px against the 64 px ceiling and
+3000 clamped sprites overlap heavily. Not touched, because footgun 46(d) is explicit that
+these constants are settled by sweeping **at the screen** with the tab foregrounded, and that
+is a guest-experience judgement rather than a correctness fix.
 
 ---
 

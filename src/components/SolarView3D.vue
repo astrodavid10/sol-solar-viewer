@@ -1670,9 +1670,21 @@ export default defineComponent({
       const stage = rt.stage;
       if (!stage) { return; }
 
+      // `regionLocal`, `markerTargets`, `markerProjected` and `regionChips` are
+      // INDEX-PARALLEL, one entry per region, all four built from the same
+      // `regions` array in loadRegionLayer. Nothing here may shift an index.
+      //
+      // This used to read `markerTargets[i + 1]`, left behind when 2821576
+      // deleted the sub-Earth entry that used to sit at index 0: the projection
+      // loop below lost its `i - 1` and its `i === 0` case, but the write loop
+      // kept the `+ 1`. So target 0 was never written and stayed at the Sun's
+      // centre, every chip was drawn at the PREVIOUS region's position, and the
+      // last region's position was never used at all. Observed live with four
+      // regions on 2026-08-24: a chip reading "AR 4513" sat unplaced while
+      // "AR 4515", "AR 4516" and "AR 4517" were drawn over 4513, 4515 and 4516.
       const orientation = rt.fieldLines?.group.quaternion;
       rt.regionLocal.forEach((point, i) => {
-        const target = rt.markerTargets[i + 1];
+        const target = rt.markerTargets[i];
         if (!target) { return; }
         target.position.copy(point);
         if (orientation) { target.position.applyQuaternion(orientation); }

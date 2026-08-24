@@ -3,8 +3,8 @@
 **Living document.** Update it at the end of any session that changes project state. It exists
 so a fresh session (human or Claude) can pick the work up without re-deriving context.
 
-- **Last updated:** 2026-08-24 (sixth session — the 90° world-frame bug is FIXED and
-  verified against WWT's own planet orbits, §3zzzz)
+- **Last updated:** 2026-08-24 (sixth session — the 90° world-frame bug is FIXED and live;
+  region chips fixed; the 3D eruption layer unwired pending a tuning pass, §3zzzz)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
   enabled on `gh-pages` / root, and the deployed data tree passes
   `validate --url … --strict` at 0 failed / 0 warnings.
@@ -132,7 +132,7 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 | P2.4d | `prefers-reduced-motion` | **PARTIAL** — one file only, not applied systematically |
 | P2.4e | Audio narration | **NOT STARTED** |
 | — | Per-frame sphere textures | **PIPELINE DONE, APP NOT STARTED** — the data is published and validating; `sunSurface.ts` still loads one texture per channel (§3z) |
-| M-W9 | Flare/CME 3D eruption (see §6) | **DONE** — `src/three/cme.ts`, browser-verified (§3zz) |
+| M-W9 | Flare/CME 3D eruption (see §6) | **BUILT, SHIPPED OFF** — `src/three/cme.ts` works and is browser-verified (§3zz), but `ERUPTIONS_ENABLED` is false on `main`: it is tuned for the replay framing and overexposes at the home framing (§3zzzz). Wired state on `feature/cme-3d`. |
 
 ### Integration (M-INT)
 
@@ -296,9 +296,35 @@ What IS true is that the layer is tuned for the **replay** framing — `CLOUD_PO
 comment says "about 28 px per particle at the replay framing", and the replay zooms out to
 `zoomForRadii(21.5)`. The default guest framing is 2.8 R_sun, roughly 10x closer, so for a CME
 that has propagated to 7-28 R_sun `want` comes out 85-106 px against the 64 px ceiling and
-3000 clamped sprites overlap heavily. Not touched, because footgun 46(d) is explicit that
-these constants are settled by sweeping **at the screen** with the tab foregrounded, and that
+3000 clamped sprites overlap heavily. The constants were NOT re-swept here, because footgun
+46(d) is explicit that they are settled **at the screen** with the tab foregrounded, and that
 is a guest-experience judgement rather than a correctness fix.
+
+### The eruption layer is UNWIRED on `main` (and preserved on a branch)
+
+Decided after the above: the layer is off in the guest build until it has been re-tuned and
+looked at properly. **Nothing was deleted.** `ERUPTIONS_ENABLED` in `state/useAppState.ts` is
+the single wire, and it is `false`:
+
+- `useAppState` — `eruptions` defaults to the flag. Layer flags are neither deep-linked nor
+  persisted, so this is the only default a guest can land on.
+- `LayerPanel` — the "Eruptions" row is FILTERED out of `ROWS`, not deleted.
+- `SolarView3D` — the layer is not constructed at all; `rt.cme` stays null and every other
+  reference to it was already `?.`, so it costs no geometry, no shader compile and no
+  per-frame work rather than sitting invisible.
+- `canReplay` already gated on `layers.eruptions`, so the card's "Watch it erupt" button went
+  with it and needed no change. **This takes the flare flash too** — the flash lives in the
+  same layer.
+
+**The DONKI catalog is untouched and still works**: timeline marks, the flare/CME cards, the
+speed/aim copy and the CCMC disclaimer. Those report what happened rather than simulating it.
+Verified on the live site after deploying: no "Eruptions" row (7 layer rows), 16 timeline
+marks, clicking a CME mark still opens its card and jumps the playhead, no replay button, no
+console errors.
+
+**`feature/cme-3d`** (pushed) is the same tree with the flag back on — a one-line diff from
+`main` — and its commit message lists what the tuning pass needs to answer, including whether
+a live (non-replay) eruption should draw at the home framing at all.
 
 ---
 

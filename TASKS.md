@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | TODO | — | live PFSS is ~30 h stale |
+| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | 30.1 h -> 2.2 h; all 6 products ok |
 | T2 | Land the GONG relay (Option D, workstation mirror) | TODO | — | code uncommitted since session 5 |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -99,6 +99,35 @@ runner (footgun 33).
 6. Re-fetch the live `index.json` and confirm.
 
 **Definition of done:** live `index.json` reports `pfss` ok, age ≈ 0, 19/19 slots.
+
+**DONE 2026-08-25 20:54Z** — published as `gh-pages` commit `cb0ba1a`.
+
+- GONG answered every request from here: **19/19 slots had a magnetogram within 3 h**, so this
+  is a fully fresh window, not a partial fill. Live newest frame `2026-08-25T18:44Z`,
+  **2.2 h old** (which is simply what a GONG synoptic magnetogram is — the scrubber's copy
+  already says so) against **30.1 h** before.
+- All six products `ok`, `last_attempt_status: ok`. Both `validate --root public/data --strict`
+  and `validate --url …/data/ --strict` report **0 failed / 0 warnings**.
+- **Ran `all` WITHOUT `--with-texture`, deliberately.** CI's texture product was 0.2 h old and
+  hires-complete; re-running locally would either cost ~15 min for identical pictures or,
+  without `--with-hires`, drop the `high_res` blocks the app has used by default since
+  `e7095c2`. Verified safe by reading the code first: `_prune_orphan_textures` returns early
+  when `results` carries no texture entry (`cli.py:1061-1063`), and `build_index` falls back to
+  `_existing_product` (`:949-951`). Published index says texture `ok … not regenerated this
+  run`; file count held at 132.
+- Seeded `public/data` from `origin/gh-pages` first (footgun 31) — confirmed necessary rather
+  than assumed: gh-pages held **132** files against the local tree's **117**, i.e. 15 texture
+  frames CI had built since the last local run, which an unseeded `rsync --delete` publish
+  would have reverted.
+- **A hand-publish is NOT in the `gh-pages-publish` concurrency group** that serializes
+  `data.yml` against `app-deploy.yml`. A scheduled `data` run was in flight when this started
+  with `Deploy app` queued behind it; publishing into that would have raced two force-pushes
+  to the same orphan branch. Wait for both by hand, and check again immediately before
+  pushing.
+
+**Note for T2:** the next scheduled CI run will seed from this tree, fail to reach GONG, and
+mark `pfss` stale again while preserving these frames. Designed behavior — and exactly the
+recurring chore T2 exists to end.
 
 ---
 

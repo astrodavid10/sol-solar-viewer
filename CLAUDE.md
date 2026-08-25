@@ -6,8 +6,10 @@ the Sun's magnetic field in 3D over the last 72 hours (PFSS field lines from our
 same model + colors as the dome show), Parker Solar Probe / Solar Orbiter positions, and live
 NOAA space-weather numbers.
 
-**Start here: `HANDOFF.md`** — living status doc (what is done, partial, unstarted, and what
-has never been verified in a browser). Update it at the end of any session that changes state.
+**Start here: `TASKS.md`** — the task ledger: what is in flight, what is next, and the
+definition of done for each. Then **`HANDOFF.md`**, the living status doc (what is done,
+partial, unstarted, and what has never been verified in a browser). Update both at the end of
+any session that changes state.
 The original implementation plan lives outside this repo as a local Claude Code planning
 document; the parts that matter (the binary formats and manifest fields that the app and the
 pipeline must agree on) are restated here and in `pipeline/validate.py`, which enforces them.

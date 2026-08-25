@@ -3,6 +3,11 @@
 **Living document.** Update it at the end of any session that changes project state. It exists
 so a fresh session (human or Claude) can pick the work up without re-deriving context.
 
+> **Work in flight lives in [`TASKS.md`](TASKS.md), not here.** This file is the *session*
+> chronology — what changed, why, and what was measured. `TASKS.md` is the *task* ledger:
+> what is in progress right now, what is next, and the definition of done for each. Start
+> there if you are picking the work up mid-stream.
+
 - **Last updated:** 2026-08-24 (sixth session — the 90° world-frame bug is FIXED and live;
   region chips fixed; the 3D eruption layer unwired pending a tuning pass, §3zzzz)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is

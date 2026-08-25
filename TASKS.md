@@ -81,6 +81,16 @@ runner (footgun 33).
    a wholesale republish clobber the fresher non-PFSS products CI built in the meantime.
 2. `conda run -n sdo python -u -m pipeline all --out public\data -v` — `-u` so a killed run
    still leaves a log (footgun 41). One run per `--out` at a time (footgun 35).
+   **Two process traps, both hit on 2026-08-25 and both producing footgun 41's exact
+   zero-byte-log symptom from causes footgun 41 does not name:**
+   - **`python -u` does nothing through `conda run`.** conda captures the child's stdout and
+     flushes only at exit, so a long run logs *nothing* while plainly working (752 MB RSS,
+     0-byte log). For any backgrounded run call the env's interpreter directly —
+     `"$USERPROFILE/anaconda3/envs/sdo/python.exe" -u -m pipeline …` — which CLAUDE.md
+     already lists as a fallback for unrelated reasons.
+   - **Do not `nohup … &` inside a backgrounded shell.** The harness reaps the wrapper's
+     process group, so the detached run dies a couple of minutes in with an empty output dir
+     and an empty log. Run the pipeline *as* the background command instead.
 3. `python -m pipeline validate --root public\data --strict` → expect 0 failed / 0 warnings.
 4. `scripts/publish_gh_pages.sh` (auth via `gh auth token`; it normally runs inside CI with
    `GITHUB_TOKEN`/`GITHUB_SHA` already set).

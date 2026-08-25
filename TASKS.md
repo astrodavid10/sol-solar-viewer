@@ -13,6 +13,8 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - `BLOCKED` rows must name what unblocks them.
 - Every task ends with: change committed → row updated → any new footgun written into
   `CLAUDE.md` (footguns never live here).
+- **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
+  row just recorded, and you will do it twice before noticing.
 
 **Last updated:** 2026-08-25 (seventh session)
 
@@ -26,7 +28,7 @@ the plan says outrank documentation work.
 
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
-| T0 | Stand up this ledger | DONE | `128260a` | 18 rows incl. Alex's review |
+| T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
 | T1 | Republish PFSS from the workstation | TODO | — | live PFSS is ~30 h stale |
 | T2 | Land the GONG relay (Option D, workstation mirror) | TODO | — | code uncommitted since session 5 |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |

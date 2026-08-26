@@ -33,13 +33,22 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Raised from 25 when the 8192x4096 sphere maps became the default: each
-    # one is ~120-150 s of reprojection (4x the pixels of the normal map, three
-    # colour planes each) and there are five, so a run went from ~5 min to
-    # ~17. Actions is free and unlimited on public repos, and these run every
-    # 4 h against nothing else, so wall-clock is the only cost. Headroom is
-    # deliberate: PFSS solve+trace for 19 frames is not in these numbers yet
-    # (GONG is unreachable from runners -- footgun 33), and will add to them.
+    # Raised from 25 when the 8192x4096 sphere maps became the default: each one
+    # was ~120-150 s of reprojection and there are five, so a run went from
+    # ~5 min to ~17.
+    #
+    # That halved once reproject_rgb stopped rebuilding the coordinate transform
+    # per colour plane -- the three planes share one WCS, and the transform is
+    # 87% of the cost. Measured on a workstation 2026-08-26, all five channels:
+    #   0171 58.2s  0304 58.2s  0193 58.1s  HMIIC 35.8s  HMIB 36.8s = 247 s
+    # against the 520 s the same five had been logging here. So ~4.5 min came
+    # back, and the 45 min budget now has room it did not before.
+    #
+    # Actions is free and unlimited on public repos, and these run every 4 h
+    # against nothing else, so wall-clock is the only cost. Keep the headroom:
+    # PFSS solve+trace for 19 frames is STILL not in these numbers (GONG is
+    # unreachable from runners -- footgun 33) and will add to them if that is
+    # ever fixed, and T19's near-side window is another ~30 s per channel.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -108,13 +117,18 @@ jobs:
       - name: Probe upstreams (never fatal)
         continue-on-error: true
         # The relay that gets GONG data past NSO's block on GitHub's address
-        # ranges (footgun 33, docs/GONG-RELAY.md). BOTH are optional: unset, the
-        # pipeline talks to gong2.nso.edu directly, which is exactly today's
-        # behavior. Set, every GONG request is rewritten onto the relay at
-        # request time -- cache keys and published provenance still cite NSO.
+        # ranges (footgun 33, docs/GONG-RELAY.md). All three are optional:
+        # unset, the pipeline talks to gong2.nso.edu directly, which is
+        # exactly today's behavior. Set, every GONG request is rewritten onto
+        # the relay at request time -- cache keys and published provenance
+        # still cite NSO. SOL_GONG_PROXY_INDEX only matters for a static
+        # mirror (Option D): raw.githubusercontent.com 404s on a directory
+        # path, so a mirror publishes a synthetic index file and this names
+        # it; the Cloudflare Worker (Option A) leaves it unset.
         env:
           SOL_GONG_PROXY_BASE: ${{ secrets.SOL_GONG_PROXY_BASE }}
           SOL_GONG_PROXY_TOKEN: ${{ secrets.SOL_GONG_PROXY_TOKEN }}
+          SOL_GONG_PROXY_INDEX: ${{ secrets.SOL_GONG_PROXY_INDEX }}
         run: python -m pipeline probe-sources --out dist-data
 
       - name: Build data products
@@ -130,15 +144,20 @@ jobs:
           # See the probe step above and docs/GONG-RELAY.md.
           SOL_GONG_PROXY_BASE: ${{ secrets.SOL_GONG_PROXY_BASE }}
           SOL_GONG_PROXY_TOKEN: ${{ secrets.SOL_GONG_PROXY_TOKEN }}
+          SOL_GONG_PROXY_INDEX: ${{ secrets.SOL_GONG_PROXY_INDEX }}
         run: |
           # --with-texture is ON here and off by default locally: it costs a
           # download plus reprojection time, and a failure is soft (never
           # changes the exit code, so it cannot block the publish).
           #
-          # --with-hires publishes the 8192x4096 maps, which the app now uses by
+          # --with-hires publishes the 8192x4096 maps, which the app uses by
           # DEFAULT (?hires=0 opts out). Without them the app silently keeps the
           # 4096 maps, so this flag is what makes the default real rather than
-          # aspirational. ~12 min of the run; see timeout-minutes above.
+          # aspirational -- though note it WAS purely aspirational until a9f6acd:
+          # the app asked hasHighRes() before its manifest fetch could resolve,
+          # so every run from 01889e6 to then built these maps and no browser
+          # ever fetched one.
+          # ~4 min of the run since 2cbfa32 (was ~9); see timeout-minutes above.
           ARGS="all --out dist-data -v --with-texture --with-hires"
           if [ "$FORCE" = "true" ]; then ARGS="$ARGS --force"; fi
           if [ -n "$MAX_FRAMES" ]; then ARGS="$ARGS --max-frames $MAX_FRAMES"; fi

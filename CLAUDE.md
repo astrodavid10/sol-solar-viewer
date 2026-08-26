@@ -579,6 +579,19 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     `--out`) but a different mechanism: that one is about two runs racing on `.staging`, this one
     is about one run racing your editor. If a run is going, edit `src/` or the docs instead.
 
+49. **Do NOT `POST /pages/builds` immediately after `publish_gh_pages.sh` — the push already
+    triggers a build, and racing them fails BOTH.** Measured 2026-08-26: the force-push at
+    15:15:58 auto-triggered a build at 15:16:04, the explicit POST triggered a second at
+    15:16:06, and they came back `failure` and `startup_failure` respectively while the API's
+    "latest build" sat at `building` and the site kept serving the previous tree. A single POST
+    once nothing else was in flight built cleanly in ~40 s and the new files appeared.
+    This REFINES footgun 34 rather than replacing it: an explicit build request is still the fix
+    when a publish leaves the site stale, because a forced orphan push can leave Pages pointing
+    at a commit that no longer exists. The order matters — **publish, wait, check, and only then
+    POST if the live tree is still old.** Note the two views disagree while this is happening:
+    `gh api .../pages/builds/latest` reported `building` for a run that
+    `gh run list` already showed as `startup_failure`, so check both before concluding anything.
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).

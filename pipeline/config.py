@@ -386,6 +386,28 @@ TEX_HIRES_JPEG_QUALITY = 82                # same as TEX_JPEG_QUALITY; see below
 
 TEX_HIRES_MAX_BYTES = 4_500_000
 
+# ── Reprojection coverage guard ─────────────────────────────────────────────
+# A reprojected map must cover the visible hemisphere and NOTHING else. The
+# prediction is exact and free -- `dist <= 90`, from the same sub_earth_distance
+# grid the compositor already needs -- so the guard compares the two masks
+# rather than a fraction against a fixed band.
+#
+# OVER = finite where the Sun is not visible. This is what roundtrip_coords
+# buys, and it is the failure that matters: it means far-side pixels are being
+# aliased in as though observed. Measured 0.00000 on every date tried, at every
+# output size, full-sphere and windowed, in both longitude wrap directions --
+# so 0.002 is pure slack, not a fitted number.
+#
+# UNDER = NaN where the Sun IS visible. Never zero: the outermost ring of
+# source pixels fails reproject's >1 px roundtrip test, so a thin band at the
+# limb always drops out. Measured 0.0030 of the whole map at |B0| = 7 and
+# 0.0103 at B0 ~ 0 (where the terminator runs along a whole map edge). 0.030
+# leaves 3x headroom on the worst case while still catching the two things this
+# guard exists for: a flipped output latitude axis (0.19 at |B0| = 7) and a
+# blank source (~0.5).
+TEX_COVER_OVER_TOL = 0.002
+TEX_COVER_UNDER_TOL = 0.030
+
 # Row block for the broadcast reprojection in texture/export.py's
 # reproject_rgb. Not a speed knob -- a MEMORY bound. Reproject's broadcast path
 # allocates its output as float64, so an unblocked 8192x4096x3 map wants ~800 MB

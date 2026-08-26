@@ -89,6 +89,7 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       TEX_HIST_TOLERANCE_HOURS,
                       TEX_POLE_FADE_DEG, TEX_POLE_FLOOR,
                       TEX_QUIET_ANNULUS_DEG, TEX_QUIET_PERCENTILE,
+                      TEX_COVER_OVER_TOL, TEX_COVER_UNDER_TOL,
                       TEX_REPROJECT_BLOCK_ROWS,
                       TEX_CHANNELS, TEX_OFFLIMB_INNER, TEX_OFFLIMB_QUALITY,
                       TEX_OFFLIMB_SIZE, TEX_LIMB_FIT_RES,
@@ -843,15 +844,77 @@ def fit_limb(src: "SourceImage", channel: dict, obstime,
     return cx, cy, r_fit, r_pred, c_off, resid, n_rays
 
 
+def check_coverage(valid: np.ndarray, dist: np.ndarray, b0: float) -> float:
+    """Assert the reprojection covers the visible hemisphere and nothing else.
+
+    Returns the finite fraction, for the caller's manifest/log.
+
+    This replaces two guards that both encoded "half a plate-carree map is the
+    visible hemisphere": a fixed ``0.40 <= frac <= 0.60`` band, and a polar-cap
+    test requiring the B0-lit cap to be >= 50% visible and the dark one <= 50%.
+
+    **The cap test was a latent outage.** It compares against a hard 0.5, but
+    the real lit fraction of the 86-90 deg band is a steep function of B0 near
+    zero, and a real reprojection always loses a thin limb ring (reproject's
+    >1 px roundtrip test rejects the outermost source pixels). Measured against
+    the production 4096x2048 grid with that ~0.35 deg loss:
+
+        B0  +0.00  lit 0.386  dark 0.386   FAILS
+        B0  +0.10  lit 0.412  dark 0.363   FAILS
+        B0  +0.25  lit 0.458  dark 0.330   FAILS
+        B0  +0.40  lit 0.526  dark 0.300   passes
+
+    so it raised for |B0| < ~0.4 deg -- **13 days of 2026** (astropy: Jun 4-10
+    and Dec 6-11), on the DEFAULT channel, where run_texture re-raises and the
+    whole texture stage dies. On ideal data it passed at B0 = 0 only because
+    lit and dark both land on exactly 0.5000 and the comparisons are strict.
+
+    The replacement asks the question the old guards were reaching for, but
+    against geometry instead of a constant: ``dist <= 90`` IS the visible
+    hemisphere, we already have it a line earlier, and it is correct for any
+    output -- full sphere, or a longitude window, where it reduces to the right
+    B0-dependent number instead of 0.5.
+
+    Two failures, kept separate because they mean different things:
+
+      over   finite where the Sun is not visible => far-side pixels are being
+             aliased in as observation. This is the one that would ship a
+             dishonest map, and it is what roundtrip_coords buys us.
+      under  NaN where it should be visible => a blank source, or an output
+             latitude axis flipped relative to B0.
+
+    Strictly stronger than the cap test away from B0 = 0: it compares the whole
+    2-D mask, not two bands, so a latitude flip at |B0| = 7 shows up as ~0.19 in
+    BOTH numbers. At B0 ~ 0 neither test can see a flip -- the visible
+    hemisphere is symmetric about the equator there -- so that is not a
+    regression, just a limit worth knowing.
+    """
+    pred = dist <= 90.0
+    over = float((valid & ~pred).mean())
+    under = float((~valid & pred).mean())
+    if over > TEX_COVER_OVER_TOL:
+        raise PipelineError(
+            "{0:.2%} of the map is finite where the Sun is not visible "
+            "(B0 = {1:+.2f} deg); the far side is being aliased in as "
+            "observation -- check that roundtrip_coords is still on"
+            .format(over, b0))
+    if under > TEX_COVER_UNDER_TOL:
+        raise PipelineError(
+            "{0:.2%} of the visible hemisphere came back NaN (expected <= "
+            "{1:.1%} of limb loss at B0 = {2:+.2f} deg); the source is blank "
+            "or the output latitude axis disagrees with B0"
+            .format(under, TEX_COVER_UNDER_TOL, b0))
+    return float(valid.mean())
+
+
 def render_map(src: "SourceImage", channel: dict, obstime, observer,
                l0: float, b0: float, out_w: int = TEX_OUT_W,
                out_h: int = TEX_OUT_H):
     """Reproject to Carrington, check the result, composite over the far side.
 
-    Returns (img, w, base, near, valid, lon, lat, frac).  The two checks are
-    the ones that catch a silently wrong map: half of a plate-carree map is the
-    visible hemisphere exactly (whatever B0 is), and the lit polar cap must be
-    the one B0's sign predicts.
+    Returns (img, w, base, near, valid, lon, lat, frac).  The check that
+    catches a silently wrong map is `check_coverage`: the reprojected mask must
+    be the visible hemisphere, which is `dist <= 90` and not a fixed fraction.
     """
     in_hdr = input_header(src, obstime, observer, channel=channel)
     out_hdr = output_header(obstime, observer, out_w, out_h)
@@ -859,20 +922,7 @@ def render_map(src: "SourceImage", channel: dict, obstime, observer,
     lon, lat = grid(out_hdr, out_w, out_h)
     dist = sub_earth_distance(lon, lat, l0, b0)
     valid = np.isfinite(near).all(axis=-1)
-
-    frac = float(valid.mean())
-    if not 0.40 <= frac <= 0.60:
-        raise PipelineError(
-            "reprojection covers {0:.1%} of the map, expected ~50%; the far "
-            "side is being aliased or the source is blank".format(frac))
-    n_cap = float(valid[lat > 86.0].mean())
-    s_cap = float(valid[lat < -86.0].mean())
-    lit, dark = ((n_cap, s_cap) if b0 >= 0 else (s_cap, n_cap))
-    if lit < 0.5 or dark > 0.5:
-        raise PipelineError(
-            "polar caps disagree with B0 = {0:+.2f} deg (north cap {1:.0%} "
-            "visible, south {2:.0%}); the output latitude axis is flipped"
-            .format(b0, n_cap, s_cap))
+    frac = check_coverage(valid, dist, b0)
 
     img, w, base = compose(near, valid, dist, lon, lat, channel["farside"])
     return img, w, base, near, valid, lon, lat, frac

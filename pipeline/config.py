@@ -124,6 +124,18 @@ GONG_BASE = "https://gong2.nso.edu/oQR/zqs"
 GONG_PROXY_BASE = os.environ.get("SOL_GONG_PROXY_BASE", "").strip()
 GONG_PROXY_TOKEN = os.environ.get("SOL_GONG_PROXY_TOKEN", "").strip()
 GONG_PROXY_HEADER = "X-Sol-Relay-Token"
+# Option D (docs/GONG-RELAY.md): a static path-preserving mirror, e.g. a git
+# branch served over raw.githubusercontent.com, needs one more knob than the
+# Worker does.  raw.githubusercontent.com 404s on a directory path -- measured
+# 2026-08-23, both with and without a trailing slash -- but `_gong_dir_url()`
+# always requests exactly that shape (`GONG_BASE/YYYYMM/mrzqsYYMMDD/`) because
+# it needs an HTML autoindex to scrape.  A static mirror can only answer that
+# request by publishing a real file (a synthetic index) at a real path and
+# having `_relay` ask for it by name.  Empty means "no index file" -- append
+# nothing, which is byte-identical to today's behavior and is what the Worker
+# path wants, since a Worker fetches gong2.nso.edu live and gets a real
+# autoindex back.  Only meaningful when GONG_PROXY_BASE is also set.
+GONG_PROXY_INDEX = os.environ.get("SOL_GONG_PROXY_INDEX", "").strip()
 SRS_URL = "https://services.swpc.noaa.gov/text/srs.txt"
 SRS_JSON_URL = "https://services.swpc.noaa.gov/json/solar_regions.json"
 SUNSPOTS_URL = "https://services.swpc.noaa.gov/json/solar-cycle/sunspots.json"
@@ -373,6 +385,15 @@ TEX_HIRES_W, TEX_HIRES_H = 8192, 4096
 TEX_HIRES_JPEG_QUALITY = 82                # same as TEX_JPEG_QUALITY; see below
 
 TEX_HIRES_MAX_BYTES = 4_500_000
+
+# Row block for the broadcast reprojection in texture/export.py's
+# reproject_rgb. Not a speed knob -- a MEMORY bound. Reproject's broadcast path
+# allocates its output as float64, so an unblocked 8192x4096x3 map wants ~800 MB
+# for that array alone, before the two coordinate grids it also builds at full
+# size. Blocking measured 11% slower and is worth it to keep a 2-core runner off
+# the swap. -1 in the leading axis keeps the three color planes together, which
+# is the whole point: they share one coordinate transform.
+TEX_REPROJECT_BLOCK_ROWS = 512
 
 # ── Off-limb annulus ────────────────────────────────────────────────────────
 # The Carrington reprojection maps the SURFACE, so everything outside the limb

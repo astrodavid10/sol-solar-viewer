@@ -8,8 +8,9 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-08-24 (sixth session — the 90° world-frame bug is FIXED and live;
-  region chips fixed; the 3D eruption layer unwired pending a tuning pass, §3zzzz)
+- **Last updated:** 2026-08-26 (eighth session — all six products republished from this
+  workstation and live; a reel renderer added, §3zzzzz. The seventh session, 2026-08-25,
+  stood up `TASKS.md` and republished PFSS; it recorded itself there rather than here.)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
   enabled on `gh-pages` / root, and the deployed data tree passes
   `validate --url … --strict` at 0 failed / 0 warnings.
@@ -151,7 +152,94 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzz. What changed on 2026-08-24 (SIXTH session — most recent)
+## 3zzzzz. What changed on 2026-08-26 (EIGHTH session — most recent)
+
+Two things: the whole data tree was rebuilt here and published, and the project got a way to
+export the field-line animation as a video.
+
+### All six products rebuilt on this workstation and published
+
+Same recipe as T1 (TASKS.md), same reason (footgun 33: GONG answers a laptop in 0.27 s and
+times out from every GitHub runner), and it went through cleanly:
+
+- Seeded `public/data` from `origin/gh-pages` **first** (footgun 31). Confirmed necessary
+  rather than assumed: the seed differed from the local tree by 10 files — the texture window
+  had scrolled two slots per channel since 2026-08-25, and an unseeded `rsync --delete`
+  publish would have reverted CI's newer frames.
+- `pipeline all --out public\data -v`, **19/19 slots had a magnetogram within 3 h**, 260.8 s
+  for the PFSS stage. Newest frame `2026-08-26T04:04Z`, **2.9 h old** — which is what a GONG
+  synoptic magnetogram *is*, not staleness.
+- `validate --root public/data --strict` and `validate --url …/data/ --strict` both report
+  **0 failed / 0 warnings**. Live `index.json` is `last_attempt_status: ok` with all six
+  products `ok`; before this it was `degraded` with `pfss` stale at 8.0 h.
+- Published as `gh-pages` commit `94fbdfb`, then kicked the Pages build explicitly
+  (footgun 34) — it built in 15 s.
+- **Ran without `--with-texture` again**, deliberately and for the reason T1 gives: CI's
+  texture product was 2.2 h old and hires-complete, and re-running locally would either cost
+  ~15 min for the same pictures or, without `--with-hires`, drop the `high_res` blocks the app
+  has used by default since `e7095c2`. The published index says `texture … not regenerated
+  this run`.
+
+**A happy side effect worth knowing about:** the PFSS and texture windows now line up exactly
+— both `2026-08-23T04:00Z → 2026-08-26T04:00Z`, 19 slots each. That is not guaranteed (the
+two stages publish independently, which is why footgun 36 keys texture frames on target time),
+but while it holds, anything that walks one window walks the other.
+
+**Expect `pfss` to go stale again on the next scheduled run**, exactly as T1 predicted. CI
+will seed from this tree, fail to reach GONG, and mark it stale while preserving the frames.
+That is the designed degradation and the recurring chore **T2** exists to end — this is now
+the third hand-publish.
+
+### `scripts/render_reel.py` — the 72 h field as a 1080x1920 video
+
+New, self-contained, and it does not touch the app or the pipeline. It renders the published
+tree to an MP4 sized for Reels/Shorts: the PFSS lines animating across the whole 72 h window
+while the sphere under them cross-fades through all five `sol.texture/4` channels in the order
+Magnetic Map → Visible Sun → Chromosphere → Coronal Loops → Hot Corona.
+
+**It is a software renderer, not a screen recording, and that was a decision rather than a
+convenience.** Driving the real app and recording it fails on four counts: WWT's FOV is a
+fixed π/4 **vertical** (footgun 11), so a portrait crop is ~2.2× too tight; GL lines are 1 px
+and aliased, which reads as crawling noise at reel bitrates; the browser path is blocked on
+the Chrome extension being connected (T8); and a recorder cannot be asked for exact,
+reproducible frame timings. numpy at 2× supersample gives real anti-aliasing and a framing
+chosen for a phone held upright.
+
+**What keeps it honest.** Every number that decides what the picture *means* is read from the
+published manifest, never re-invented here — the dome palette and the opacity model from
+`render_hints`, the dequantization from `quantization`, the orientation from each frame's
+`quat_carr_to_ecl`, the surface maps sampled with the plate-carrée contract `texture.json`'s
+own `note` states. Only three constants are copied out of the app (the far-side dim, its
+smoothstep band, and the glow gradient stops), each with its source file named.
+
+`--check-conventions` is the tripwire, and it is deliberately an **external** one: it
+re-derives each frame's rotation from `quat_carr_to_ecl` and compares it against the
+pipeline's independently written `mat3_carr_to_ecliptic_j2000` (agrees to **8.2e-16**), then
+asserts every valid line has one end on the photosphere. Footgun 47 survived four sessions
+because every internal cross-check agreed with every other internal cross-check; this one
+cannot, because the two sides were written by different code for different reasons.
+
+**Three deliberate departures from the app, all recorded in the script's header** so a later
+reader does not read them as bugs: the surface *cross-fades* between adjacent 4 h slots where
+the app snaps (the app's pop lands every ~1.4 s of reel next to continuously morphing lines);
+the halo is pulled in to 2.2 R_sun at 0.55 strength because sunGlow's 3 R_sun tail is tuned
+for a frame the Sun fills and here washed the whole picture brown; and the line alpha is 0.75
+because the reel's ~1.3 px line piles up ~30% more energy than the app's 1 px one and clipped
+the gold to white exactly where the structure is densest.
+
+**One real bug found and fixed while building it, worth naming because it is a classic:** the
+projection scaled *both* screen axes by half the WIDTH. NDC is [-1,1] on each axis
+independently, so y must scale by half the HEIGHT — the Sun came out as an ellipse of exactly
+aspect ratio W/H, which looks like a camera-placement bug rather than the one-token
+projection bug it is. Fixed in `Camera.project` and `Camera.ray_dirs` together.
+
+**Not committed:** the MP4 itself. This repo forces `gh-pages` to a single orphan commit
+specifically to keep regenerable binaries out of history; a ~20 MB video on `main` would
+undo that reasoning. The script is the artifact — re-run it against any published tree.
+
+---
+
+## 3zzzz. What changed on 2026-08-24 (SIXTH session)
 
 **The 90° world-frame bug is fixed.** Nothing is committed, nothing is published — the app
 builds clean and the fix is verified in a browser, but `main` and the live site are untouched

@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-08-25 (seventh session)
+**Last updated:** 2026-08-26 (eighth session)
 
 ---
 
@@ -46,6 +46,7 @@ the plan says outrank documentation work.
 | T9 | Decide the eruption layer | TODO | — | `ERUPTIONS_ENABLED = false` on `main` |
 | T10 | Dead-code cleanup in `sdoCatalog.ts` | TODO | — | monolith splits deferred, see below |
 | T17 | Zoom out to the heliosphere, with the Voyagers | TODO | — | **AF** — largest new feature; needs scoping |
+| T18 | A vertical reel of the 72 h field | DONE | — | `scripts/render_reel.py`; asked for outside the plan |
 
 **AF** = from Alex's review, 2026-08-24 (see "Alex's review" at the foot of this file for the
 raw items and how each was mapped).
@@ -128,6 +129,19 @@ runner (footgun 33).
 **Note for T2:** the next scheduled CI run will seed from this tree, fail to reach GONG, and
 mark `pfss` stale again while preserving these frames. Designed behavior — and exactly the
 recurring chore T2 exists to end.
+
+**It recurred, on schedule.** Done again **2026-08-26 07:07Z** (`gh-pages` commit `94fbdfb`),
+this time as a full `all` run rather than PFSS alone: live `index.json` had gone back to
+`degraded` with `pfss` stale at **8.0 h**, and came out `ok` with all six products `ok` and
+19/19 slots freshly traced (newest magnetogram `2026-08-26T04:04Z`, 2.9 h old). Both
+`validate --root` and `validate --url` reported 0 failed / 0 warnings. Same two cautions as
+above still applied and were followed: seed from `origin/gh-pages` first (the seed differed
+from the local tree by 10 files), and check for an in-flight CI run before pushing.
+
+**That is three hand-publishes in three sessions**, which is the argument for T2 rather than a
+note about it. The cost is ~20 minutes of a session each time, and the failure mode when a
+session *doesn't* do it is silent: the site keeps serving correct-looking field lines that are
+a day old.
 
 ---
 
@@ -540,6 +554,33 @@ questions, all of which change the cost by an order of magnitude:
 
 **Definition of done:** a written scope with those four answered, then a build decision — not an
 implementation started from this paragraph.
+
+---
+
+### T18 — A vertical reel of the 72 h field  *(DONE 2026-08-26)*
+
+Asked for directly, outside the plan: a reel-sized animation of the full 72 h magnetic field
+with the surface switching Magnetic Map → Visible Sun → Chromosphere → Coronal Loops → Hot
+Corona while it plays. `scripts/render_reel.py` renders the published tree to 1080x1920 MP4;
+HANDOFF §3zzzzz has the reasoning and the three deliberate departures from the app.
+
+**Why it is not a screen recording**, since that is the obvious question a later session will
+ask: WWT's FOV is a fixed π/4 *vertical* (footgun 11), so a portrait crop is ~2.2x too tight;
+GL lines are 1 px and aliased; the browser path is blocked on T8; and a recorder cannot be
+asked for reproducible frame timings.
+
+**The part worth reusing:** `--check-conventions` re-derives each frame's rotation from
+`quat_carr_to_ecl` and checks it against the pipeline's own `mat3_carr_to_ecliptic_j2000`
+(8.2e-16). That is the shape of check **T6** wants — external, not internal. Footgun 47 got
+four sessions because every internal cross-check agreed with every other one.
+
+**Not committed:** the MP4. `gh-pages` is a forced orphan commit precisely to keep regenerable
+binaries out of history; a ~20 MB video on `main` would undo that. Re-run the script.
+
+**If it is rendered again:** it reads only the published contract, so it works against any
+`--root`, including a `--url`-fetched tree if one is ever mirrored locally. The constants most
+likely to need a re-sweep are the three in the header (glow gain, line gain, line sigma), and
+they must be judged at 1080x1920, not on a scaled-down still.
 
 ---
 

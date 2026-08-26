@@ -42,3 +42,9 @@ pipeline/.cache/
 # Scratch tree used by scripts/publish_gh_pages.sh
 /.ghp/
 /.ghp-seed/
+
+# ── Rendered video (regenerable by scripts/render_reel.py) ────────────────
+# Same reasoning as the forced orphan commit on gh-pages: this repo keeps
+# regenerable binaries out of its history on purpose. A 28 s 1080x1920 reel
+# is ~20 MB and every re-render is a new one.
+/media/

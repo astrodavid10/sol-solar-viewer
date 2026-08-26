@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-08-26 (eighth session)
+**Last updated:** 2026-08-26 (ninth session)
 
 ---
 

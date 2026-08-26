@@ -417,6 +417,43 @@ TEX_COVER_UNDER_TOL = 0.030
 # is the whole point: they share one coordinate transform.
 TEX_REPROJECT_BLOCK_ROWS = 512
 
+
+# ── Near-side detail window (sol.texture/5) ─────────────────────────────────
+# The observed hemisphere only, at the angular resolution a TEX_NEAR_FULL_W-wide
+# full-sphere map would have. 4096x4096 covering +/-90 deg of longitude about the
+# sub-earth meridian and the full +/-90 deg of latitude.
+#
+# WHY A WINDOW RATHER THAN A BIGGER FULL-SPHERE MAP. The far side is not an
+# observation -- TEX_CHANNELS marks it "quiet" (invented mottling) or "flat",
+# texture/export.py's compose() synthesizes it, and the app dims it to 0.45 to
+# say so. A 4096x2048 full map already spends half its pixels (2048x2048) on
+# fabricated Sun; an 8192x4096 one would spend 4096x4096. The window spends them
+# only where there are photons.
+#
+# WHAT IT IS AND IS NOT. Same 22.76 px/deg on every observed pixel as the
+# 8192x4096 high_res map -- NOT finer, and the arithmetic matters: the 4096 px
+# source carries ~3205 px across the disk (0.7824 of the frame), i.e. 27.96 px
+# per degree at disk CENTRE against this map's 22.76, so at the centre the map is
+# slightly coarser than the source and toward the limb it is much finer
+# (longitude foreshortens as cos). Against the 2048x1024 history frames this
+# replaces, it is 4x the linear detail. Above 4096 there is nothing to have:
+# SDO browse publishes no 6144 or 8192 (both 404, probed 2026-08-26).
+#
+# THE REASON IT IS 4096 AND NOT 8192. Largest texture dimension is what decides
+# whether a phone can hold the thing at all -- 4096 is the common mobile
+# MAX_TEXTURE_SIZE floor, 8192 is above it. 67 MB of RGBA instead of 134 MB, and
+# it loads on hardware where high_res simply fails.
+TEX_NEAR_FULL_W, TEX_NEAR_FULL_H = 8192, 4096   # notional grid the window cuts from
+TEX_NEAR_W, TEX_NEAR_H = 4096, 4096
+TEX_NEAR_LON_SPAN_DEG = 180.0
+TEX_NEAR_CDELT_DEG = 360.0 / TEX_NEAR_FULL_W    # == 180/TEX_NEAR_FULL_H exactly
+TEX_NEAR_JPEG_QUALITY = 82
+# The near side is ~85% of a full 8192x4096 map's bytes despite being half its
+# pixels -- synthesized far side compresses almost for free -- so this tracks
+# TEX_HIRES_MAX_BYTES rather than halving it. HMIB will be the binding channel
+# (its high_res is 3.57 MB).
+TEX_NEAR_MAX_BYTES = 4_500_000
+
 # ── Off-limb annulus ────────────────────────────────────────────────────────
 # The Carrington reprojection maps the SURFACE, so everything outside the limb
 # -- prominences, low coronal loops, the inner corona -- is thrown away. It is

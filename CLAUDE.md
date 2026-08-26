@@ -565,6 +565,20 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     tab where the engine's easing does not. The pipeline was NOT implicated: it uses astropy's
     `HeliocentricMeanEcliptic` and was always right.
 
+48. **Never edit `pipeline/` source while a pipeline run is in flight** — a lazily-imported
+    stage will read your NEW file against an ALREADY-LOADED old one. `run_texture` does
+    `from .texture import export as texture_export` at call time, several minutes into a run,
+    while `pipeline.config` has been in `sys.modules` since startup. Edit both and the late
+    import reads the new `export.py`, asks the *old* config module for a constant that only
+    exists in the new file, and dies: `ImportError: cannot import name 'TEX_NEAR_FULL_W' from
+    'pipeline.config'` — pointing at a name that is plainly right there on disk, which is what
+    makes it confusing. Measured 2026-08-26. **The exit code was 0**, because the texture
+    stage's failure is soft by design: five of six products rebuilt, texture rolled back to the
+    published copy, `last_attempt_status` came out `partial:texture`, and the whole thing looked
+    like an upstream hiccup rather than a self-inflicted one. Related to footgun 35 (one run per
+    `--out`) but a different mechanism: that one is about two runs racing on `.staging`, this one
+    is about one run racing your editor. If a run is going, edit `src/` or the docs instead.
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).

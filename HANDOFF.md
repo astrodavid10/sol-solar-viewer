@@ -8,9 +8,10 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-08-26 (eighth session — all six products republished from this
-  workstation and live; a reel renderer added, §3zzzzz. The seventh session, 2026-08-25,
-  stood up `TASKS.md` and republished PFSS; it recorded itself there rather than here.)
+- **Last updated:** 2026-08-26 (ninth session — the 8K sphere maps turn out never to have been
+  DISPLAYED; two pipeline bugs fixed; off-limb is now a 1024/2048/4096 ladder; near-side detail
+  window designed and its header verified, §3zzzzzz. The eighth session, same day, republished
+  everything and added the reel renderer, §3zzzzz.)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
   enabled on `gh-pages` / root, and the deployed data tree passes
   `validate --url … --strict` at 0 failed / 0 warnings.
@@ -152,7 +153,139 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzz. What changed on 2026-08-26 (EIGHTH session — most recent)
+## 3zzzzzz. What changed on 2026-08-26 (NINTH session — most recent)
+
+Started as "the packaged Carrington textures are 2048x1024 but SDO is 4096x4096, are we
+throwing the source away?" — a fair question with a more interesting answer than expected, and
+it turned up two bugs on the way to answering it.
+
+### What the tree actually publishes, since the question keeps coming up
+
+Three tiers, not one. Most of `texture/` is the 90 history frames, which is what you see if you
+`ls` it — hence the impression that 2048x1024 is the whole product.
+
+| product | size | count |
+|---|---|---|
+| history frames `*_carr_2048x1024_*.jpg` | 2048x1024 | 18 x 5 |
+| newest map `*_carrington_4096x2048.jpg` | 4096x2048 | 5 |
+| `high_res` `*_carrington_hires_8192x4096.jpg` | 8192x4096 | 5 |
+| off-limb `*_offlimb_*.jpg` | 1024/2048/4096 | 5 x 3 (new this session) |
+
+**And the ceiling is real.** SDO browse stops at 4096 — `_6144_` and `_8192_` both 404, probed
+this session, `_4096_` is 200. At 0.6009"/px with the disk filling 0.7824 of the frame that is
+~3205 px across the disk and **27.96 source px per degree at disk CENTRE**, against 22.76 px/deg
+in an 8192-wide full-sphere map. So 8192x4096 slightly *under*-samples disk centre and heavily
+*over*-samples toward the limb (longitude foreshortens as cos); in aggregate the source disk
+holds ~8.1 Mpx against 16.8 Mpx in a 4096x4096 near-side window. **8192 full-sphere was
+overshoot, not a matched ceiling** — an earlier draft of the plan said otherwise and was wrong.
+
+### The 8K maps had never been displayed (`a9f6acd`)
+
+`SolarView3D.createStage` asked `rt.surface.hasHighRes()` three statements after constructing
+the surface — but `createSunSurface` only *starts* its manifest fetch (`void checkTexture()` at
+its foot), so `info` was `null`, `hiresFits(null)` was false, `hiresWanted` stayed false for the
+life of the page, and `applyHighRes()`'s gate could never pass. Nothing re-checked it: no
+watcher on `highRes`, and `highResActive()`/`maxTextureSize()` have zero callers. Same sequence
+in the shipped bundle.
+
+So since `01889e6` made `--with-hires` unconditional, **every scheduled run has spent ~8m40s —
+68% of the build step — producing 9.3 MB no browser ever fetched**, and `?hires=0` was
+documented as the opt-out of a feature that was never on. The preference now goes in as a
+construction option and sunSurface tests capability when it can actually be answered.
+**Still unverified in a browser** (extension not connected, T8).
+
+### Two pipeline bugs, both found while designing the near-side window
+
+**`2cbfa32` — three reprojections where one would do.** `reproject_rgb` looped over the colour
+planes and rebuilt the output->input coordinate transform each pass. That transform is 87% of a
+reprojection's cost (4.60 s of 5.30 s measured), and the three planes share one WCS, so two
+thirds of the work was computed and discarded. reproject takes a broadcast `(3, ny, nx)` array
+against a 2-D WCS and does it once. Measured on the real production path: **2.41x at 2048x1024,
+2.54x at 4096x2048**, and one 8192x4096 channel went from CI's logged 86-117 s to **58.2 s**.
+Not an approximation — finite masks identical, and **0 of 25,165,824 uint8 pixels differ**, with
+the encoded JPEG byte-identical at 471,803 B. `TEX_REPROJECT_BLOCK_ROWS` bounds the memory,
+because the broadcast path allocates float64.
+
+**`0ee3a0e` — the polar-cap guard would have killed the texture stage for 13 days a year.** It
+required the B0-lit 86-90 deg cap to be >= 50% visible against a hard 0.5. Real reprojections
+always lose a thin limb ring (reproject's >1 px roundtrip test rejects the outermost source
+pixels), and with that ~0.35 deg loss the guard fails for |B0| < ~0.4 deg:
+
+    B0 +0.00  lit 0.386  FAILS      B0 +0.25  lit 0.458  FAILS
+    B0 +0.10  lit 0.412  FAILS      B0 +0.40  lit 0.526  passes
+
+Per astropy that is **2026-06-04..06-10 and 2026-12-06..12-11** — and on the *default* channel,
+where `run_texture` re-raises and the whole stage dies. On ideal data it survived B0 = 0 only
+because lit and dark both land on exactly 0.5000 and the comparisons are strict.
+**It never fired: the repo starts 2026-08-23, so June predates it and December has not
+happened.** Caught before its first opportunity. (The commit message speculates about "last
+December's CI logs" — there are none.)
+
+Replaced by `check_coverage`, which compares the reprojected mask against `dist <= 90` —
+geometry already computed one line earlier for the compositor, correct for a longitude window as
+well as a full sphere. Two separate failures: `over` (finite where the Sun is not visible, i.e.
+far side aliased in as observation) and `under` (NaN where it should be visible, i.e. blank
+source or flipped latitude axis). Verified on all five channels live, and it still catches a
+latitude flip (over 9.66%), a blank source (under 50%) and full aliasing (over 50%). Strictly
+stronger than the cap test except at B0 ~ 0, where neither can see a flip because the visible
+hemisphere is symmetric about the equator.
+
+### Off-limb: a 1024/2048/4096 ladder (`5c7dcb6`)
+
+Asked for as "up to 4k on the limb", and the measurement made the case better than expected:
+**4096 is native, not upsampling.** The crop comes off the 4096 px source and reaches the frame
+edge, so it is 4048-4092 px wide before resampling (measured, all five channels) — 4096 out is a
+1.001-1.012x resample. We had been publishing 1024 and discarding 15/16ths of it.
+
+Compute is free: one masked crop, three resamplings, so the feathered inner edge is identical
+across the ladder by construction. Bytes 0.15 MB -> 3.15 MB; 0304 is worst at 900.9 KB because
+He II 304 has the most extended limb brightening and the most prominence structure, i.e. the
+most non-black pixels in a mostly-black frame. `TEX_OFFLIMB_MAX_BYTES` 400 KB -> 1.3 MB.
+
+**Additive**: `off_limb.url`/`size`/`bytes` still describe the 1024 rung, so nothing that reads
+the manifest changes and no published file is orphaned; `off_limb.tiers` offers the rest. 1024
+stays the default because the right rung follows how many pixels the BILLBOARD occupies on
+screen (~640-1150 px at the home framing) and not the device.
+`_prune_orphan_textures` had to learn the nested urls or it would have deleted the two new rungs
+on the same publish that wrote them — the same trap its own comment already records for
+off-limb crops, one nesting deeper.
+
+### The near-side window: design settled, header verified
+
+Decided with the user: publish the existing 2048x1024 full-sphere map as a BASE plus a
+**4096x4096 near-side window** (the observed hemisphere only, +/-90 deg of longitude about that
+frame's sub-earth meridian) — same 22.76 px/deg on every observed pixel as the 8192x4096 map,
+**half the GPU (67 MB vs 134), and a largest dimension of 4096, which is the common mobile
+MAX_TEXTURE_SIZE floor where 8192 is above it.** The far side keeps its low-resolution pixels
+because it is not an observation (footgun 22). The detail->base crossfade reuses the *same*
+75-90 deg band `applyFarSide` already uses to dim the far side: the band where we stop trusting
+the data and the band where we stop spending pixels on it are the same band.
+
+`near_side_header()` is in and **verified exact**: cropping a full 8192x4096
+`make_heliographic_header` by `naxis1` + `crpix1` gives **0.000e+00** longitude-edge error across
+four dates, including l0 = 276.36 (window running past 360 deg) and l0 = 41.28 (running below 0),
+with square pixels at 0.0439453125 deg and the crop proven to be a pure translation of the full
+grid. Both gating assumptions checked against the installed sunpy 7.1.2 / reproject 0.19.0:
+`make_heliographic_header` cannot make a partial map (it derives CDELT from the shape and takes
+no reference-pixel argument), but CAR is linear so the crop is exact; and `reproject_interp`
+builds its meshgrid from `shape_out` alone, so the crop really does cost proportionally less.
+
+**Remaining** (TASKS.md T19): `build_near_side`, the `sol.texture/5` additive block, validator
+checks, `TEX_SRC_RES` 2048 -> 4096 for history, the app's second sampler + zoom-gated LOD +
+tier-aware texture budget, a hand-seeded cold fill, then retire `TEX_HIRES_*`.
+
+### A footgun earned the hard way (48)
+
+Editing `pipeline/` source while a run is in flight breaks the lazily-imported stages: `config`
+has been in `sys.modules` since startup, `texture/export.py` is read fresh minutes later, and the
+new file asks the old module for a constant it does not have. `ImportError: cannot import name
+'TEX_NEAR_FULL_W' from 'pipeline.config'` — for a name plainly present on disk. **Exit code 0**,
+because the texture stage's failure is soft: five of six products rebuilt, texture rolled back,
+`last_attempt_status: partial:texture`, and it read like an upstream hiccup.
+
+---
+
+## 3zzzzz. What changed on 2026-08-26 (EIGHTH session)
 
 Two things: the whole data tree was rebuilt here and published, and the project got a way to
 export the field-line animation as a video.

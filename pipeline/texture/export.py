@@ -91,6 +91,10 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       TEX_QUIET_ANNULUS_DEG, TEX_QUIET_PERCENTILE,
                       TEX_COVER_OVER_TOL, TEX_COVER_UNDER_TOL,
                       TEX_REPROJECT_BLOCK_ROWS,
+                      TEX_NEAR_FULL_W, TEX_NEAR_FULL_H, TEX_NEAR_W,
+                      TEX_NEAR_H, TEX_NEAR_LON_SPAN_DEG,
+                      TEX_NEAR_CDELT_DEG, TEX_NEAR_JPEG_QUALITY,
+                      TEX_NEAR_MAX_BYTES,
                       TEX_CHANNELS, TEX_OFFLIMB_INNER, TEX_OFFLIMB_QUALITY,
                       TEX_OFFLIMB_SIZE, TEX_OFFLIMB_SIZES,
                       TEX_LIMB_FIT_RES,
@@ -466,6 +470,58 @@ def grid(header, out_w: int = TEX_OUT_W, out_h: int = TEX_OUT_H
     lat = (header["crval2"]
            + (np.arange(out_h) + 1.0 - header["crpix2"]) * header["cdelt2"])
     return lon, lat
+
+
+def near_side_header(obstime, observer, l0: float,
+                     full_w: int = TEX_NEAR_FULL_W,
+                     full_h: int = TEX_NEAR_FULL_H,
+                     win_w: int = TEX_NEAR_W):
+    """CAR header for the NEAR-SIDE WINDOW of a full_w x full_h Carrington grid.
+
+    The window spans ``l0 +/- 90 deg`` of longitude and the full +/-90 deg of
+    latitude, at the angular resolution a ``full_w``-wide full-sphere map would
+    have.  So it carries the observed hemisphere at the sampling of an
+    8192x4096 map while being 4096x4096 -- half the pixels, and crucially a
+    largest dimension of 4096, which is the common floor for mobile
+    MAX_TEXTURE_SIZE where 8192 is not.
+
+    Why the far side does not get those pixels: it is not an observation.
+    TEX_CHANNELS marks every channel's far side "quiet" (invented mottling) or
+    "flat", ``compose`` synthesizes it, and the app dims it to say so.  A full
+    8192x4096 map spends 4096x4096 pixels on fabricated Sun.
+
+    HOW, and why it is exact.  ``make_heliographic_header`` cannot build a
+    partial map: it derives the scale FROM the shape on the assumption that the
+    shape covers the sphere, and it takes no reference-pixel argument, so CRPIX
+    is always the array centre.  But CAR is linear in (lon, lat) -- constant
+    CDELT both axes, identity PC, LONPOLE 0 -- so a sub-window is the SAME WCS
+    with ``naxis1`` cut and ``crpix1`` translated, and nothing else touched.
+    Verified against the installed sunpy: the window edges land on l0 -/+ 90
+    to 1e-13 deg.
+
+    Note ``360/8192 == 180/4096`` exactly, so one full-grid call gives square
+    pixels for free -- CDELT1 == CDELT2 == 0.0439453125.
+
+    ``shape_out`` reaches reproject from the header's NAXIS keys, so mutating
+    ``naxis1`` here is both necessary and sufficient; reproject builds its
+    meshgrid from the output shape alone and never iterates the input, so the
+    crop really does cost proportionally less.
+
+    Longitude wraparound needs no handling.  CRVAL1 may be anything, and the
+    window's pixels can run below 0 or past 360; WCSLIB normalizes internally
+    and the Carrington frame is periodic.  Verified on six dates spanning the
+    full B0 range and both wrap directions: zero far-side aliasing in every
+    case.  The APP is where the wrap matters -- see the manifest's
+    ``lon_center_deg``.
+    """
+    import astropy.units as u
+    from sunpy.map.header_helper import make_heliographic_header
+    hdr = make_heliographic_header(
+        obstime, observer, (full_h, full_w), frame="carrington",
+        projection_code="CAR", map_center_longitude=float(l0) * u.deg)
+    hdr["naxis1"] = int(win_w)
+    hdr["crpix1"] = hdr["crpix1"] - (full_w - win_w) / 2.0
+    return hdr
 
 
 def sub_earth_distance(lon: np.ndarray, lat: np.ndarray, l0: float, b0: float

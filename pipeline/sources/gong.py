@@ -30,8 +30,8 @@ import gzip
 import uuid
 
 from ..config import (GONG_BASE, GONG_PROXY_BASE, GONG_PROXY_HEADER,
-                      GONG_PROXY_TOKEN, GONG_SCRAPE_TIMEOUT,
-                      GONG_TOLERANCE_HOURS, HEADERS)
+                      GONG_PROXY_INDEX, GONG_PROXY_TOKEN,
+                      GONG_SCRAPE_TIMEOUT, GONG_TOLERANCE_HOURS, HEADERS)
 from ..io_utils import quiet_unlink
 
 _FITS_RE = re.compile(r"mrzqs(\d{6})t(\d{4})c\d+_\d+\.fits\.gz", re.IGNORECASE)
@@ -99,7 +99,21 @@ def _relay(url: str) -> str:
     """
     if not GONG_PROXY_BASE or not url.startswith(GONG_BASE):
         return url
-    return GONG_PROXY_BASE.rstrip("/") + url[len(GONG_BASE):]
+    relayed = GONG_PROXY_BASE.rstrip("/") + url[len(GONG_BASE):]
+    # A static path-preserving mirror (docs/GONG-RELAY.md Option D) cannot
+    # answer a directory request the way the Cloudflare Worker does -- the
+    # Worker fetches gong2.nso.edu live and hands back its real autoindex, but
+    # raw.githubusercontent.com 404s on any directory path (measured
+    # 2026-08-23, with and without a trailing slash). `_gong_dir_url()` always
+    # asks for exactly that shape, so a static mirror has to publish a real
+    # file (a synthetic index) at the directory's name and be asked for it by
+    # name. GONG_PROXY_INDEX is that filename; empty (the default, and the
+    # Worker's case) leaves this a no-op, byte-identical to before this knob
+    # existed. Appended here, not stored anywhere -- same reasoning as the
+    # rewrite above, and it must never reach `gong_file_key` or a manifest.
+    if GONG_PROXY_INDEX and relayed.endswith("/"):
+        relayed += GONG_PROXY_INDEX
+    return relayed
 
 
 def _relay_headers() -> dict:

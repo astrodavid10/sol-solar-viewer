@@ -45,7 +45,10 @@ import numpy as np
 from .config import (CME_MIN_SPEED_KMS, EVENTS_MAX_BYTES,
                      EVENTS_WINDOW_SLACK_HOURS, LIM_RSUN, SCHEMA_AR,
                      SCHEMA_EPHEM, SCHEMA_EVENTS, SCHEMA_INDEX, SCHEMA_PFSS,
-                     SCHEMA_STATS, SCHEMA_TEXTURE, TEX_HIRES_H,
+                     SCHEMA_STATS, SCHEMA_TEXTURE,
+                     TEX_NEAR_W, TEX_NEAR_H, TEX_NEAR_CDELT_DEG,
+                     TEX_NEAR_LON_SPAN_DEG, TEX_NEAR_MAX_BYTES,
+                     TEX_HIRES_H,
                      TEX_HIRES_MAX_BYTES, TEX_HIRES_W, TEX_MAX_BYTES,
                      TEX_MAX_OBS_AGE_HOURS, TEX_OFFLIMB_MAX_BYTES,
                      TEX_OUT_H, TEX_OUT_W, TEX_HIST_H, TEX_HIST_W,
@@ -900,8 +903,21 @@ def _check_texture_frames(rep: Report, get, doc: dict, layer: dict,
     for fr in picks:
         _check_texture_jpeg(rep, get, doc, fr.get("url"), fr,
                             max_bytes=TEX_HIST_MAX_BYTES)
-    rep.info("{0}: {1} frame(s) checked in the manifest, {2} decoded".format(
-        channel, len(frames), len(picks)))
+    # Near-side windows: GEOMETRY on every frame (it is pure manifest
+    # arithmetic and free), pixels only on the same sampled frames as above.
+    # Geometry is checked everywhere on purpose -- a misregistered window
+    # decodes perfectly and the sampling contract is the only thing that
+    # exposes it, so checking three of nineteen would be checking the cheap
+    # half of the wrong thing.
+    picked_urls = {id(fr) for fr in picks}
+    near_n = 0
+    for fr in frames:
+        if isinstance(fr, dict) and fr.get("near_side") is not None:
+            near_n += 1
+            _check_near_side(rep, get, channel, fr, deep=id(fr) in picked_urls)
+    rep.info("{0}: {1} frame(s) checked in the manifest, {2} decoded, "
+             "{3} near-side window(s)".format(
+                 channel, len(frames), len(picks), near_n))
     return len(picks)
 
 
@@ -1088,6 +1104,91 @@ def _check_hires(rep: Report, get, layer: dict) -> None:
     # carries its OWN width/height, so the doc-level fallback never fires.
     _check_texture_jpeg(rep, get, {}, hires.get("url"), hires,
                         max_bytes=TEX_HIRES_MAX_BYTES)
+
+
+_NEAR_KEYS = ("url", "width", "height", "bytes", "lon_center_deg",
+              "crval1_deg", "crpix1", "crpix2", "cdelt_deg",
+              "lon_span_deg", "lat_span_deg")
+
+
+def _check_near_side(rep: Report, get, channel, frame: dict, deep: bool) -> None:
+    """One timeline slot's NEAR-SIDE WINDOW (SCHEMA_TEXTURE /5).
+
+    ADDITIVE ONLY, same discipline as `high_res`: a slot built without
+    --with-near-side simply has no `near_side` key, and that is not a failure.
+
+    The check that matters, and the reason this function exists at all, is
+    `cdelt_deg * width == lon_span_deg`. Everything else about a windowed map
+    can be right while the window is centred on the wrong meridian or cut with
+    the wrong CRPIX, and the JPEG would still decode, still be the right size,
+    and still look like a plausible piece of Sun -- it would just be
+    misregistered by degrees, and nothing downstream would notice. The app
+    computes longitude from `lon_center_deg` and `cdelt_deg`, so those two plus
+    the width ARE the sampling contract.
+    """
+    near = frame.get("near_side")
+    if near is None:
+        return
+    tag = "{0} {1} near_side".format(channel, frame.get("target_iso"))
+    if not rep.check(isinstance(near, dict), "{0} is an object".format(tag),
+                     "got {0!r}".format(type(near).__name__)):
+        return
+    missing = [k for k in _NEAR_KEYS if k not in near]
+    if not rep.check(not missing, "{0} keys complete".format(tag),
+                     "missing {0}".format(missing)):
+        return
+
+    w, h = near.get("width"), near.get("height")
+    rep.check((w, h) == (TEX_NEAR_W, TEX_NEAR_H),
+              "{0} is {1}x{2}".format(tag, TEX_NEAR_W, TEX_NEAR_H),
+              "got {0}x{1}".format(w, h))
+
+    cdelt = near.get("cdelt_deg")
+    rep.check(isinstance(cdelt, (int, float))
+              and abs(float(cdelt) - TEX_NEAR_CDELT_DEG) < 1e-12,
+              "{0} cdelt_deg pins to the declared full grid".format(tag),
+              "got {0!r}, want {1!r}".format(cdelt, TEX_NEAR_CDELT_DEG))
+
+    # The geometry contract: span must be cdelt * pixels, on BOTH axes. This is
+    # what catches a crop done with the wrong CRPIX or NAXIS.
+    for axis, span_key, npx in (("lon", "lon_span_deg", w),
+                                ("lat", "lat_span_deg", h)):
+        span = near.get(span_key)
+        ok = (isinstance(span, (int, float)) and isinstance(cdelt, (int, float))
+              and isinstance(npx, int)
+              and abs(float(span) - float(cdelt) * npx) < 1e-9)
+        rep.check(ok, "{0} {1}_span == cdelt * pixels".format(tag, axis),
+                  "span {0!r} vs {1!r}".format(span, span if not ok else ""))
+    rep.check(near.get("lon_span_deg") == TEX_NEAR_LON_SPAN_DEG,
+              "{0} lon_span is {1} deg".format(tag, TEX_NEAR_LON_SPAN_DEG),
+              "got {0!r}".format(near.get("lon_span_deg")))
+
+    lon0 = near.get("lon_center_deg")
+    rep.check(isinstance(lon0, (int, float)) and 0.0 <= float(lon0) < 360.0,
+              "{0} lon_center_deg in [0, 360)".format(tag),
+              "got {0!r}".format(lon0))
+    # lon_center_deg is the SAME quantity as the frame's sub-earth longitude --
+    # the window is centred on the observed meridian by definition. A mismatch
+    # means the window was built for a different frame's l0, which is the one
+    # way to get a perfectly valid map of the wrong moment.
+    se = frame.get("sub_earth_carr_lon_deg")
+    if isinstance(lon0, (int, float)) and isinstance(se, (int, float)):
+        d = abs(((float(lon0) - float(se) + 180.0) % 360.0) - 180.0)
+        rep.check(d < 0.05,
+                  "{0} lon_center matches the frame's sub-earth meridian".format(tag),
+                  "{0:.4f} vs {1:.4f} deg apart by {2:.4f}".format(lon0, se, d))
+    # crval1 may legitimately sit outside [0, 360) -- the window runs past 360
+    # or below 0 depending on l0 -- but it must agree with lon_center modulo a
+    # full turn, or the raw WCS and the app's arithmetic describe different maps.
+    crval = near.get("crval1_deg")
+    if isinstance(crval, (int, float)) and isinstance(lon0, (int, float)):
+        rep.check(abs((float(crval) % 360.0) - float(lon0)) < 1e-6,
+                  "{0} crval1_deg agrees with lon_center_deg".format(tag),
+                  "crval1 {0!r} % 360 vs {1!r}".format(crval, lon0))
+
+    if deep:
+        _check_texture_jpeg(rep, get, {}, near.get("url"), near,
+                            max_bytes=TEX_NEAR_MAX_BYTES)
 
 
 def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict,

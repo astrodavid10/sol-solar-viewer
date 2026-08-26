@@ -101,6 +101,7 @@ class Ctx:
     with_texture: bool = False
     max_new_textures: Optional[int] = None
     with_hires: bool = False
+    with_near_side: bool = False
 
     def log(self, msg: str) -> None:
         if self.verbose:
@@ -127,6 +128,7 @@ def make_ctx(args: argparse.Namespace) -> Ctx:
         with_texture=bool(getattr(args, "with_texture", False)),
         max_new_textures=getattr(args, "max_new_textures", None),
         with_hires=bool(getattr(args, "with_hires", False)),
+        with_near_side=bool(getattr(args, "with_near_side", False)),
     )
 
 
@@ -593,13 +595,16 @@ def _texture_history(ctx: Ctx, layers: List[dict], primary: dict) -> dict:
             "sub_earth_lat_deg": layer["sub_earth_lat_deg"],
             "source_url": layer["source_url"],
         }
+        near = layer.pop("near_side", None)
+        if near:
+            frames[code][iso_z(newest)]["near_side"] = near
 
     reused = built = failed = 0
     cap = (TEX_HIST_MAX_NEW_PER_RUN if ctx.max_new_textures is None
            else int(ctx.max_new_textures))
     budget = cap
     todo: List[Tuple[datetime, str]] = []
-    from .texture.export import HIST_NAME_RE
+    from .texture.export import HIST_NAME_RE, NEAR_NAME_RE
 
     for target in reversed(targets[:-1]):             # newest history first
         for code in by_code:
@@ -622,9 +627,23 @@ def _texture_history(ctx: Ctx, layers: List[dict], primary: dict) -> dict:
             # resolution, so it falls through to `todo`.
             reusable = (have is not None and bool(HIST_NAME_RE.match(url))
                         and (ctx.out / "texture" / url).exists())
+            # With --with-near-side, the slot's WINDOW has to be there too, or
+            # a slot published before the flag existed would be reused forever
+            # and the window would never fill in. Same two-part test as above
+            # -- a time-keyed name AND the file on disk -- because a manifest
+            # entry naming a file that is gone is exactly what the seeding in
+            # footgun 31 is there to prevent, and it can still happen if a
+            # prune and a publish disagree.
+            near_url = ""
+            if reusable and ctx.with_near_side:
+                near_url = str(((have or {}).get("near_side") or {}).get("url") or "")
+                reusable = (bool(NEAR_NAME_RE.match(near_url))
+                            and (ctx.out / "texture" / near_url).exists())
             if reusable:
                 frames[code][iso_z(target)] = have
                 ctx.staging.note("texture/" + url)
+                if near_url:
+                    ctx.staging.note("texture/" + near_url)
                 reused += 1
             else:
                 todo.append((target, code))
@@ -633,8 +652,9 @@ def _texture_history(ctx: Ctx, layers: List[dict], primary: dict) -> dict:
         if budget <= 0:
             break
         try:
-            blob, meta = texture_export.build_history_frame(
-                target, code, verbose=ctx.verbose)
+            blob, meta, near_blob = texture_export.build_history_frame(
+                target, code, verbose=ctx.verbose,
+                with_near=ctx.with_near_side)
         except Exception as exc:                          # noqa: BLE001
             # A slot with no usable source is left OUT of the manifest. The app
             # falls back to the nearest frame it does have, which is honest;
@@ -652,6 +672,9 @@ def _texture_history(ctx: Ctx, layers: List[dict], primary: dict) -> dict:
             # total slot count.
             continue
         ctx.staging.write_bytes("texture/" + meta["url"], blob)
+        if near_blob is not None:
+            ctx.staging.write_bytes("texture/" + meta["near_side"]["url"],
+                                    near_blob)
         frames[code][iso_z(target)] = meta
         built += 1
         budget -= 1
@@ -736,14 +759,27 @@ def run_texture(ctx: Ctx) -> ProductResult:
     for channel in TEX_CHANNELS:
         code = channel["code"]
         try:
-            blob, doc, info, offlimb = texture_export.build_texture(
-                ctx.now, regions, verbose=ctx.verbose, code=code)
+            blob, doc, info, offlimb, near_blob = texture_export.build_texture(
+                ctx.now, regions, verbose=ctx.verbose, code=code,
+                with_near=ctx.with_near_side,
+                # The window's file name keys on the SLOT it fills, not on
+                # `now`: this map carries the freshest available image, but
+                # _texture_history has to be able to match the window to
+                # targets[-1] by name.
+                near_target=pfss_timeline.slot_targets(ctx.now)[-1])
         except Exception as exc:                       # noqa: BLE001
             if code == TEX_CHANNELS[0]["code"]:
                 raise
             print("  {0} skipped: {1}".format(code, exc))
             continue
         ctx.staging.write_bytes("texture/" + doc["url"], blob)
+        if near_blob is not None:
+            ctx.staging.write_bytes(
+                "texture/" + doc["near_side"]["url"], near_blob)
+            print("    near-side {0}x{1} {2} ({3})".format(
+                doc["near_side"]["width"], doc["near_side"]["height"],
+                doc["near_side"]["url"], human_bytes(len(near_blob))))
+            total_bytes += len(near_blob)
         texture_export.log_texture(info, len(blob), verbose=ctx.verbose)
         # Every rung of the off-limb ladder, not just the default one the
         # `off_limb` block names -- see build_offlimb for why 4096 is the top.
@@ -796,6 +832,12 @@ def run_texture(ctx: Ctx) -> ProductResult:
         }
         if doc.get("high_res"):
             layer_entry["high_res"] = doc["high_res"]
+        if doc.get("near_side"):
+            # Carried on the LAYER only so _texture_history can move it onto the
+            # newest FRAME entry, where every other slot's window lives. It is
+            # deleted from the layer there, so the manifest has exactly one
+            # place a window is ever described.
+            layer_entry["near_side"] = doc["near_side"]
         layers.append(layer_entry)
         if primary_doc is None:
             primary_doc = doc
@@ -1099,6 +1141,13 @@ def _prune_orphan_textures(ctx: Ctx, results: List[ProductResult]) -> None:
         for fr in (layer.get("frames") or []):
             if fr.get("url"):
                 keep.add(str(fr["url"]))
+            # ...and its near-side window, which hangs off the frame rather
+            # than being a frame url of its own. Same trap as off_limb.tiers:
+            # miss it and the prune deletes 19 windows per channel on the very
+            # publish that wrote them.
+            near = fr.get("near_side")
+            if isinstance(near, dict) and near.get("url"):
+                keep.add(str(near["url"]))
         # The opt-in high-res map: absent when the layer was built without
         # --with-hires (or its hi-res build failed), present as its own
         # sibling .jpg otherwise. Missing this would delete the file the
@@ -1423,6 +1472,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "channel (only takes effect with --with-texture; "
                         "off by default everywhere -- CI included, see "
                         "TEX_HIRES_* in config.py)")
+    p.add_argument("--with-near-side", action="store_true",
+                   help="also build the 4096x4096 near-side detail window for "
+                        "EVERY timeline slot (only takes effect with "
+                        "--with-texture). Raises the source to 4096 px for "
+                        "history frames too, which is required -- at 2048 the "
+                        "window would be an upsample. ~30 s per slot per "
+                        "channel, so a cold 19x5 fill is ~50 min; see "
+                        "TEX_NEAR_* in config.py")
     p.set_defaults(func=cmd_all)
 
     p = sub.add_parser("pfss", help="PFSS field-line frames")
@@ -1448,6 +1505,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "channel (off by default -- see TEX_HIRES_* in "
                         "config.py; expect several extra minutes, "
                         "footgun-grade reprojection cost at 8192x4096)")
+    p.add_argument("--with-near-side", action="store_true",
+                   help="also build the 4096x4096 near-side detail window for "
+                        "EVERY timeline slot (only takes effect with "
+                        "--with-texture). Raises the source to 4096 px for "
+                        "history frames too, which is required -- at 2048 the "
+                        "window would be an upsample. ~30 s per slot per "
+                        "channel, so a cold 19x5 fill is ~50 min; see "
+                        "TEX_NEAR_* in config.py")
     p.set_defaults(func=lambda a: _single(a, "texture"))
 
     p = sub.add_parser("events", help="flare + CME catalog (CCMC DONKI)")

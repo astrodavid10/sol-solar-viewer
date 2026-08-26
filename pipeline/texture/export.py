@@ -94,7 +94,7 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       TEX_NEAR_FULL_W, TEX_NEAR_FULL_H, TEX_NEAR_W,
                       TEX_NEAR_H, TEX_NEAR_LON_SPAN_DEG,
                       TEX_NEAR_CDELT_DEG, TEX_NEAR_JPEG_QUALITY,
-                      TEX_NEAR_MAX_BYTES,
+                      TEX_NEAR_MAX_BYTES, TEX_NEAR_SRC_RES,
                       TEX_CHANNELS, TEX_OFFLIMB_INNER, TEX_OFFLIMB_QUALITY,
                       TEX_OFFLIMB_SIZE, TEX_OFFLIMB_SIZES,
                       TEX_LIMB_FIT_RES,
@@ -126,6 +126,31 @@ def hires_jpeg_name(code: str) -> str:
     """
     return "sdo{0}_carrington_hires_{1}x{2}.jpg".format(
         code, TEX_HIRES_W, TEX_HIRES_H)
+
+
+def near_jpeg_name(code: str, target: datetime) -> str:
+    """File name for one channel's NEAR-SIDE WINDOW at one timeline slot.
+
+    Time-keyed for exactly the reasons hist_jpeg_name is (see below): every one
+    of the 19 slots gets a window, indices shift every run, and "already
+    published" has to be a filename existence check.
+
+    Note the newest slot gets a time-keyed name here too, unlike the full-sphere
+    newest map (jpeg_name), whose name is deliberately stable. That kills
+    footgun 36's demotion trap for this product: when the window advances, the
+    previous newest slot becomes a history slot whose published url already
+    names the right file with the right content, so there is nothing to rebuild
+    and no way to publish two target times pointing at one file. The cost is
+    that this file is rewritten on every run while its slot is still the newest
+    one, which is 5 files a run and nothing to worry about.
+    """
+    return "sdo{0}_carr_near_{1}x{2}_{3}.jpg".format(
+        code, TEX_NEAR_W, TEX_NEAR_H, slot_stamp(target))
+
+
+NEAR_NAME_RE = re.compile(
+    r"^sdo(?P<code>[A-Za-z0-9]+)_carr_near_\d+x\d+_"
+    r"(?P<stamp>\d{8}T\d{4}Z)\.jpg$")
 
 
 def hist_jpeg_name(code: str, target: datetime) -> str:
@@ -646,8 +671,8 @@ def feather_weight(dist: np.ndarray, valid: np.ndarray, lat: np.ndarray
 
 
 def compose(near: np.ndarray, valid: np.ndarray, dist: np.ndarray,
-            lon: np.ndarray, lat: np.ndarray, farside: str = "quiet"
-            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+            lon: np.ndarray, lat: np.ndarray, farside: str = "quiet",
+            base=None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Blend near side over the quiet base and flip to picture row order.
 
     ``farside`` selects what fills the hemisphere Earth cannot see:
@@ -662,9 +687,16 @@ def compose(near: np.ndarray, valid: np.ndarray, dist: np.ndarray,
     convincingly enough to be believed, and the polar ramp encodes coronal
     holes that a continuum image does not show either.
 
+    ``base`` overrides the measured quiet-Sun colour. Only the near-side window
+    passes it, and the reason is a seam: measured independently on the window it
+    would land within a hair of the full map's value, and "within a hair" is
+    exactly a visible edge where one is drawn over the other. Threading the full
+    map's number through makes them identical by construction.
+
     Returns (uint8 image with row 0 = +90 lat, feather weights, base RGB).
     """
-    base = quiet_sun_rgb(near, valid, dist)
+    if base is None:
+        base = quiet_sun_rgb(near, valid, dist)
     if farside == "flat":
         quiet = np.broadcast_to(base[None, None, :], near.shape)
     else:
@@ -995,41 +1027,105 @@ def check_coverage(valid: np.ndarray, dist: np.ndarray, b0: float) -> float:
 
 def render_map(src: "SourceImage", channel: dict, obstime, observer,
                l0: float, b0: float, out_w: int = TEX_OUT_W,
-               out_h: int = TEX_OUT_H):
+               out_h: int = TEX_OUT_H, out_header=None,
+               farside: str = None, base=None):
     """Reproject to Carrington, check the result, composite over the far side.
 
     Returns (img, w, base, near, valid, lon, lat, frac).  The check that
     catches a silently wrong map is `check_coverage`: the reprojected mask must
     be the visible hemisphere, which is `dist <= 90` and not a fixed fraction.
+
+    ``out_header`` overrides the full-sphere header, for the near-side window
+    (see ``near_side_header``).  ``out_w``/``out_h`` are then taken from its
+    NAXIS keys, so a caller cannot state a shape that disagrees with the WCS.
+
+    ``farside`` and ``base`` exist for that same window.  In a full-sphere map
+    the invalid region is a hemisphere and wants the channel's own treatment;
+    in the window it is only the thin B0-driven slivers past the terminator, so
+    the caller passes ``farside="flat"`` (invented mottling next to observed
+    pixels at the sharpest part of the map would be worse than a flat fill) and
+    threads the FULL map's quiet-sun ``base`` through, so the window and the
+    map underneath it cannot disagree about the colour by a hair and show a
+    seam where the overlay ends.
     """
     in_hdr = input_header(src, obstime, observer, channel=channel)
-    out_hdr = output_header(obstime, observer, out_w, out_h)
-    near = reproject_rgb(src, in_hdr, out_hdr)
-    lon, lat = grid(out_hdr, out_w, out_h)
+    if out_header is None:
+        out_header = output_header(obstime, observer, out_w, out_h)
+    else:
+        out_w = int(out_header["naxis1"])
+        out_h = int(out_header["naxis2"])
+    near = reproject_rgb(src, in_hdr, out_header)
+    lon, lat = grid(out_header, out_w, out_h)
     dist = sub_earth_distance(lon, lat, l0, b0)
     valid = np.isfinite(near).all(axis=-1)
     frac = check_coverage(valid, dist, b0)
 
-    img, w, base = compose(near, valid, dist, lon, lat, channel["farside"])
+    img, w, base = compose(near, valid, dist, lon, lat,
+                           farside or channel["farside"], base=base)
     return img, w, base, near, valid, lon, lat, frac
 
 
-def build_history_frame(target: datetime, code: str, verbose: bool = False
-                        ) -> Tuple[bytes, dict]:
+def near_side_meta(code: str, target: datetime, near_hdr, l0: float,
+                   nbytes: int) -> dict:
+    """The manifest block describing one near-side window.
+
+    Shared by build_texture (the newest slot) and build_history_frame (the rest)
+    so the two can never describe the same geometry differently.
+
+    Both a NORMALIZED ``lon_center_deg`` in [0, 360) and the RAW ``crval1_deg``
+    are published on purpose. The window legitimately runs past 360 or below 0
+    depending on l0 (see near_side_header), so the raw value is what makes the
+    exact WCS reconstructible, while the app wants a normalized centre for its
+    uv arithmetic and should not have to invert a wrap to get one.
+    """
+    return {
+        "url": near_jpeg_name(code, target),
+        "bytes": int(nbytes),
+        "width": TEX_NEAR_W,
+        "height": TEX_NEAR_H,
+        "lon_center_deg": float(l0) % 360.0,
+        "crval1_deg": float(near_hdr["crval1"]),
+        "crpix1": float(near_hdr["crpix1"]),
+        "crpix2": float(near_hdr["crpix2"]),
+        "cdelt_deg": float(near_hdr["cdelt1"]),
+        "lon_span_deg": float(near_hdr["cdelt1"]) * TEX_NEAR_W,
+        "lat_span_deg": float(near_hdr["cdelt2"]) * TEX_NEAR_H,
+        "note": ("Near-side window, plate carree (CAR), HeliographicCarrington. "
+                 "lon_deg = lon_center_deg + (x + 0.5 - width/2) * cdelt_deg; "
+                 "lat_deg = 90 - (y + 0.5) * cdelt_deg, y = 0 at the top. "
+                 "Covers the OBSERVED hemisphere only; the full-sphere frame "
+                 "url carries the rest, including the synthesized far side."),
+    }
+
+
+def build_history_frame(target: datetime, code: str, verbose: bool = False,
+                        with_near: bool = False):
     """One timeline slot's Carrington map, at history resolution.
+
+    Returns ``(blob, meta, near_blob)``.  ``near_blob`` is None unless
+    ``with_near``, in which case ``meta["near_side"]`` describes it.
 
     No off-limb crop -- the billboard stays newest-only, because the app keys it
     on URL identity and a per-slot crop would thrash a texture loader on every
     scrub step.  No AR registration check either: that guard is about whether
     the newest frame's synthesized geometry still holds, and running it ninety
     times a run would cost far more than it could tell us.
+
+    With ``with_near`` this slot ALSO gets a 4096x4096 near-side window, and the
+    source resolution rises to TEX_NEAR_SRC_RES for both products.  That is not
+    optional: at 2048 the window would be a 2x upsample, which is exactly the
+    mistake TEX_MAIN_SRC_RES exists to avoid.  Two things follow for free --
+    the base map becomes a downsample of a better source, and the two products
+    share one fetch and one limb fit, so they are registered by construction
+    rather than by two fits agreeing.
     """
     channel = channel_for(code)
-    src = fetch_source_at(target, code=code, verbose=verbose)
+    src = fetch_source_at(target, code=code, verbose=verbose,
+                          src_res=TEX_NEAR_SRC_RES if with_near else TEX_SRC_RES)
     obstime, observer, l0, b0, _p_deg = solar_frame(src)
     fit_limb(src, channel, obstime, quiet=True)
-    img = render_map(src, channel, obstime, observer, l0, b0,
-                     TEX_HIST_W, TEX_HIST_H)[0]
+    img, _w, base = render_map(src, channel, obstime, observer, l0, b0,
+                               TEX_HIST_W, TEX_HIST_H)[:3]
     blob = encode_jpeg(img, max_bytes=TEX_HIST_MAX_BYTES)
     meta = {
         "target_iso": iso_z(target),
@@ -1042,7 +1138,21 @@ def build_history_frame(target: datetime, code: str, verbose: bool = False
         "sub_earth_lat_deg": b0,
         "source_url": src.url,
     }
-    return blob, meta
+    if not with_near:
+        return blob, meta, None
+
+    near_hdr = near_side_header(obstime, observer, l0)
+    # farside="flat" and the full map's `base`: in the window the invalid region
+    # is only the thin B0-driven slivers past the terminator, not a hemisphere,
+    # so invented mottling would sit right next to observed pixels -- and the
+    # colour has to match the map underneath exactly or the overlay shows a seam.
+    near_img = render_map(src, channel, obstime, observer, l0, b0,
+                          out_header=near_hdr, farside="flat", base=base)[0]
+    near_blob = encode_jpeg(near_img, quality=TEX_NEAR_JPEG_QUALITY,
+                            max_bytes=TEX_NEAR_MAX_BYTES)
+    meta["near_side"] = near_side_meta(code, target, near_hdr, l0,
+                                      len(near_blob))
+    return blob, meta, near_blob
 
 
 def build_hires_texture(now: datetime, code: str = None,
@@ -1097,9 +1207,21 @@ def build_hires_texture(now: datetime, code: str = None,
 
 
 def build_texture(now: datetime, regions: Optional[List[dict]] = None,
-                  verbose: bool = False, code: str = None
-                  ) -> Tuple[bytes, dict, dict, bytes]:
-    """Fetch, reproject, composite, encode.  Returns (jpeg, doc, info)."""
+                  verbose: bool = False, code: str = None,
+                  with_near: bool = False, near_target: datetime = None):
+    """Fetch, reproject, composite, encode.
+
+    Returns (jpeg, doc, offlimb_blobs, info, near_blob) -- near_blob is None
+    unless ``with_near``, in which case ``doc["near_side"]`` describes it.
+
+    The NEWEST slot's window is built here rather than in
+    build_history_frame, because the newest slot is this map: the history loop
+    runs over ``targets[:-1]`` and synthesizes the newest frame entry from this
+    layer. Building it here also makes it free apart from the reprojection --
+    the 4096 px source, the limb fit and the quiet-sun `base` are all already
+    in hand, so there is no second fetch and no second fit to disagree with the
+    first.
+    """
     channel = channel_for(code or DEFAULT_CODE)
     # TEX_MAIN_SRC_RES, not TEX_SRC_RES: the newest map's near side is 2048 px
     # and a 2048 still only carries 1602 px of disk, so the old source was being
@@ -1127,6 +1249,25 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
     # billboard and the sphere cannot disagree about where the edge is.
     offlimb, offlimb_half_rsun = build_offlimb(src, cx, cy, r_fit)
     blob = encode_jpeg(img)
+
+    near_blob = None
+    near_meta = None
+    if with_near:
+        # Same window, same reasons, as build_history_frame -- and the
+        # newest slot is TIME-KEYED here too, unlike this map's own
+        # stable name, so a demoted slot needs no rebuild (footgun 36).
+        near_hdr = near_side_header(obstime, observer, l0)
+        near_img = render_map(src, channel, obstime, observer, l0, b0,
+                              out_header=near_hdr, farside="flat",
+                              base=base)[0]
+        near_blob = encode_jpeg(near_img, quality=TEX_NEAR_JPEG_QUALITY,
+                                max_bytes=TEX_NEAR_MAX_BYTES)
+        # The SLOT's target time, not `now`: this map deliberately carries the
+        # freshest available image rather than one snapped to the 4 h grid, but
+        # the window's FILE NAME has to key on the slot it fills or the history
+        # loop cannot match it up, and a demoted slot would need a rebuild.
+        near_meta = near_side_meta(channel["code"], near_target or now,
+                                   near_hdr, l0, len(near_blob))
 
     # Only meaningful in EUV: the check scores by finding BRIGHT pixels near
     # each region, and sunspots are dark in HMIIC while bright in HMIB just
@@ -1226,7 +1367,9 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
             "max": int(img.max()),
         },
     }
-    return blob, doc, info, offlimb
+    if near_meta is not None:
+        doc["near_side"] = near_meta
+    return blob, doc, info, offlimb, near_blob
 
 
 def log_texture(info: dict, blob_len: int, verbose: bool = False) -> None:

@@ -30,7 +30,8 @@ SCHEMA_PFSS = "sol.pfss/1"
 SCHEMA_EPHEM = "sol.ephem/1"
 SCHEMA_AR = "sol.ar/3"        # /2 adds `history`; /3 adds its positions
 SCHEMA_STATS = "sol.stats/1"
-SCHEMA_TEXTURE = "sol.texture/4"   # /3 adds per-layer `frames`; /4 adds `high_res`
+SCHEMA_TEXTURE = "sol.texture/5"   # /3 adds per-layer `frames`; /4 adds `high_res`;
+                                   # /5 adds per-frame `near_side` + `off_limb.tiers`
 SCHEMA_EVENTS = "sol.events/1"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -453,6 +454,14 @@ TEX_NEAR_JPEG_QUALITY = 82
 # TEX_HIRES_MAX_BYTES rather than halving it. HMIB will be the binding channel
 # (its high_res is 3.57 MB).
 TEX_NEAR_MAX_BYTES = 4_500_000
+# Source resolution for a slot that gets a window. NOT optional at 4096: the
+# window is 4096 px across the near side, so a 2048 source would make it a 2x
+# upsample -- the exact mistake TEX_MAIN_SRC_RES exists to avoid. It raises the
+# BASE map's source too (a 2048x1024 map becomes a downsample of a better
+# picture) and, more importantly, makes both products share one fetch and one
+# limb fit, so they are registered by construction instead of by two fits
+# happening to agree.
+TEX_NEAR_SRC_RES = 4096
 
 # ── Off-limb annulus ────────────────────────────────────────────────────────
 # The Carrington reprojection maps the SURFACE, so everything outside the limb

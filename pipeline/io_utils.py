@@ -30,11 +30,22 @@ PRECISE_ROUND = 17          # effectively "don't round" for a float64
 # mat3_hci . Rz(angle) identity, quaternion round-trip).  Rounding a matrix
 # element to 1e-6 breaks orthonormality at 1e-6, and rounding an ANGLE to 1e-6
 # deg moves the closed-form product by ~2e-8 -- both far above the tolerance.
+#
+# The near-side window's WCS keys are here for the same reason one step further
+# on: `cdelt_deg` is 360/8192 == 0.0439453125, which is exact in binary and
+# becomes 0.043945 at 6 decimals. That is only 5e-7 deg per pixel, but it is
+# multiplied by 4096 pixels, so the declared span stops equalling
+# cdelt * width -- and that identity IS the sampling contract the app computes
+# longitude from. The validator asserts it to 1e-9 and caught this on the first
+# real run, which is the argument for asserting geometry rather than trusting a
+# manifest.
 PRECISE_KEYS = frozenset({
     "mat3_carr_to_ecliptic_j2000", "mat3_heeq_to_ecliptic_j2000",
     "mat3_hci_to_ecliptic_j2000", "quat_carr_to_ecl",
     "l0_deg", "b0_deg", "p_deg", "hci_rot_deg", "carrington_rotation",
     "max_error_rsun", "max_error_km",
+    "cdelt_deg", "crval1_deg", "crpix1", "crpix2",
+    "lon_span_deg", "lat_span_deg", "lon_center_deg",
 })
 
 

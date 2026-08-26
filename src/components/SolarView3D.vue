@@ -1084,14 +1084,17 @@ export default defineComponent({
         // feature: it MUST be passed the same renderer that will draw the
         // texture, not a probe context.
         renderer: rt.stage.renderer,
+        // ON by default (?hires=0 opts out). Passed as a PREFERENCE at
+        // construction, not asserted afterwards: this used to read
+        //   if (highRes.value && rt.surface.hasHighRes()) { setHighRes(true) }
+        // right here, which cannot work -- createSunSurface only STARTS its
+        // manifest fetch, so hasHighRes() was always answering against a null
+        // manifest, always returned false, and the 8192x4096 maps were never
+        // fetched by any browser. sunSurface tests the GPU cap and the
+        // manifest itself, once both are knowable.
+        highRes: highRes.value,
       }));
       rt.stage.scene.add(rt.surface.object3d);
-      // ON by default (?hires=0 opts out), and only when the tree actually has
-      // the maps and this GPU can hold an 8192-wide texture -- hasHighRes()
-      // answers both, so a phone capped at 4096 silently keeps the 4096 map.
-      if (highRes.value && rt.surface.hasHighRes()) {
-        rt.surface.setHighRes(true);
-      }
 
       // The part of the image that is NOT on the sphere. Created next to the
       // surface because it is the same picture, and it takes its texture from

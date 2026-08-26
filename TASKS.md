@@ -47,6 +47,7 @@ the plan says outrank documentation work.
 | T10 | Dead-code cleanup in `sdoCatalog.ts` | TODO | — | monolith splits deferred, see below |
 | T17 | Zoom out to the heliosphere, with the Voyagers | TODO | — | **AF** — largest new feature; needs scoping |
 | T18 | A vertical reel of the 72 h field | DONE | — | `scripts/render_reel.py`; asked for outside the plan |
+| T19 | Near-side detail maps at full SDO resolution | IN PROGRESS | `2cbfa32`, `0ee3a0e` | 0a + 0b done; window + app LOD next |
 
 **AF** = from Alex's review, 2026-08-24 (see "Alex's review" at the foot of this file for the
 raw items and how each was mapped).
@@ -581,6 +582,52 @@ binaries out of history; a ~20 MB video on `main` would undo that. Re-run the sc
 `--root`, including a `--url`-fetched tree if one is ever mirrored locally. The constants most
 likely to need a re-sweep are the three in the header (glow gain, line gain, line sigma), and
 they must be judged at 1080x1920, not on a scaled-down still.
+
+---
+
+### T19 — Near-side detail maps at full SDO resolution  *(IN PROGRESS)*
+
+Asked for directly: the 19 history slots are 2048x1024 while SDO's browse product is 4096x4096,
+so the window carries a quarter of the linear detail it could. Full plan lives outside the repo
+at `~/.claude/plans/i-am-confused-when-eager-thompson.md`.
+
+**The shape of the answer, decided with the user:** do NOT publish 8192x4096 full-sphere maps
+for all 19 slots. Publish the existing 2048x1024 full-sphere map as a BASE plus a 4096x4096
+**near-side window** (the observed hemisphere only, ±90° of longitude about that frame's
+`sub_earth_carr_lon_deg`). Same 22.76 px/deg on every observed pixel as a full 8K map, half the
+GPU (67 MB vs 134), and — the decisive part — **largest dimension 4096, which most phone GPUs
+can actually hold, where 8192 cannot.** The far side is synthesized (footgun 22), so a full 8K
+map would spend 4096x4096 pixels on fabricated Sun.
+
+**Two prerequisites found and fixed first, both standing on their own:**
+
+- **`2cbfa32` — one broadcast reprojection instead of three.** `reproject_rgb` rebuilt the
+  coordinate transform per colour plane; that transform is 87% of the cost. Measured on the real
+  production path: 2.41x at 2048x1024, **2.54x at 4096x2048**, and 8192x4096 went 86-117 s (CI)
+  to 56.1 s here. **Byte-identical output** — 0 of 25,165,824 uint8 pixels differ, encoded JPEG
+  471,803 B both ways.
+- **`0ee3a0e` — the polar-cap guard would have killed the texture stage for 13 days a year.**
+  It required the B0-lit cap to be >= 50% visible against a hard 0.5, which the real ~0.35° limb
+  ring loss breaks for |B0| < 0.4°: 2026-06-04..06-10 and **2026-12-06..12-11**. Default channel,
+  so `run_texture` re-raises and the whole stage dies. Replaced by `check_coverage`, which
+  compares the reprojected mask against `dist <= 90` — geometry already computed one line
+  earlier, correct for a window as well as a full sphere.
+  **Correction to that commit message:** it says to check "last December's CI logs". There are
+  none — the repo starts 2026-08-23, so June's crossing predates it and December's has not
+  happened. **The bug never fired; it was caught before its first opportunity.**
+
+**Still to do:** `near_side_header()` (crop-then-fix-CRPIX, both gating assumptions now verified
+against the installed sunpy 7.1.2 / reproject 0.19.0), `build_near_side()`, the `sol.texture/5`
+additive manifest block, validator checks, `TEX_OFFLIMB_SIZE` 1024 → 2048 (measured 155.9 KB,
+fits the existing 400 KB ceiling; 4096 is a 1.003x upsample of a 4084 px crop and NOT worth it),
+the app's second sampler + zoom-gated LOD + tier-aware texture budget, a hand-seeded cold fill,
+then retire `TEX_HIRES_*`.
+
+**The dead wiring is fixed but UNVERIFIED in a browser** (uncommitted at time of writing): the
+8192x4096 maps CI has built every four hours since `01889e6` have never been fetched by any
+browser, because `SolarView3D.vue` asked `hasHighRes()` synchronously before the manifest fetch
+could resolve. The preference now goes in as a construction option. Needs T8's browser to
+confirm, and the extension is still not connected.
 
 ---
 

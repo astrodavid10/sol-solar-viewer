@@ -101,6 +101,27 @@ export interface SunSurfaceOptions {
    * guess at one that might not fit.
    */
   renderer?: WebGLRenderer;
+  /**
+   * Whether the guest wants the high-res map, as a PREFERENCE rather than a
+   * capability claim — `?hires=0` opts out (`useAppState.highRes`).
+   *
+   * It has to arrive here, at construction, and NOT as a `setHighRes()` call
+   * from the caller, because the caller cannot know yet whether the map
+   * exists: `createSunSurface` only *starts* the manifest fetch (the
+   * `void checkTexture()` at the foot of this function), so anything the
+   * caller asks synchronously afterwards is answered against `info === null`.
+   * SolarView3D did exactly that -- `if (highRes.value && rt.surface
+   * .hasHighRes()) { setHighRes(true) }`, three statements after the
+   * constructor -- so `hasHighRes()` returned false for a manifest that had
+   * not loaded, `hiresWanted` stayed false for the life of the page, and the
+   * 8192x4096 maps CI builds every four hours were never once fetched.
+   * Nothing re-checked it afterwards.
+   *
+   * Holding the preference here instead means capability is tested at the
+   * only moment it can be answered: `applyHighRes()` runs at the tail of
+   * every `adoptTexture`, i.e. as soon as there IS a manifest.
+   */
+  highRes?: boolean;
 }
 
 /**
@@ -990,9 +1011,11 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
   // business running on a hot path.
   const maxTextureSize = detectMaxTextureSize(options.renderer);
   /** Guest opt-in, remembered independently of whether it is applicable
-   *  RIGHT NOW (wrong channel, scrubbed off newest) so it re-applies the
-   *  moment it becomes applicable again. Default OFF (hard constraint 4). */
-  let hiresWanted = false;
+   *  RIGHT NOW (wrong channel, scrubbed off newest, manifest not in yet) so
+   *  it applies the moment it becomes applicable. Seeded from the option
+   *  rather than from a post-construction `setHighRes()` — see the doc on
+   *  `SunSurfaceOptions.highRes` for the race that cost. */
+  let hiresWanted = options.highRes ?? false;
   /** True while the hi-res map is the one actually painted on the sphere. */
   let hiresOnScreen = false;
   let hiresLoading = false;

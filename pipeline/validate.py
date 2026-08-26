@@ -966,6 +966,77 @@ def _check_offlimb(rep: Report, get, layer: dict) -> None:
               "{0} disk center is blacked out".format(name),
               "center mean {0:.1f}".format(float(core.mean())))
 
+    _check_offlimb_tiers(rep, get, channel, off, name)
+
+
+def _check_offlimb_tiers(rep: Report, get, channel, off: dict,
+                         default_name: str) -> None:
+    """The rest of the off-limb ladder, if this manifest publishes one.
+
+    Absent `tiers` is NOT a failure -- it is what a schema-4 manifest looks
+    like, and the additive contract says a reader must survive that.
+
+    Every rung is a resampling of ONE masked crop, so they share
+    `half_width_rsun` and there is nothing per-rung to check about geometry.
+    What can go wrong is bookkeeping: a rung whose declared size does not match
+    its pixels (which would size the billboard right and sample it wrong), a
+    rung that was never written (the prune keep-set forgetting the nested urls
+    is a real failure mode -- see cli.py's keep set), and the default rung not
+    appearing in its own ladder.
+    """
+    tiers = off.get("tiers")
+    if tiers is None:
+        rep.info("{0} publishes no off-limb tier ladder (schema 4)".format(channel))
+        return
+    if not rep.check(isinstance(tiers, list) and tiers,
+                     "{0} off_limb.tiers is a non-empty list".format(channel),
+                     "got {0!r}".format(tiers)):
+        return
+
+    from PIL import Image
+    names = []
+    sizes = []
+    for tier in tiers:
+        if not rep.check(isinstance(tier, dict), "{0} tier is an object".format(channel)):
+            continue
+        size, url = tier.get("size"), tier.get("url")
+        if not rep.check(isinstance(size, int) and size >= 256
+                         and isinstance(url, str) and url.endswith(".jpg")
+                         and "/" not in url,
+                         "{0} off-limb tier is well formed".format(channel),
+                         "got size={0!r} url={1!r}".format(size, url)):
+            continue
+        names.append(url)
+        sizes.append(size)
+        blob = get("texture/" + url)
+        if not rep.check(blob is not None, "{0} fetched".format(url)):
+            continue
+        rep.check(len(blob) < TEX_OFFLIMB_MAX_BYTES,
+                  "{0} under {1} bytes".format(url, TEX_OFFLIMB_MAX_BYTES),
+                  "{0} bytes".format(len(blob)))
+        if "bytes" in tier:
+            rep.check(len(blob) == int(tier["bytes"]),
+                      "{0} size matches texture.json".format(url),
+                      "{0} vs {1}".format(len(blob), tier["bytes"]))
+        try:
+            img = Image.open(io.BytesIO(blob))
+            img.load()
+        except Exception as exc:                               # noqa: BLE001
+            rep.check(False, "{0} decodes".format(url), str(exc))
+            continue
+        # The declared size IS the sampling contract; a mismatch draws the
+        # corona at the right scale from the wrong pixels.
+        rep.check(img.size == (size, size),
+                  "{0} pixel size matches its declared tier".format(url),
+                  "got {0}x{1}, declared {2}".format(img.size[0], img.size[1], size))
+
+    rep.check(sizes == sorted(set(sizes)),
+              "{0} off-limb tiers are ascending and distinct".format(channel),
+              "got {0}".format(sizes))
+    rep.check(default_name in names,
+              "{0} default off-limb rung appears in its own ladder".format(channel),
+              "{0} not in {1}".format(default_name, names))
+
 
 _HIRES_KEYS = ("url", "width", "height", "bytes", "obs_iso",
               "sub_earth_carr_lon_deg", "sub_earth_lat_deg", "source_url")

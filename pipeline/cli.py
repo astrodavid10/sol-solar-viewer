@@ -744,12 +744,19 @@ def run_texture(ctx: Ctx) -> ProductResult:
             print("  {0} skipped: {1}".format(code, exc))
             continue
         ctx.staging.write_bytes("texture/" + doc["url"], blob)
-        ctx.staging.write_bytes("texture/" + doc["off_limb"]["url"], offlimb)
         texture_export.log_texture(info, len(blob), verbose=ctx.verbose)
-        print("    off-limb {0} ({1}, reaches {2:.2f} R_sun)".format(
-            doc["off_limb"]["url"], human_bytes(len(offlimb)),
-            doc["off_limb"]["half_width_rsun"]))
-        total_bytes += len(blob) + len(offlimb)
+        # Every rung of the off-limb ladder, not just the default one the
+        # `off_limb` block names -- see build_offlimb for why 4096 is the top.
+        off_bytes = 0
+        for tier in doc["off_limb"]["tiers"]:
+            ctx.staging.write_bytes("texture/" + tier["url"],
+                                    offlimb[tier["size"]])
+            off_bytes += tier["bytes"]
+        print("    off-limb reaches {0:.2f} R_sun; {1}".format(
+            doc["off_limb"]["half_width_rsun"],
+            ", ".join("{0} {1}".format(t["size"], human_bytes(t["bytes"]))
+                      for t in doc["off_limb"]["tiers"])))
+        total_bytes += len(blob) + off_bytes
 
         # Opt-in, newest-frame-only, off unless --with-hires (hard constraint
         # 4). A failure here is SOFTER than losing the default channel's
@@ -1079,8 +1086,16 @@ def _prune_orphan_textures(ctx: Ctx, results: List[ProductResult]) -> None:
         if layer.get("url"):
             keep.add(str(layer["url"]))
         off = layer.get("off_limb")
-        if isinstance(off, dict) and off.get("url"):
-            keep.add(str(off["url"]))
+        if isinstance(off, dict):
+            if off.get("url"):
+                keep.add(str(off["url"]))
+            # And every rung of the ladder. `off_limb.url` names only the
+            # DEFAULT one, so keeping just that would delete the 2048 and 4096
+            # crops this same run wrote -- the exact failure mode the comment
+            # above records for off-limb crops generally, one nesting deeper.
+            for tier in (off.get("tiers") or []):
+                if isinstance(tier, dict) and tier.get("url"):
+                    keep.add(str(tier["url"]))
         for fr in (layer.get("frames") or []):
             if fr.get("url"):
                 keep.add(str(fr["url"]))
@@ -1299,9 +1314,16 @@ def cmd_probe(args: argparse.Namespace) -> int:
     # and a red one leaves you unable to tell whether the relay is even wired
     # up (see docs/GONG-RELAY.md and footgun 33).
     if gong_src.relay_enabled():
-        from .config import GONG_PROXY_BASE, GONG_PROXY_TOKEN
+        from .config import GONG_PROXY_BASE, GONG_PROXY_INDEX, GONG_PROXY_TOKEN
         print("  via relay {0} (token {1})".format(
             GONG_PROXY_BASE, "set" if GONG_PROXY_TOKEN else "MISSING"))
+        # Which relay shape is in force (docs/GONG-RELAY.md): the Worker
+        # (Option A) fetches gong2.nso.edu live so a directory listing just
+        # works, while a static mirror (Option D) needs a synthetic index
+        # file appended to every directory request -- say which so a green or
+        # red probe is diagnosable instead of "should work".
+        print("  directory index: {0}".format(
+            GONG_PROXY_INDEX if GONG_PROXY_INDEX else "none (live listing expected)"))
     else:
         print("  direct to {0} (no relay configured)".format(GONG_BASE))
     cand = gong_src.gong_list(ctx.now)

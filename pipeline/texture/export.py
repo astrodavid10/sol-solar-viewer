@@ -92,7 +92,8 @@ from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       TEX_COVER_OVER_TOL, TEX_COVER_UNDER_TOL,
                       TEX_REPROJECT_BLOCK_ROWS,
                       TEX_CHANNELS, TEX_OFFLIMB_INNER, TEX_OFFLIMB_QUALITY,
-                      TEX_OFFLIMB_SIZE, TEX_LIMB_FIT_RES,
+                      TEX_OFFLIMB_SIZE, TEX_OFFLIMB_SIZES,
+                      TEX_LIMB_FIT_RES,
                       TEX_MAIN_SRC_RES, TEX_SRC_RES, tex_src_scale)
 from ..io_utils import (PipelineError, age_hours, http_get_full, human_bytes,
                         iso_z, unix_s)
@@ -719,23 +720,45 @@ def ar_summary(offsets: List[dict]) -> Tuple[Optional[float], int]:
 # Driver
 # ─────────────────────────────────────────────────────────────────────────────
 
-def offlimb_name(code: str) -> str:
-    """File name for one channel's off-limb crop."""
-    return "sdo{0}_offlimb_{1}.jpg".format(code, TEX_OFFLIMB_SIZE)
+def offlimb_name(code: str, size: int = TEX_OFFLIMB_SIZE) -> str:
+    """File name for one channel's off-limb crop at one rung of the ladder."""
+    return "sdo{0}_offlimb_{1}.jpg".format(code, size)
 
 
-def build_offlimb(src: SourceImage, cx: float, cy: float, r_fit: float
-                  ) -> Tuple[bytes, float]:
-    """Square crop around the disk with the disk blacked out.
+def build_offlimb(src: SourceImage, cx: float, cy: float, r_fit: float,
+                  sizes: Tuple[int, ...] = TEX_OFFLIMB_SIZES
+                  ) -> Tuple[dict, float]:
+    """Square crop around the disk with the disk blacked out, at every rung.
 
-    Returns (jpeg, half_width_rsun) where half_width_rsun is how far from Sun
-    center the crop's edge reaches -- the app needs it to size the billboard,
-    and it is NOT a constant: it falls out of the fitted limb radius, which
-    differs between AIA (~1.28 R_sun) and HMI (~1.09).
+    Returns ({size: jpeg}, half_width_rsun) where half_width_rsun is how far
+    from Sun center the crop's edge reaches -- the app needs it to size the
+    billboard, and it is NOT a constant: it falls out of the fitted limb
+    radius, which differs between AIA (~1.28 R_sun) and HMI (~1.09). It is the
+    same at every rung, because they are resamplings of one crop.
 
     The disk is removed rather than kept because the sphere already draws it,
     at a resolution this crop cannot match. Feathered across TEX_OFFLIMB_INNER
     so the billboard does not meet the sphere on a hard ring.
+
+    WHY A LADDER, and why 4096 is the top of it.  The crop is taken from the
+    4096 px source and reaches the frame edge, so it is ~4084 px wide before
+    resampling -- 4096 out is a 1.003x upsample, i.e. effectively native, and
+    there is nothing above it because SDO browse stops at 4096 (6144 and 8192
+    both 404, probed 2026-08-26). Below that, each rung is a real 2x.
+    Measured on a live 4096 px 0171 frame -- the worst channel -- at
+    TEX_OFFLIMB_QUALITY:
+
+        1024   41.6 KB      2048  155.9 KB      4096  700.7 KB
+
+    Growth is 3.7x per rung rather than 4x because the added area is mostly the
+    black disk. Which rung the app should use is a function of how big the
+    billboard is ON SCREEN, not of the device: at the home framing the quad is
+    ~640-1150 px across, so 1024 is already matched and 4096 only earns its
+    67 MB of RGBA once the guest has zoomed several times in.
+
+    The DEFAULT rung stays TEX_OFFLIMB_SIZE so `off_limb.url` keeps naming the
+    same file it always has -- this is additive, and nothing that reads the
+    manifest today has to change or gets orphaned.
     """
     import numpy as np
     from PIL import Image
@@ -763,11 +786,18 @@ def build_offlimb(src: SourceImage, cx: float, cy: float, r_fit: float
     keep = (t * t * (3.0 - 2.0 * t))[..., None]        # smoothstep
     out = np.clip(crop * keep, 0.0, 255.0).astype(np.uint8)
 
-    img = Image.fromarray(out).resize(
-        (TEX_OFFLIMB_SIZE, TEX_OFFLIMB_SIZE), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=TEX_OFFLIMB_QUALITY, optimize=True)
-    return buf.getvalue(), half / r_fit
+    full = Image.fromarray(out)
+    blobs = {}
+    for size in sizes:
+        buf = io.BytesIO()
+        # `full` is ~4084 px, so every rung including 4096 is a resample of ONE
+        # masked crop -- the mask is never re-derived per rung, which is what
+        # keeps the feathered inner edge identical across the ladder.
+        rung = full if full.size == (size, size) else full.resize(
+            (size, size), Image.LANCZOS)
+        rung.save(buf, "JPEG", quality=TEX_OFFLIMB_QUALITY, optimize=True)
+        blobs[size] = buf.getvalue()
+    return blobs, half / r_fit
 
 
 def solar_frame(src: "SourceImage"):
@@ -1077,13 +1107,25 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
         # each instrument's plate scale.
         "off_limb": {
             "url": offlimb_name(channel["code"]),
-            "bytes": len(offlimb),
+            "bytes": len(offlimb[TEX_OFFLIMB_SIZE]),
             "size": TEX_OFFLIMB_SIZE,
             "half_width_rsun": round(offlimb_half_rsun, 5),
             "note": ("Square crop centered on the fitted disk center with the "
                      "disk blacked out. Additively blended, so black is "
                      "transparent. Only valid from the sub-earth viewpoint: it "
                      "is a 2D projection of structure whose depth is unknown."),
+            # ADDITIVE: the fields above still describe TEX_OFFLIMB_SIZE, so a
+            # schema-4 reader is unaffected. `tiers` offers the same crop at
+            # every published resolution, smallest first, for a client that
+            # knows how many pixels the billboard actually occupies. Every rung
+            # shares half_width_rsun -- they are resamplings of one masked crop,
+            # not independent fits.
+            "tiers": [
+                {"size": size,
+                 "url": offlimb_name(channel["code"], size),
+                 "bytes": len(blob)}
+                for size, blob in sorted(offlimb.items())
+            ],
         },
         "far_side": channel["farside"],
         "far_side_max_age_hours": None,

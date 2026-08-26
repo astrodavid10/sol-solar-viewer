@@ -433,9 +433,31 @@ TEX_REPROJECT_BLOCK_ROWS = 512
 # The crop is only honest from Earth's viewpoint: it is a 2D projection of
 # structure whose real depth is unknown. The app fades it out as the camera
 # leaves the sub-Earth direction rather than pretending otherwise.
-TEX_OFFLIMB_SIZE = 1024                   # px, square
+TEX_OFFLIMB_SIZE = 1024
+# The published ladder, smallest first. TEX_OFFLIMB_SIZE stays the DEFAULT rung
+# so `off_limb.url` keeps naming the file it always has (additive contract);
+# `off_limb.tiers` offers the rest. 4096 is the top because the crop itself is
+# only ~4084 px -- it reaches the edge of the 4096 px source -- so 4096 out is a
+# 1.003x upsample, i.e. native, and SDO browse publishes nothing above 4096
+# (6144 and 8192 both 404, probed 2026-08-26). Measured bytes on a live 4096 px
+# 0171 frame, the worst channel, at TEX_OFFLIMB_QUALITY:
+#     1024  41.6 KB      2048  155.9 KB      4096  700.7 KB
+# 3.7x per rung rather than 4x, because the added area is mostly black disk.
+# Which rung to use is a function of how many pixels the BILLBOARD occupies on
+# screen (~640-1150 px at the home framing, so 1024 is already matched there),
+# never of the device -- see build_offlimb.
+TEX_OFFLIMB_SIZES = (1024, 2048, 4096)                   # px, square
 TEX_OFFLIMB_QUALITY = 80
-TEX_OFFLIMB_MAX_BYTES = 400_000
+# Per-FILE ceiling, so it has to admit the largest rung. Measured across all
+# five channels at 4096 on 2026-08-26: 0193 486 KB, HMIB 169 KB, HMIIC 147 KB,
+# 0171 738 KB, and 0304 **901 KB** -- 0304 is the worst by a wide margin
+# because He II 304 has the most extended limb brightening and the most
+# prominence structure, i.e. the most non-black pixels in a mostly-black frame.
+# 1_300_000 leaves ~44% headroom on that worst case, which a more active Sun
+# can plausibly use, while still catching a runaway encode. The validator
+# additionally checks every rung against its OWN declared bytes, so this
+# ceiling is a backstop rather than the real guard.
+TEX_OFFLIMB_MAX_BYTES = 1_300_000
 # Feather the inner edge across this fraction of a solar radius so the billboard
 # does not meet the sphere on a hard ring. Starts just inside the limb: the
 # sphere's own edge is drawn by the surface texture, and overlapping slightly

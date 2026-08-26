@@ -114,6 +114,113 @@ Worth sending regardless — it is the cleanest outcome if honored, and costs
 nothing to ask. Caveat: GitHub's published IP ranges rotate, so even a granted
 allow-list needs upkeep. Do not wait on it.
 
+## Option D (fallback, no Cloudflare account needed): a static mirror on this repo
+
+Same idea as Option A — relay from a network NSO does not block — but the
+relay is a **git branch of this repo**, fed by an hourly Windows Scheduled
+Task on a workstation that can already reach `gong2.nso.edu`, and served to
+CI over `raw.githubusercontent.com`. Useful when nobody wants to hold a
+Cloudflare account, or as a second, independent path if the Worker's account
+ever lapses.
+
+**Why a static host qualifies at all.** `_relay()` in
+`pipeline/sources/gong.py` rewrites `GONG_BASE/<path>` to
+`PROXY_BASE/<path>` — nothing more. It has no opinion about what serves
+`PROXY_BASE`; a Cloudflare Worker that fetches NSO live and a static file
+tree that already contains the bytes are equally valid, as long as the
+path shape lines up. `raw.githubusercontent.com/<org>/<repo>/<branch>/<path>`
+preserves the path exactly the way the Worker's route does, so pointing
+`SOL_GONG_PROXY_BASE` at
+`https://raw.githubusercontent.com/astrodavid10/sol-solar-viewer/gong-cache/oQR/zqs`
+is a drop-in swap.
+
+**The directory-404 gap, and the knob it forced.** `raw.githubusercontent.com`
+serves files, never directory listings. Measured 2026-08-23:
+
+```
+.../gong-cache/oQR/zqs/<...>/ (trailing slash)  -> 404
+.../gong-cache/oQR/zqs/<...>  (no trailing slash) -> 404
+.../gong-cache/oQR/zqs/<...>/<real file>          -> 200
+```
+
+But `_gong_dir_url()` always builds `GONG_BASE/<YYYYMM>/mrzqs<YYMMDD>/` — a
+directory, because `_scrape_gong` needs an HTML autoindex to parse, and
+`gong2.nso.edu` happily serves one. A static mirror can only answer that by
+publishing a real file at a real path: it writes a synthetic `index.html`
+into every day directory (naming only the `.fits.gz` files actually
+mirrored — never inventing an entry the pipeline could then fail to
+download), and `SOL_GONG_PROXY_INDEX` (e.g. `index.html`) tells `_relay()`
+to append that filename whenever a relayed URL ends in `/`. Unset (the
+Option A / Worker case, since a Worker fetches NSO live and returns whatever
+NSO returns), behavior is byte-identical to before this knob existed. The
+appended name is a request-time detail only — same rule as the relay
+rewrite itself — and never reaches a cache key or the published manifest.
+
+**Repository secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|---|---|
+| `SOL_GONG_PROXY_BASE` | `https://raw.githubusercontent.com/astrodavid10/sol-solar-viewer/gong-cache/oQR/zqs` |
+| `SOL_GONG_PROXY_INDEX` | `index.html` |
+| `SOL_GONG_PROXY_TOKEN` | **leave unset.** `raw.githubusercontent.com` needs no shared secret to read a public branch, so there is nothing to authenticate with the token for — and setting one would be silently ignored (`_relay_headers()` only attaches it, it never gates on it). The consequence is real and deliberate: the `gong-cache` branch is **publicly readable**. That is fine — GONG's data is public and NSO already serves it to anyone — and the bandwidth CI consumes reading it is GitHub's, not NSO's. |
+
+The Scheduled Task itself needs no repository secret at all: it authenticates
+its push with `gh auth token` (falling back to whatever the Windows
+credential manager already has configured for `git push`), read from the
+account that registered the task, never written to a file or the reflog.
+
+**What was measured, 2026-08-23/24, `--retain-days 5` (the default):**
+
+- Cadence: GONG publishes roughly hourly, with real gaps — a `--dry-run`
+  against the live site saw 18–24 files per day directory (`GONG_TOLERANCE_HOURS
+  = 3.0` in `pipeline/config.py` already assumes gaps this size are normal).
+- One magnetogram is ~237 KiB (`243,051`–`243,335` bytes observed).
+- A full 5-day retention window (7 day directories: today−5 .. today+1,
+  the last one necessarily thin or empty since it is the future) mirrored
+  **109 files, 26,512,370 bytes (~25.3 MB)** end to end.
+- `raw.githubusercontent.com` answers `Cache-Control: max-age=300` on branch
+  content (measured against this same repo's `main` branch) — so a file the
+  mirror just pushed can be **up to ~5 minutes** invisible to a CI run that
+  asks a CDN edge that already cached the previous version.
+
+**Honest weaknesses, not glossed over:**
+
+- This whole option depends on a specific workstation being powered on,
+  logged in enough for its credential stores to be reachable (see
+  `scripts/gong-mirror-task.ps1`'s header comment on why the Scheduled Task
+  needs a stored password rather than the password-less S4U logon type),
+  and network-reachable to both NSO and GitHub every hour. Option A's Worker
+  has none of those dependencies; treat Option D as the fallback it is.
+- The ~5 minute CDN cache above is on top of the mirror's own hourly cadence
+  — call it up to ~65 minutes between a fresh GONG file existing and CI
+  being able to see it through this path, against Option A's effectively
+  live relay.
+- The published branch has no history (single amended commit, same
+  reasoning as `gh-pages` — see `scripts/publish_gh_pages.sh`), so there is
+  no way to recover "what did the mirror look like an hour ago" after the
+  fact; `mirror-status.json` at the branch root is the only run-to-run record,
+  and it only reflects the most recent push.
+
+**Go live:**
+
+```powershell
+# One-time: create the branch with a real push (this repo's maintainer only --
+# scripts/gong_mirror.py itself never pushes without being told to).
+python scripts/gong_mirror.py --retain-days 5
+
+# Repository secrets (see table above):
+gh secret set SOL_GONG_PROXY_BASE  --body "https://raw.githubusercontent.com/astrodavid10/sol-solar-viewer/gong-cache/oQR/zqs"
+gh secret set SOL_GONG_PROXY_INDEX --body "index.html"
+
+# Register the hourly Scheduled Task -- see scripts/gong-mirror-task.ps1's
+# header comment for the exact command (it prompts for your Windows password).
+
+# Prove it end-to-end:
+gh workflow run data.yml -f dry_run=true
+# then read the [GONG] block in the probe-sources log: "via relay ... directory
+# index: index.html" plus a real file listing is the proof.
+```
+
 ## What NOT to do
 
 - **Do not lower `MIN_FRAMES_TO_PUBLISH`** to make the stage "pass". The soft

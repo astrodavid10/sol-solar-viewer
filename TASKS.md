@@ -30,7 +30,7 @@ the plan says outrank documentation work.
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
 | T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | 30.1 h -> 2.2 h; all 6 products ok |
-| T2 | Land the GONG relay (Option D, workstation mirror) | TODO | — | code uncommitted since session 5 |
+| T2 | Land the GONG relay (Option D, workstation mirror) | CODE LANDED | `8650fee`+ | inert until the env vars are set; go-live steps remain |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
 | T12 | Explainer copy pass | TODO | — | **AF** — aurora copy is wrong, not just unclear |
@@ -47,7 +47,7 @@ the plan says outrank documentation work.
 | T10 | Dead-code cleanup in `sdoCatalog.ts` | TODO | — | monolith splits deferred, see below |
 | T17 | Zoom out to the heliosphere, with the Voyagers | TODO | — | **AF** — largest new feature; needs scoping |
 | T18 | A vertical reel of the 72 h field | DONE | — | `scripts/render_reel.py`; asked for outside the plan |
-| T19 | Near-side detail maps at full SDO resolution | IN PROGRESS | `2cbfa32`, `0ee3a0e` | 0a + 0b done; window + app LOD next |
+| T19 | Near-side detail maps at full SDO resolution | IN PROGRESS | `8650fee`+ | pipeline DONE; app LOD + cold fill next |
 
 **AF** = from Alex's review, 2026-08-24 (see "Alex's review" at the foot of this file for the
 raw items and how each was mapped).
@@ -160,9 +160,16 @@ session five, additive and inert with the env vars unset):
 - `SOL_GONG_PROXY_INDEX` seam in `pipeline/config.py`, `pipeline/sources/gong.py` (`_relay`),
   `pipeline/cli.py` (`probe-sources` output) and `.github/workflows/data.yml`.
 
-**Go-live steps:** review + commit → `--dry-run` the mirror → create the `gong-cache` branch →
-install the Scheduled Task → set `SOL_GONG_PROXY_BASE` and `SOL_GONG_PROXY_INDEX` as
-repository secrets → confirm from a real scheduled run.
+**The code is now COMMITTED, and not on purpose.** A `git add -A pipeline` in the ninth session
+swept the relay seam into `8650fee` (whose message does not mention it), and an earlier
+`git add .github/workflows/data.yml` took the workflow half into `90cd733`. Rather than unpick
+it, the rest was committed alongside and this row updated: the code is landed and **inert** --
+`GONG_PROXY_BASE` and `GONG_PROXY_INDEX` read from env vars that are unset everywhere, so every
+URL stays canonical and nothing behaves differently. Treat the diff as unreviewed.
+
+**Go-live steps that REMAIN:** review the landed diff → `--dry-run` the mirror → create the
+`gong-cache` branch → install the Scheduled Task → set `SOL_GONG_PROXY_BASE` and
+`SOL_GONG_PROXY_INDEX` as repository secrets → confirm from a real scheduled run.
 
 **Do not** set `GONG_BASE` to the relay — the rewrite is request-time only, because
 `gong_file_key` derives the traced-frame cache key from the URL and because the manifest
@@ -616,12 +623,29 @@ map would spend 4096x4096 pixels on fabricated Sun.
   none — the repo starts 2026-08-23, so June's crossing predates it and December's has not
   happened. **The bug never fired; it was caught before its first opportunity.**
 
-**Still to do:** `near_side_header()` (crop-then-fix-CRPIX, both gating assumptions now verified
-against the installed sunpy 7.1.2 / reproject 0.19.0), `build_near_side()`, the `sol.texture/5`
-additive manifest block, validator checks, `TEX_OFFLIMB_SIZE` 1024 → 2048 (measured 155.9 KB,
-fits the existing 400 KB ceiling; 4096 is a 1.003x upsample of a 4084 px crop and NOT worth it),
-the app's second sampler + zoom-gated LOD + tier-aware texture budget, a hand-seeded cold fill,
-then retire `TEX_HIRES_*`.
+**The PIPELINE HALF IS DONE** (`8650fee`), behind `--with-near-side`, off everywhere including
+CI. Every slot can carry a 4096x4096 near-side window beside its 2048x1024 full-sphere frame;
+schema is `sol.texture/5`. Verified: the window is pixel-exact against the matching crop of a
+full-sphere reprojection (0 of 3,145,728 uint8 pixels differ), header edges land to 0.00e+00 deg
+on four dates including both longitude wrap directions, and all six validator negative controls
+catch their failure. Measured 31.8 s per slot per channel -> ~50 min cold fill, ~2.75 min/run
+steady state. Off-limb went to a **1024/2048/4096 ladder** rather than a single bump, because
+4096 turned out to be native (the crop is 4048-4092 px off the 4096 source), and it is live.
+
+**Still to do, in order:**
+1. **App**: second sampler on the SDO material (`uNear`, `uNearLon0`, `uNearSpan`), blending
+   detail->base across the SAME 75-90 deg band `applyFarSide` already uses. Two traps recorded
+   during design: `vMapUv` is the TRANSFORMED uv, so the window CANNOT be swapped in via
+   `texture.offset/repeat` without corrupting the far-side dimming maths, and the window needs
+   `ClampToEdgeWrapping` where the base map needs `RepeatWrapping`.
+2. **App**: zoom-gated LOD (`stage.bufferSize()` + `cameraDistanceAu()`, with hysteresis),
+   tier-aware `TEXTURE_BUDGET_BYTES` (one window is 67 MB against a 40 MB total budget today),
+   no +/-1 prefetch on the window tier, and progressive refinement while scrubbing.
+3. **Cold fill** by hand on the workstation, then publish.
+4. Turn `--with-near-side` on in CI.
+5. Retire `TEX_HIRES_*`.
+
+**Not started and NOT verified in a browser:** all of the above, plus the `a9f6acd` wiring fix.
 
 **The dead wiring is fixed but UNVERIFIED in a browser** (uncommitted at time of writing): the
 8192x4096 maps CI has built every four hours since `01889e6` have never been fetched by any

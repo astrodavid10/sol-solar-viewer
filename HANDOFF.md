@@ -8,10 +8,10 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-08-26 (ninth session — the 8K sphere maps turn out never to have been
-  DISPLAYED; two pipeline bugs fixed; off-limb is now a 1024/2048/4096 ladder; near-side detail
-  window designed and its header verified, §3zzzzzz. The eighth session, same day, republished
-  everything and added the reel renderer, §3zzzzz.)
+- **Last updated:** 2026-08-27 (tenth session — a data republish and nothing else, §3zzzzzzz:
+  the live site had gone `degraded` with PFSS stale at 18.3 h and is `ok` again. The ninth
+  session found the 8K sphere maps had never been DISPLAYED, fixed two pipeline bugs, made
+  off-limb a 1024/2048/4096 ladder, and designed the near-side detail window, §3zzzzzz.)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
   enabled on `gh-pages` / root, and the deployed data tree passes
   `validate --url … --strict` at 0 failed / 0 warnings.
@@ -153,7 +153,59 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzz. What changed on 2026-08-26 (NINTH session — most recent)
+## 3zzzzzzz. What changed on 2026-08-27 (TENTH session — most recent)
+
+**A data republish, and nothing else.** No code changed; the only edits are this section and
+the T1 row in `TASKS.md`. Recorded because it is the fourth consecutive session to spend ~20
+minutes doing it by hand, which is the case for T2.
+
+**What was wrong.** Live `index.json` read `last_attempt_status: degraded`, with `pfss`
+**stale at 18.3 h** and the note `0 freshly traced frame(s) of 19 slot(s)`. The other five
+products were fresh — CI had run at 09:27Z and succeeded. This is footgun 33 doing exactly
+what it says: GitHub runners cannot reach `gong2.nso.edu`, so the scheduled job rebuilds
+everything except the headline product and reports success.
+
+**What was done** — the T1 recipe, unmodified:
+
+1. Seeded `public/data` from `origin/gh-pages` (footgun 31). Necessary, and verified so rather
+   than assumed: the published tree held 25 texture history frames (5 channels x 5 slots) the
+   local tree lacked, while the local tree held 25 that had scrolled out of the window. An
+   unseeded `rsync --delete` publish would have reverted CI's texture work.
+2. `python -u -m pipeline all --out public/data -v`, via the env's interpreter directly rather
+   than `conda run` (which buffers, per T1's note) and as the background command itself rather
+   than `nohup … &`.
+3. `validate --root … --strict` → 0 failed / 0 warnings.
+4. `scripts/publish_gh_pages.sh public/data data` → `gh-pages` commit `e6e22d9`.
+5. `validate --url … --strict` → 0 failed / 0 warnings.
+
+**Result.** All six products `ok`, `last_attempt_status: ok`. GONG answered every request from
+this workstation: **19/19 slots had a magnetogram within 3 h**, so a fully fresh window rather
+than a partial fill — newest frame 3.5 h old (against 18.3), 1362 seed lines, ~1,340 of them
+valid per frame, 19 frames / 2.24 MB, 255 s of tracing.
+
+**Texture was deliberately NOT regenerated.** `all` without `--with-texture` falls back to the
+published product, which was 6.3 h old and hires-complete on all five layers; a local run
+without `--with-hires` would have dropped the `high_res` blocks the app has used by default
+since `e7095c2`. Re-checked in the code rather than trusted to memory (`cli.py:1220` gates the
+stage; `_existing_product` supplies the fallback). Published index says texture `ok … not
+regenerated this run`; file count held at 142.
+
+**Two things worth carrying forward.**
+
+- **Footgun 49 held, and cost nothing.** The force-push auto-triggered a Pages build against
+  the correct commit, which reported `built` in 32 s; the live tree was serving the new data
+  within 15 s of that build starting. **No explicit `POST /pages/builds` was made** — the
+  footgun's "publish, wait, check, and only then POST" order meant there was nothing to fix.
+- **A `Deploy app` run had been sitting `queued` for 24 h 23 m** (commit `90cd733`, already
+  superseded by a later deploy that succeeded at 16:28Z the previous day). It is an *app*
+  publish, so it preserves `data/` and could not have clobbered the data content; the only
+  exposure was an interleaved checkout, and GitHub drops queued runs at 24 h. Worth noting for
+  the T1 caution about in-flight CI: `gh run list` top-5 showed only completed runs — it took
+  `gh run list --status queued` to see it. Check both.
+
+---
+
+## 3zzzzzz. What changed on 2026-08-26 (NINTH session)
 
 Started as "the packaged Carrington textures are 2048x1024 but SDO is 4096x4096, are we
 throwing the source away?" — a fair question with a more interesting answer than expected, and

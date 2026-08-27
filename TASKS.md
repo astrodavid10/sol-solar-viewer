@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-08-26 (ninth session)
+**Last updated:** 2026-08-27 (tenth session)
 
 ---
 
@@ -139,7 +139,32 @@ this time as a full `all` run rather than PFSS alone: live `index.json` had gone
 above still applied and were followed: seed from `origin/gh-pages` first (the seed differed
 from the local tree by 10 files), and check for an in-flight CI run before pushing.
 
-**That is three hand-publishes in three sessions**, which is the argument for T2 rather than a
+**And again, on schedule.** Done a fourth time **2026-08-27 15:50Z** (`gh-pages` commit
+`e6e22d9`): live `index.json` was `degraded` with `pfss` **stale at 18.3 h / "0 freshly traced
+frame(s) of 19 slot(s)"**, and came out `ok` with all six products `ok`. GONG answered this
+workstation for every request -- 19/19 slots had a magnetogram within 3 h, so a fully fresh
+window again; newest frame 3.5 h old, 1362 seed lines, 19 frames / 2.24 MB, 255 s of tracing.
+`validate --root` and `validate --url` both reported 0 failed / 0 warnings.
+
+Ran `all` **without** `--with-texture`, the same reasoning as the first publish and re-checked
+rather than assumed: CI's texture was 6.3 h old and hires-complete on all five layers, and a
+local run without `--with-hires` would have dropped those `high_res` blocks. The published
+index says texture `ok ... not regenerated this run`; file count held at 142. Seeding from
+`origin/gh-pages` was again *necessary*, not precautionary: the published tree carried 25
+texture history frames (5 channels x 5 slots) the local tree lacked, and the local tree held 25
+that had scrolled out of the window -- an unseeded `rsync --delete` publish would have reverted
+CI's work.
+
+**Two notes for the next time.** (a) Footgun 49 held: the force-push auto-triggered a Pages
+build for the right commit, which went `built` in 32 s, so **no explicit `POST /pages/builds`
+was made or needed** -- the live tree was serving new data within 15 s of the build starting.
+(b) A **`Deploy app` run had been stuck `queued` for 24 h 23 m** (commit `90cd733`, already
+superseded by a later deploy that succeeded). It is an *app* publish, which preserves `data/`,
+so it could not clobber the data content; the only exposure is an interleaved checkout, and
+GitHub drops queued runs at 24 h. Checking `gh run list --status queued` as well as
+`--status in_progress` is what surfaced it -- the plain `gh run list` top-5 did not.
+
+**That is four hand-publishes in four sessions**, which is the argument for T2 rather than a
 note about it. The cost is ~20 minutes of a session each time, and the failure mode when a
 session *doesn't* do it is silent: the site keeps serving correct-looking field lines that are
 a day old.

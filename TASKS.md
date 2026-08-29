@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-08-27 (tenth session)
+**Last updated:** 2026-08-29 (eleventh session)
 
 ---
 
@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | 30.1 h -> 2.2 h; all 6 products ok |
+| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **5th time** 2026-08-29: 46.1 h -> 1.3 h; all 6 ok |
 | T2 | Land the GONG relay (Option D, workstation mirror) | CODE LANDED | `8650fee`+ | inert until the env vars are set; go-live steps remain |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -164,7 +164,37 @@ so it could not clobber the data content; the only exposure is an interleaved ch
 GitHub drops queued runs at 24 h. Checking `gh run list --status queued` as well as
 `--status in_progress` is what surfaced it -- the plain `gh run list` top-5 did not.
 
-**That is four hand-publishes in four sessions**, which is the argument for T2 rather than a
+**And a fifth time.** Done **2026-08-29 17:39Z** (`gh-pages` commit `4e80021`): live
+`index.json` was `degraded` with `pfss` **stale at 46.1 h** and the same
+`0 freshly traced frame(s) of 19 slot(s)` note — the longest gap yet, because the recurrence
+spans two sessions rather than one. Came out `ok` with all six products `ok`.
+
+GONG answered this workstation on every request (0.61 s to the listing root): **19/19 slots had
+a magnetogram within 3 h**, a fully fresh window, `reused: 0`. Newest frame
+`2026-08-29T16:14Z` — **1.3 h old** against 46.1. Seed set `590cb2a7`, 1351 lines
+(1152 background + 199 region), 1324-1332 of them valid per frame; 19 frames / 2.25 MB;
+**39.0 s** of solve+trace (1.70-2.70 s per frame). Both `validate --root` and `validate --url`
+reported 0 failed / 0 warnings.
+
+Same two cautions, both followed. Seeding was again *necessary*: the local tree held **65**
+files the published one lacked (texture frames scrolled out of the window) and the published
+tree held **45** the local lacked (CI's newer frames), so an unseeded `rsync --delete` publish
+would have reverted CI's work in both directions. Nothing was in flight or queued at publish
+time (`--status in_progress` and `--status queued` both empty, re-checked immediately before
+the push). Texture again NOT regenerated — CI's copy was 3.7 h old and hires-complete on all
+five layers, including 0304; published index says texture `ok`, file count held at **122**.
+
+Footgun 49 held for the second time running: the force-push auto-triggered a Pages build
+against the correct commit (`4e80021`), `built` in ~25 s, **no explicit `POST /pages/builds`
+made or needed**.
+
+**One new observation.** The window's low edge is now the binding constraint on how long a gap
+can be tolerated, not the staleness threshold: at 46.1 h the served frames still spanned a
+valid 72 h window, so the app had a complete scrubber showing a two-day-old Sun. That is the
+failure mode T2 is really about — not an outage the guest can see, but a plausible one they
+cannot.
+
+**That is five hand-publishes in five sessions**, which is the argument for T2 rather than a
 note about it. The cost is ~20 minutes of a session each time, and the failure mode when a
 session *doesn't* do it is silent: the site keeps serving correct-looking field lines that are
 a day old.

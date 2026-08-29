@@ -8,9 +8,10 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-08-27 (tenth session — a data republish and nothing else, §3zzzzzzz:
-  the live site had gone `degraded` with PFSS stale at 18.3 h and is `ok` again. The ninth
-  session found the 8K sphere maps had never been DISPLAYED, fixed two pipeline bugs, made
+- **Last updated:** 2026-08-29 (eleventh session — a data republish and nothing else,
+  §3zzzzzzzz: the live site had gone `degraded` with PFSS stale at **46.1 h**, the longest gap
+  yet, and is `ok` again at 1.3 h. The tenth session was the same chore at 18.3 h, §3zzzzzzz;
+  the ninth found the 8K sphere maps had never been DISPLAYED, fixed two pipeline bugs, made
   off-limb a 1024/2048/4096 ladder, and designed the near-side detail window, §3zzzzzz.)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
   enabled on `gh-pages` / root, and the deployed data tree passes
@@ -153,7 +154,66 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzz. What changed on 2026-08-27 (TENTH session — most recent)
+## 3zzzzzzzz. What changed on 2026-08-29 (ELEVENTH session — most recent)
+
+**A data republish, and nothing else.** No code changed; the only edits are this section and
+the T1 row in `TASKS.md`. This is the **fifth consecutive session** to spend the same ~20
+minutes on it by hand, and the first where the gap spanned two sessions rather than one.
+
+**What was wrong.** Live `index.json` read `last_attempt_status: degraded`, with `pfss`
+**stale at 46.1 h** and the note `0 freshly traced frame(s) of 19 slot(s)`. The other five
+products were fresh — CI had run at 13:47Z and succeeded in 8m24s. Footgun 33, unchanged:
+GitHub runners cannot reach `gong2.nso.edu`, so the scheduled job rebuilds everything except
+the headline product and reports success.
+
+**What was done** — the T1 recipe, unmodified:
+
+1. Seeded `public/data` from `origin/gh-pages` (footgun 31), as an exact mirror rather than a
+   merge, which is what CI's `git checkout origin/gh-pages -- data` into an empty `dist-data`
+   produces. Necessary in *both* directions this time: the local tree held **65** files the
+   published one lacked (texture history frames that had scrolled out of the window) and the
+   published tree held **45** the local lacked (frames CI built since). An unseeded
+   `rsync --delete` publish would have reverted CI's texture work; a merge would have
+   published 65 orphans, which `--with-texture` was not running to prune.
+2. `python -u -m pipeline all --out public/data -v`, via the env's interpreter directly rather
+   than `conda run` (which buffers, per T1's note) and as the background command itself rather
+   than `nohup … &`.
+3. `validate --root … --strict` → 0 failed / 0 warnings.
+4. `scripts/publish_gh_pages.sh public/data data` → `gh-pages` commit `4e80021`.
+5. `validate --url … --strict` → 0 failed / 0 warnings.
+
+**Result.** All six products `ok`, `last_attempt_status: ok`. GONG answered every request from
+this workstation (0.61 s to the listing root): **19/19 slots had a magnetogram within 3 h**, so
+a fully fresh window rather than a partial fill — `reused: 0`, newest frame
+`2026-08-29T16:14Z` at **1.3 h** against 46.1. Seed set `590cb2a7`, 1351 lines (1152 background
++ 199 region), 1324-1332 valid per frame, 19 frames / 2.25 MB, **39.0 s** of solve+trace
+(1.70-2.70 s per frame — the 255 s quoted last session was dominated by magnetogram downloads,
+not the solve). The `HTTP 404` on `mrzqs260830/` in the log is tomorrow's day-directory and is
+normal, not the footgun-33 symptom — that one is a *timeout*, and a 404 arriving promptly is
+proof the host is reachable.
+
+**Texture was deliberately NOT regenerated**, the same reasoning as the previous four and
+re-checked rather than trusted: `all` without `--with-texture` falls back to the published
+product, which was 3.7 h old and hires-complete on all five layers (0304 included). A local run
+without `--with-hires` would have dropped the `high_res` blocks the app has used by default
+since `e7095c2`. Published index says texture `ok`; file count held at **122**.
+
+**Footgun 49 held again, and again cost nothing.** The force-push auto-triggered a Pages build
+against the correct commit, `built` in ~25 s. **No explicit `POST /pages/builds` was made** —
+the "publish, wait, check, and only then POST" order left nothing to fix. Nothing was in
+flight or queued at push time; `--status in_progress` and `--status queued` were both checked
+immediately before, per T1.
+
+**One observation worth carrying into T2.** The 72 h window, not the 8 h staleness threshold,
+is what bounds how long a gap can go unnoticed. At 46.1 h the served frames still spanned a
+complete, valid window, so the app showed a full scrubber and a plausible Sun — just a
+two-day-old one. Nothing a guest could see was broken. That is the real argument for the
+relay: the failure is silent by construction, and the only thing standing between a guest and
+day-old field lines is somebody remembering to run this recipe.
+
+---
+
+## 3zzzzzzz. What changed on 2026-08-27 (TENTH session)
 
 **A data republish, and nothing else.** No code changed; the only edits are this section and
 the T1 row in `TASKS.md`. Recorded because it is the fourth consecutive session to spend ~20

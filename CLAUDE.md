@@ -6,6 +6,10 @@ the Sun's magnetic field in 3D over the last 72 hours (PFSS field lines from our
 same model + colors as the dome show), Parker Solar Probe / Solar Orbiter positions, and live
 NOAA space-weather numbers.
 
+**Refreshing the field lines?** `PFSS-UPDATE.md` is the standalone runbook for it — the one
+recurring operational chore this project has, and the only one that must be done from a machine
+that can reach GONG (footgun 33). Follow it top to bottom; it needs no other context.
+
 **Start here: `TASKS.md`** — the task ledger: what is in flight, what is next, and the
 definition of done for each. Then **`HANDOFF.md`**, the living status doc (what is done,
 partial, unstarted, and what has never been verified in a browser). Update both at the end of
@@ -591,6 +595,22 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     POST if the live tree is still old.** Note the two views disagree while this is happening:
     `gh api .../pages/builds/latest` reported `building` for a run that
     `gh run list` already showed as `startup_failure`, so check both before concluding anything.
+
+50. **A stale PFSS product does not stay contained — it eventually fails the validator and
+    blocks the WHOLE publish.** The seed set is frozen per traced run and its `ar_index` column
+    points into `regions.json` by position. CI regenerates `regions.json` every 4 h but (footgun
+    33) cannot retrace the field, so on the day NOAA's SRS lists fewer regions than it did when
+    the seeds were frozen, the topology's max `ar_index` runs off the end of the current list.
+    Measured 2026-08-30: seeds frozen against six regions, SRS down to five, and the run died at
+    `FAIL ar_index within regions.json bounds -- range [-1,5] vs 5 regions`. `Validate` runs
+    BEFORE `Publish` in `data.yml`, so **the five products CI *can* build were discarded too** —
+    the site fell 13 h behind on everything, not just on field lines. For eleven sessions the
+    working assumption had been that stale PFSS degrades exactly one product; it does not, it
+    just takes a day or two to bite. The fix is a rebuild from a GONG-reachable machine
+    (`PFSS-UPDATE.md`), which re-seeds against today's regions. Do NOT "fix" it by loosening the
+    validator: the bound is what stops a frame's `ar_index` from anchoring a field line to a
+    region that is not there, and the coupling it exposes is real. The permanent fix is the
+    relay (TASKS.md T2).
 
 ## Data sources (verified live 2026-08)
 

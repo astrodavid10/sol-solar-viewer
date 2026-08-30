@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-08-29 (eleventh session)
+**Last updated:** 2026-08-30 (twelfth session)
 
 ---
 
@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **5th time** 2026-08-29: 46.1 h -> 1.3 h; all 6 ok |
+| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **6th time** 2026-08-30: 18.2 h -> 0; runbook now `PFSS-UPDATE.md` |
 | T2 | Land the GONG relay (Option D, workstation mirror) | CODE LANDED | `8650fee`+ | inert until the env vars are set; go-live steps remain |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -76,6 +76,13 @@ Create `TASKS.md`, seed it from the approved plan, point `HANDOFF.md` at it.
 of 19 slot(s)"; `pfss/manifest.json`'s newest frame is `2026-08-24T12:14Z`, ~30 h old. GONG
 answers *this* workstation in 0.42 s (probed 2026-08-25) while timing out from every GitHub
 runner (footgun 33).
+
+**Follow [`PFSS-UPDATE.md`](PFSS-UPDATE.md), not the recipe below.** That file is the current
+runbook — the same procedure, brought up to date (footgun 49's publish-then-wait ordering, the
+`--with-texture --with-hires` flags CI actually passes, a fourth process trap), and written to
+be followed top to bottom by a fresh session on a small model. What follows here is the
+historical recipe plus the record of each run, kept because the *reasoning* behind each step is
+in the run notes.
 
 **Recipe** — the order matters:
 
@@ -198,6 +205,54 @@ cannot.
 note about it. The cost is ~20 minutes of a session each time, and the failure mode when a
 session *doesn't* do it is silent: the site keeps serving correct-looking field lines that are
 a day old.
+
+**A sixth time — and the recurrence finally cost CI a run.** Done **2026-08-30 11:59Z**
+(`gh-pages` commit `98536eb`). Two things were stale at once, which is new:
+
+- `pfss` had not been rebuilt since the fifth republish, so the served manifest was
+  **18.2 h** old with the usual `0 freshly traced frame(s) of 19 slot(s)`.
+- **The whole index was 13.2 h old**, because the 05:12Z scheduled `data` run *failed* — the
+  first CI failure of the project. It died at `Validate` on
+  `FAIL ar_index within regions.json bounds -- range [-1,5] vs 5 regions`, and that is a
+  **stale-PFSS symptom, not an independent bug**: the frozen seed set was built on a day when
+  NOAA's SRS listed six regions, CI kept regenerating `regions.json` down to five, and the
+  topology's `ar_index` then pointed one past the end. Since `Validate` runs *before* `Publish`,
+  every product CI built that morning was discarded — so a stale PFSS product had started
+  blocking the five products CI *can* build. It cleared exactly as expected once the seed set
+  was rebuilt against today's five regions (`id=7f48181f`, 1329 lines = 1152 background + 177
+  region). **This is a new coupling worth remembering: PFSS staleness is not indefinitely
+  survivable — it eventually takes the rest of the tree down with it.**
+
+GONG answered this workstation on every request: **19/19 slots had a magnetogram within 3 h**,
+`reused: 0` on all 19, so a fully fresh window. 19 frames / 1329 lines / 19,090 verts /
+2.14 MB, 258.1 s of solve+trace, dequant error 3.97e-05 R_sun. Newest frame's magnetogram
+`2026-08-30T08:14Z` — 3.6 h old at run time, which is the **4 h slot grid plus GONG's own
+latency**, not staleness (the 08:00Z slot is the newest one at or before an 11:47Z run).
+
+**Texture WAS regenerated this time**, unlike runs 1, 4 and 5 — CI's copy was 13.2 h old rather
+than a few hours, so the reasoning that protected it before did not apply. Ran with
+`--with-texture --with-hires`, matching what `data.yml` actually passes: all five layers rebuilt
+with `high_res`, 95 history slots (75 reused, 15 built, 0 unavailable, 0 deferred by the cap),
+27.35 MB, 424.4 s. 0304 again produced no hi-res map — footgun 40's guard working, not a
+failure. 15 orphan frames pruned; published file count held at **142**.
+
+Seeding was again *necessary*: the published tree held **30** files the local one lacked and the
+local held **10** that had scrolled out of the window. Nothing was in flight or queued
+(`--status in_progress` and `--status queued` both empty, re-checked immediately before the
+push), and the push went out at 11:59:51Z, eight minutes ahead of the 12:07Z cron slot. Footgun
+49 held for the third time running: the force-push auto-triggered a Pages build against the
+correct commit, `built` in 22 s, **no explicit `POST /pages/builds` made or needed**. Both
+`validate --root` and `validate --url` reported 0 failed / 0 warnings.
+
+**The chore is now written down.** Six hand-publishes in six sessions was enough of an argument:
+the whole procedure — preconditions, the seed, the flags and why each one is there, the four
+process traps, the publish, the Pages wait, and what to record — is now
+**[`PFSS-UPDATE.md`](PFSS-UPDATE.md)**, written so a fresh session on a small model can run it
+top to bottom without reading the pipeline source. It documents one trap this session hit that
+footgun 41 does not name: **if the log file's parent directory does not exist, the redirect
+fails, the pipeline never starts, and the background wrapper still reports a completed task** —
+footgun 41's zero-byte-log symptom with no run behind it at all. That does not make T2 less
+necessary; it makes the interim cheaper.
 
 ---
 

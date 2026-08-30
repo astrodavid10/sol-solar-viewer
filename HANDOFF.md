@@ -8,11 +8,15 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-08-29 (eleventh session — a data republish and nothing else,
-  §3zzzzzzzz: the live site had gone `degraded` with PFSS stale at **46.1 h**, the longest gap
-  yet, and is `ok` again at 1.3 h. The tenth session was the same chore at 18.3 h, §3zzzzzzz;
-  the ninth found the 8K sphere maps had never been DISPLAYED, fixed two pipeline bugs, made
-  off-limb a 1024/2048/4096 ladder, and designed the near-side detail window, §3zzzzzz.)
+- **Last updated:** 2026-08-30 (twelfth session — a data republish plus the runbook for it,
+  §3zzzzzzzzz: PFSS was stale at **18.2 h** and, for the first time, its staleness had *broken
+  CI* — the 05:12Z run failed at `Validate` on `ar_index … bounds` because the frozen seed set
+  outlived the region list it was built from, so none of that morning's five fresh products were
+  published either. All six are `ok` again, and the chore is now written down as
+  [`PFSS-UPDATE.md`](PFSS-UPDATE.md). The eleventh session was the same chore at 46.1 h,
+  §3zzzzzzzz; the tenth at 18.3 h, §3zzzzzzz; the ninth found the 8K sphere maps had never been
+  DISPLAYED, fixed two pipeline bugs, made off-limb a 1024/2048/4096 ladder, and designed the
+  near-side detail window, §3zzzzzz.)
 - **LIVE AT https://astrodavid10.github.io/sol-solar-viewer/** — the repo is PUBLIC, Pages is
   enabled on `gh-pages` / root, and the deployed data tree passes
   `validate --url … --strict` at 0 failed / 0 warnings.
@@ -154,7 +158,80 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzz. What changed on 2026-08-29 (ELEVENTH session — most recent)
+## 3zzzzzzzzz. What changed on 2026-08-30 (TWELFTH session — most recent)
+
+**A data republish, plus the runbook that should make the next one cheap.** No app or pipeline
+code changed; the edits are this section, the T1 row and section in `TASKS.md`, and one new
+file, **`PFSS-UPDATE.md`**.
+
+**What was wrong — two things at once, which is new.** Live `index.json` read
+`last_attempt_status: degraded` with `pfss` **stale at 18.2 h** and the familiar
+`0 freshly traced frame(s) of 19 slot(s)`. But the whole index was also **13.2 h old**, because
+the 05:12Z scheduled `data` run had **failed** — the project's first CI failure. It died at
+`Validate`:
+
+```
+FAIL  ar_index within regions.json bounds  -- range [-1,5] vs 5 regions
+```
+
+That is **not an independent bug**. The published field lines were seeded on a day when NOAA's
+SRS listed six active regions; CI kept regenerating `regions.json` (down to five today) while
+being unable to retrace the field, so the frozen topology's `ar_index` pointed one past the end
+of the current region list. Because `Validate` runs *before* `Publish`, everything CI built that
+morning was thrown away.
+
+**The lesson, and it is the real finding of this session: PFSS staleness is not indefinitely
+survivable.** For eleven sessions the standing story has been that a stale `pfss` degrades one
+product while the other five stay current. That stopped being true here — a stale PFSS product
+started **blocking the five products CI can build**, and the site quietly fell 13 h behind on
+everything. It raises T2 (the GONG relay) from a chore-elimination task to something that
+protects the rest of the tree.
+
+**What was done** — `PFSS-UPDATE.md`'s procedure, which is the T1 recipe brought up to date:
+
+1. Probed sources first: GONG answered this workstation normally (newest magnetogram 1.54 h
+   old, 34 files in today's directory), confirming the failure was the usual CI-side block.
+2. Seeded `public/data` from `origin/gh-pages` (footgun 31) — necessary again, in both
+   directions: **30** published files the local tree lacked, **10** local files that had
+   scrolled out of the window.
+3. `python -u -m pipeline all --out public/data -v --with-texture --with-hires` via the env's
+   interpreter directly. **19/19 slots had a magnetogram within 3 h**, `reused: 0` on every
+   frame — a fully fresh window. Seed set `7f48181f`, 1329 lines (1152 background + 177
+   region) against today's five regions; 19 frames / 19,090 verts / 2.14 MB; 258.1 s of
+   solve+trace; dequant error 3.97e-05 R_sun.
+4. **Texture WAS rebuilt this time**, unlike sessions 1, 4 and 5. Those skipped it because CI's
+   copy was hours old and hires-complete; here it was 13.2 h old, so the reasoning did not
+   apply. All five layers with `high_res`, 95 history slots (75 reused, 15 built, 0 unavailable,
+   0 deferred by the cap), 27.35 MB, 424.4 s, 15 orphans pruned. 0304 again produced no hi-res
+   map — footgun 40's limb-fit guard working as designed.
+5. `validate --root … --strict`: **0 failed / 0 warnings**. The `ar_index` check that killed CI
+   now passes, which is the direct confirmation that the rebuild fixed the cause.
+6. Checked `--status in_progress` *and* `--status queued` (both empty) immediately before
+   publishing, and published at **11:59:51Z**, eight minutes ahead of the 12:07Z cron slot.
+   `gh-pages` commit **`98536eb`**, 142 files.
+7. Footgun 49 held for the third session running: the force-push auto-triggered a Pages build
+   against the correct commit, `built` in **22 s**, **no explicit `POST /pages/builds` made or
+   needed**.
+
+**Result.** Live `index.json`: `last_attempt_status: ok`, all six products `ok`, `pfss` age 0.
+`validate --url https://astrodavid10.github.io/sol-solar-viewer/data/ --strict` also reports
+**0 failed / 0 warnings**. The newest frame's magnetogram is `2026-08-30T08:14Z` — ~3.6 h old at
+run time, which is the **4 h slot grid plus GONG's own latency**, not staleness.
+
+**`PFSS-UPDATE.md`.** Six hand-publishes in six sessions was enough of an argument for writing
+the chore down. It covers preconditions, how to confirm the refresh is needed, the CI-in-flight
+check (including the `ar_index` failure above and what it means), the seed, the pipeline flags
+and why each one is there, the process traps, the publish, the Pages wait, the definition of
+done, and what to record afterwards — written to be followed top to bottom by a fresh session on
+a small model, without reading pipeline source. One trap it records is new this session and is
+**not** what footgun 41 says: if the log file's parent directory does not exist, the redirect
+fails, the pipeline never starts, and the background wrapper still reports a *completed* task
+with exit 0 — footgun 41's zero-byte-log symptom with no run behind it at all. It cost one
+false start here and was caught only because the log file was missing rather than empty.
+
+---
+
+## 3zzzzzzzz. What changed on 2026-08-29 (ELEVENTH session)
 
 **A data republish, and nothing else.** No code changed; the only edits are this section and
 the T1 row in `TASKS.md`. This is the **fifth consecutive session** to spend the same ~20

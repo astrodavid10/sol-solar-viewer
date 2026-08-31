@@ -8,12 +8,16 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-08-30 (twelfth session — a data republish plus the runbook for it,
-  §3zzzzzzzzz: PFSS was stale at **18.2 h** and, for the first time, its staleness had *broken
-  CI* — the 05:12Z run failed at `Validate` on `ar_index … bounds` because the frozen seed set
-  outlived the region list it was built from, so none of that morning's five fresh products were
-  published either. All six are `ok` again, and the chore is now written down as
-  [`PFSS-UPDATE.md`](PFSS-UPDATE.md). The eleventh session was the same chore at 46.1 h,
+- **Last updated:** 2026-08-31 (thirteenth session — the seventh data republish, and a review
+  of the runbook that drives it, §3zzzzzzzzzz: PFSS was stale at **17.6 h**, and the index was
+  10.8 h old *without anything having failed* — GitHub had skipped two cron slots, which is
+  normal and which the runbook mis-taught. 19/19 slots traced, textures deliberately left alone
+  because CI's copy was 8 minutes old and complete, all six products `ok`, `validate --url` at
+  0 failed / 0 warnings. `PFSS-UPDATE.md` was corrected in eight places, one of them a stale
+  expectation that would have hidden a real regression. The twelfth session was the same chore
+  at 18.2 h plus the writing of that runbook, §3zzzzzzzzz — note its claim that the 2026-08-30
+  `Validate` failure was CI's *first* is wrong: the identical `ar_index … bounds` failure had
+  already taken two runs on 2026-08-28. The eleventh session was the chore at 46.1 h,
   §3zzzzzzzz; the tenth at 18.3 h, §3zzzzzzz; the ninth found the 8K sphere maps had never been
   DISPLAYED, fixed two pipeline bugs, made off-limb a 1024/2048/4096 ladder, and designed the
   near-side detail window, §3zzzzzz.)
@@ -158,7 +162,68 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzzz. What changed on 2026-08-30 (TWELFTH session — most recent)
+## 3zzzzzzzzzz. What changed on 2026-08-31 (THIRTEENTH session — most recent)
+
+**Asked for:** review and update `PFSS-UPDATE.md`, and the live site with it. Both happened — the
+runbook was followed top to bottom for the seventh hand-republish (T1), and then corrected in the
+eight places where this run proved it wrong. No code changed; the whole session is data + docs.
+
+### The republish
+
+Live `pfss` was **stale at 17.6 h** (`0 freshly traced frame(s) of 19 slot(s)`,
+`last_attempt_status: degraded`). Published as `gh-pages` commit **`c0d0f1f`** at **16:22:12Z**;
+142 data files, count unchanged.
+
+- **19/19 slots had a magnetogram within 3 h.** 19 frames, 1340 lines (1152 background + 188
+  region, seed `id=1ef475a7`), 18,890 verts, 2.12 MB, dequant err 3.97e-05 R_sun, 277.6 s.
+- Newest slot 16:00Z filled by a **15:14Z** magnetogram — **0.77 h** old, the freshest of the
+  seven runs and *below* the 2–4 h band the runbook stated (now 1–4 h).
+- Window `2026-08-28T16:00Z .. 2026-08-31T16:00Z`: a full 72 h.
+- **Textures were deliberately not rebuilt.** CI's copy was 8 minutes old and complete — five
+  layers, 19 frames each, `high_res 8192` on every one — so rebuilding it would have been ~10
+  minutes of duplication. The published `index.json` says so honestly:
+  `texture ok 0.14 h, not regenerated this run`. Publish moved **26** files instead of 67.
+- `events` printed `AR join: 0/4`, which was **checked rather than assumed**: DONKI cites AR
+  **4521**, today's SRS lists 4513/4515/4517/4518/4520, so `ar_index -1` is the correct answer
+  (footgun 23), not a broken join.
+- `validate --root` and `validate --url` both **0 failed / 0 warnings**; live `index.json` `ok`
+  on all six products, `pfss` at 0.0 h. Footgun 49 held a **fourth** time: the force-push
+  auto-triggered a Pages build against the right commit, `built` in 27.7 s, no explicit
+  `POST /pages/builds`.
+- A scheduled `data` run was **in flight** when the first check ran (16:06:40Z, 7m16s,
+  `success`), so this waited for it *and* its Pages build before seeding — exactly the case
+  step 2 of the runbook exists for.
+
+### What the runbook got wrong
+
+Two findings matter beyond this chore:
+
+1. **A stale index is not evidence of a failure.** The runbook said "if the whole index is hours
+   old, the last scheduled run failed". It had not: the 05:20Z run succeeded and GitHub simply
+   never fired the 08:07Z or 12:07Z slots. Over the two preceding days `data` ran **four times a
+   day against six scheduled slots** — 19:16Z, 22:39Z, 05:20Z, 16:06Z, every one `success` —
+   leaving a 10.8 h hole that reads exactly like a broken pipeline. A 4 h cron does not mean six
+   runs a day.
+2. **The "expect no 0304 hi-res map" bullet was backwards, and would have hidden a regression.**
+   `TEX_LIMB_FIT_RES = 2048` now performs the limb fit at a fixed resolution whatever the source,
+   so the guard keeps its calibration and all five channels earn an 8192x4096 map — the live
+   product carries `high_res 8192` on 5/5 layers. The runbook was still teaching footgun 40's
+   original exclusion as the expected outcome. T4 already owns the `CLAUDE.md` half of this; the
+   runbook now flags it in place rather than repeating it.
+
+Also corrected: the `ar_index` CI failure has happened **three** times, not once (2026-08-28
+11:12Z and 22:12Z, then 2026-08-30 05:12Z, all `range [-1,5] vs 5 regions`) — so footgun 50's
+coupling is stale PFSS's normal end state on a two-day fuse; `gh run view --log-failed` points at
+the **wrong step**, because the never-fatal `Probe upstreams` step exits 1 on every single run
+(GONG timeouts) and is what that command prints, while `Validate` is the real failure; the seed
+step now counts the *difference* between the two trees, because on 2026-08-31 they differed by
+**40 files each way** while both held 142; step 4 now opens with an explicit texture-rebuild
+decision instead of an unconditional `--with-texture`; and the time estimate is split by that
+decision (~12 min without a texture rebuild, ~20 with).
+
+---
+
+## 3zzzzzzzzz. What changed on 2026-08-30 (TWELFTH session)
 
 **A data republish, plus the runbook that should make the next one cheap.** No app or pipeline
 code changed; the edits are this section, the T1 row and section in `TASKS.md`, and one new

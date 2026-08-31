@@ -3,7 +3,8 @@
 **Who this is for.** Any fresh session — including a small model — that finds the live site
 reporting `pfss` **stale** and needs to fix it. It is a *runbook*: follow it top to bottom, copy
 the commands, check the stated expectation at each step. No step needs you to read the pipeline
-source or make a judgement call about the science.
+source or make a judgement call about the science. The one judgement call is step 4's texture
+decision, and it comes with a check and a stated rule.
 
 **Why this exists at all.** GitHub Actions runners cannot reach `gong2.nso.edu` — connect
 timeouts on every request, every run, while the identical request from this workstation answers
@@ -13,7 +14,9 @@ a day until the GONG relay (`TASKS.md` T2) is live. Republishing from a machine 
 GONG is the standing workaround; it is task **T1** in `TASKS.md` and has been done by hand many
 times.
 
-**Time:** ~20 minutes, most of it the pipeline run (~12 min unattended).
+**Time:** ~20 minutes if the sphere textures need rebuilding (~12 min of pipeline), ~12 minutes
+if they do not (~5 min). Step 4 decides which, and right after a CI run it is usually the
+shorter one.
 **Where:** this workstation (`C:\Users\adavi\Documents\DataStories\sol`), Git Bash. Any machine
 that can reach GONG would do; a GitHub runner cannot.
 
@@ -58,8 +61,14 @@ for k, v in sorted(d['products'].items()):
 `0 freshly traced frame(s) of 19 slot(s)`. That note is the signature of the GONG block: CI
 tried, reached nothing, and kept serving the frames a workstation published last time.
 
-Note the *index* age too. If the whole index is hours old, the last scheduled run failed and
-**every** product is stale, not just PFSS — step 4 rebuilds all of them, so that is covered.
+Note the *index* age too. If the whole index is hours old, either the last scheduled run failed
+**or the cron never fired** — step 2 tells you which, so do not assume a bug. Either way
+**every** product is stale, not just PFSS, and step 4 rebuilds all of them.
+
+**A 4 h schedule does not mean six runs a day.** GitHub delays cron *and drops slots entirely*.
+Measured 2026-08-31: `data` ran at 19:16Z and 22:39Z on the 30th, then 05:20Z and 16:06Z on the
+31st — four runs against six slots, every one `success`, leaving a **10.8 h** gap in the index
+that looked exactly like a failure and was not one.
 
 ---
 
@@ -76,6 +85,17 @@ gh run list --limit 5             # context: did the last scheduled `data` run p
 grep -n cron .github/workflows/data.yml   # "7 */4 * * *" -> 00:07, 04:07, 08:07 ... UTC
 ```
 
+**Finding out what a failed run actually failed on:** ask for the *steps*, not the log —
+
+```bash
+gh run view <run-id> --json jobs --jq '.jobs[].steps[] | select(.conclusion=="failure") | .name'
+```
+
+`gh run view --log-failed` is misleading here: the `Probe upstreams (never fatal)` step exits 1
+on every run (GONG times out from a runner, footgun 33) and is `continue-on-error`, so it is what
+`--log-failed` prints while the real failure — `Validate`, every time so far — is somewhere in
+the full log. Grep the full log for `FAIL` once you know the step.
+
 If something is running, wait for it and re-check. Check `--status queued` **explicitly** — a
 run can sit queued for a day and the plain `gh run list` top-5 will not show it. GitHub's cron
 also fires late routinely (an hour is normal), so "the schedule says 08:07" is not proof that
@@ -89,6 +109,12 @@ than it lists now, so the frozen seed set points past the end of the current `re
 Rebuilding PFSS re-seeds against today's region list and clears it — a stale-PFSS *symptom*, and
 this runbook is the fix.
 
+It has now happened **three times** — 2026-08-28 11:12Z, 2026-08-28 22:12Z and 2026-08-30
+05:12Z, all with the identical `range [-1,5] vs 5 regions` — and each time a republish cleared
+it. So it is the normal *end state* of stale PFSS (footgun 50), not a novelty: expect it a day
+or two after the last republish, and remember it discards the five products CI *can* build,
+because `Validate` runs before `Publish`.
+
 ---
 
 ## 3. Seed `public/data` from the published tree — do NOT skip this
@@ -97,14 +123,20 @@ this runbook is the fix.
 `--delete`). Your local tree is missing every texture frame CI has built since the last hand
 publish, so publishing without seeding would *revert CI's work*. This is not precautionary; the
 two trees genuinely differ every time (footgun 31). Measured on 2026-08-30: 30 files published
-that the local tree lacked, 10 local files that had scrolled out of the window.
+that the local tree lacked, 10 local files that had scrolled out of the window. On 2026-08-31 it
+was **40 each way** — and both trees held 142 files, so **equal totals are not evidence the trees
+agree**. Count the difference, not the size.
 
 ```bash
 git fetch origin gh-pages
 SEED=$(mktemp -d)
 git archive origin/gh-pages data | tar -x -C "$SEED"
+echo "published: $(find "$SEED/data" -type f | wc -l)  local: $(find public/data -type f | wc -l)"
+( cd "$SEED/data" && find . -type f | sort ) > /tmp/pub.txt
+( cd public/data && find . -type f | sort ) > /tmp/loc.txt
+echo "published-only: $(comm -23 /tmp/pub.txt /tmp/loc.txt | wc -l)  local-only: $(comm -13 /tmp/pub.txt /tmp/loc.txt | wc -l)"
 rm -rf public/data && cp -R "$SEED/data" public/data && rm -rf "$SEED"
-find public/data -type f | wc -l        # should match the published tree (142 on 2026-08-30)
+find public/data -type f | wc -l        # must equal the "published:" count printed above
 git status --porcelain                  # expect EMPTY (public/data is gitignored)
 ```
 
@@ -112,9 +144,39 @@ git status --porcelain                  # expect EMPTY (public/data is gitignore
 
 ## 4. Run the pipeline
 
+**First, decide whether the texture stage needs to run.** CI rebuilds all five sphere maps on
+every run, so if the copy you just seeded is only a few hours old and complete, rebuilding it is
+~10 minutes of pure duplication. Runs 1, 4, 5 and 7 of this chore skipped it for exactly that
+reason; run 6 rebuilt it because CI's copy was 13 h old.
+
+```bash
+"$PY" -c "
+import json, datetime
+d = json.load(open('public/data/texture/texture.json'))
+gen = datetime.datetime.fromisoformat(d['generated_iso'].replace('Z', '+00:00'))
+age = (datetime.datetime.now(datetime.timezone.utc) - gen).total_seconds() / 3600
+print('texture', d['generated_iso'], round(age, 1), 'h old')
+for l in d['layers']:
+    print(' ', l['channel'].ljust(6), 'frames', len(l.get('frames', [])),
+          'high_res', (l.get('high_res') or {}).get('width'))
+"
+```
+
+**Complete** means five layers, 19 frames each, `high_res 8192` on every one. Complete and a few
+hours old → omit both texture flags; the seeded files get republished untouched. Older than that,
+short of 19 frames, missing a `high_res`, or you are unsure → pass them, which is what CI does.
+
 ```bash
 mkdir -p "$(dirname "$LOG")"
-"$PY" -u -m pipeline all --out public/data -v --with-texture --with-hires > "$LOG" 2>&1
+
+# PICK ONE. (a) is uncommented because it is the common case; if the check above
+# said the texture product is stale or incomplete, comment (a) out and use (b).
+
+# (a) texture fresh and complete — the usual case right after a CI run:
+"$PY" -u -m pipeline all --out public/data -v > "$LOG" 2>&1
+
+# (b) texture stale or incomplete — exactly what data.yml passes:
+# "$PY" -u -m pipeline all --out public/data -v --with-texture --with-hires > "$LOG" 2>&1
 ```
 
 Run it **in the background** if your harness has a timeout shorter than ~15 minutes, then watch
@@ -125,7 +187,7 @@ Flags, and why each one is there:
 | flag | why |
 |---|---|
 | `-u` | unbuffered — a killed run still leaves a readable log (footgun 41) |
-| `--with-texture` | the sphere maps; **on** in CI, **off** by default locally |
+| `--with-texture` | the sphere maps; **on** in CI, **off** by default locally — see the decision above, and skip it when the seeded copy is fresh and complete |
 | `--with-hires` | the 8192x4096 newest-frame maps the app uses by default; CI passes this too. Omitting it **drops** the `high_res` blocks from the manifest and silently downgrades the app |
 | `--out public/data` | the dev-server tree, and the thing step 6 publishes |
 
@@ -166,13 +228,24 @@ app yet, and it is not part of this chore.
   only below `MIN_FRAMES_TO_PUBLISH = 6` — it just means part of the scrubber is older.
 - A `WARN GONG …/mrzqs2608**31**/: HTTP 404` for *tomorrow's* directory is normal; the scraper
   probes a day ahead.
-- The newest frame's magnetogram is normally **2–4 h old**, and that is correct, not stale: slot
+- The newest frame's magnetogram is normally **1–4 h old**, and that is correct, not stale: slot
   targets sit on a 4 h grid at or before "now", and a GONG synoptic magnetogram is a few hours old
-  by construction. The app's scrubber copy already says so.
+  by construction. The app's scrubber copy already says so. (Measured 2026-08-31: a 16:00Z slot
+  filled by a 15:14Z magnetogram, **0.77 h** — the low end of the band, not an anomaly.)
 - `regions` printing `today's srs.txt lists 5 region(s), the history product 6` is expected and is
   explained in footgun 30 — different epochs, and `parse_srs` reads Section I only.
-- The texture stage prints a `limb fit` per channel and one `hi-res 8192x4096 …` line per channel
-  that earns one. **0304 having no hi-res line is the guard working, not a failure** (footgun 40).
+- With `--with-texture --with-hires`, the texture stage prints a `limb fit` per channel and a
+  `hi-res 8192x4096 …` line per channel — **expect all five, 0304 included.** `TEX_LIMB_FIT_RES
+  = 2048` now performs the limb fit at a fixed resolution whatever the source, so the guard keeps
+  its calibration instead of rejecting the one channel with a diffuse limb; the live product
+  carried `high_res 8192` on 5/5 layers when checked 2026-08-31. **`CLAUDE.md` footgun 40 still
+  says 0304 is excluded and is out of date** (`TASKS.md` T4 owns that fix) — a *missing* 0304
+  hi-res line is now a regression, not the guard working.
+- The `history:`, `texture ok` and `hi-res` lines appear **only** with `--with-texture`. Under
+  option (a) the publish line carries fewer files — **26 rather than 67**, measured 2026-08-31 —
+  there is no `texture` line in the per-product summary, and `index.json` reports the texture
+  product's real age with the note `not regenerated this run` instead of 0.0 h. All three are
+  correct, not a partial run.
 - Expect exit code **0** — but texture failures are *soft* and never change the exit code, so read
   the log rather than trusting the code alone.
 
@@ -277,6 +350,7 @@ fail to reach GONG (expected), keep your frames, and pass `Validate` again.
 | symptom | meaning | do |
 |---|---|---|
 | `pfss stale`, `0 freshly traced frame(s) of 19 slot(s)` | GONG blocked from CI — the normal case | this runbook |
+| index hours old but the last `data` run says `success` | GitHub skipped a cron slot — ~4 runs/day, not 6 | nothing; not a failure |
 | CI `data` run failed at `Validate` on `ar_index … bounds` | region list shrank under a frozen seed set | this runbook |
 | pipeline log empty or missing a minute in | the run never started — trap (c), or (a)/(b) | fix the invocation, re-run |
 | `0/19 slots have a magnetogram` **from this workstation** | a real GONG outage, not the CI block | wait; published frames keep serving |

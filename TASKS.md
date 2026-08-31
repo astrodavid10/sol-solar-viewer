@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-08-30 (twelfth session)
+**Last updated:** 2026-08-31 (thirteenth session)
 
 ---
 
@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **6th time** 2026-08-30: 18.2 h -> 0; runbook now `PFSS-UPDATE.md` |
+| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **7th time** 2026-08-31: 17.6 h -> 0; runbook reviewed + corrected |
 | T2 | Land the GONG relay (Option D, workstation mirror) | CODE LANDED | `8650fee`+ | inert until the env vars are set; go-live steps remain |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -253,6 +253,53 @@ footgun 41 does not name: **if the log file's parent directory does not exist, t
 fails, the pipeline never starts, and the background wrapper still reports a completed task** —
 footgun 41's zero-byte-log symptom with no run behind it at all. That does not make T2 less
 necessary; it makes the interim cheaper.
+
+**A seventh time — and the runbook earned its keep, then needed fixing.** Done **2026-08-31
+16:22Z** (`gh-pages` commit `c0d0f1f`), following `PFSS-UPDATE.md` top to bottom.
+
+- Live `pfss` was **stale at 17.6 h** with the usual `0 freshly traced frame(s) of 19 slot(s)`,
+  `last_attempt_status: degraded`.
+- **The index was 10.8 h old and nothing had failed.** The 05:20Z run succeeded; GitHub simply
+  never fired the 08:07Z or 12:07Z slots. Over the two preceding days `data` ran four times a
+  day against six scheduled slots (19:16Z, 22:39Z, 05:20Z, 16:06Z), every run `success`. The
+  runbook told a session to read a stale index as "the last scheduled run failed" — corrected.
+- **A scheduled run was in flight when the check ran** (16:06:40Z, 7m16s, `success`), so this
+  waited for it and for its Pages build before seeding — the case step 2 exists for. Seeding
+  was again necessary: **40 files each way**, and both trees held 142, so equal totals prove
+  nothing.
+- Ran `all --out public/data -v` with **no texture flags**, deliberately: CI's texture product
+  was 8 minutes old and complete (five layers, 19 frames each, `high_res 8192` on every one).
+  That saved ~10 minutes of pure duplication and is the same judgement runs 1, 4 and 5 made.
+  The published `index.json` reports it honestly — `texture ok 0.14 h, not regenerated this run`.
+- GONG answered every request: **19/19 slots within 3 h**. 19 frames, 1340 lines
+  (1152 background + 188 region, `id=1ef475a7`), 18,890 verts, 2.12 MB, dequant err
+  3.97e-05 R_sun, 277.6 s. Newest slot 16:00Z filled by a **15:14Z** magnetogram — 0.77 h old,
+  the freshest of the seven runs. Window `2026-08-28T16:00Z .. 2026-08-31T16:00Z`, a full 72 h.
+- `events` printed `AR join: 0/4` and that is correct, not a regression: DONKI cites AR **4521**
+  while today's SRS lists 4513/4515/4517/4518/4520, so `ar_index -1` is the honest answer
+  (footgun 23). Checked rather than assumed.
+- Both `validate --root` and `validate --url` reported **0 failed / 0 warnings**; live
+  `index.json` is `ok` on all six products with `pfss` at 0.0 h. Footgun 49 held for the
+  **fourth** time running: the force-push auto-triggered a Pages build against the correct
+  commit, `built` in 27.7 s, no explicit `POST /pages/builds` made or needed.
+
+**Correction to the sixth run's record above: the 2026-08-30 05:12Z `Validate` failure was not
+"the first CI failure of the project".** The identical `FAIL ar_index within regions.json bounds
+-- range [-1,5] vs 5 regions` had already failed two runs on **2026-08-28** (11:12Z and 22:12Z),
+which the eleventh session's republish cleared without noticing. Three occurrences, one cause —
+so footgun 50's coupling is the *normal end state* of stale PFSS on a roughly two-day fuse, not a
+one-off. `PFSS-UPDATE.md` step 2 now says so, and also warns that `gh run view --log-failed`
+points at the wrong step: the never-fatal `Probe upstreams` step exits 1 on every run, so it is
+what `--log-failed` prints while `Validate` is the actual failure.
+
+**The runbook was reviewed against this run and corrected in eight places** — the two above plus:
+the seed step now counts the *difference* between the trees rather than comparing totals; step 4
+opens with an explicit texture-rebuild decision (a check and a rule, instead of an unconditional
+`--with-texture`); the "expect no 0304 hi-res line" bullet was **backwards** and would have hidden
+a real regression (`TEX_LIMB_FIT_RES = 2048` made the limb fit resolution-independent, so all five
+channels earn a hi-res map — `CLAUDE.md` footgun 40 is stale, which T4 already owns); the newest-
+magnetogram band widened to 1–4 h; a quick-reference row for "index old but the last run passed";
+and the time estimate split by whether textures rebuild (~12 min vs ~20).
 
 ---
 

@@ -134,6 +134,10 @@ def fetch_regions_json(timeout: float = 30.0) -> Dict[date, List[Region]]:
     NOTE the JSON's Stonyhurst ``longitude`` is E-positive, the OPPOSITE of
     ``parse_srs``, so it is negated here.  An empty dict is cached on failure so
     a dead endpoint costs one timeout per run, not one per lookup.
+
+    Records with a physically impossible position are DROPPED here, loudly --
+    this is the one place the JSON is parsed, so it is the one place that has to
+    reject NOAA's occasional keying error.  See the comment on the bounds check.
     """
     global _REGIONS_JSON_CACHE
     if _REGIONS_JSON_CACHE is not None:
@@ -157,6 +161,40 @@ def fetch_regions_json(timeout: float = 30.0) -> Dict[date, List[Region]]:
         lat, clon = rec.get("latitude"), rec.get("carrington_longitude")
         if lat is None or clon is None:
             continue
+        try:
+            lat_i = int(lat)
+            lon_i = -int(rec.get("longitude") or 0)      # E+/W- -> W+
+            clon_i = int(clon)
+            spots_raw = int(rec.get("number_spots") or 0)
+        except (TypeError, ValueError):
+            continue
+        # NOAA publishes the occasional impossible coordinate, and one of them
+        # blocks the WHOLE publish: `validate` runs before `publish` and range-
+        # checks every history region, so one bad record discards five good
+        # products.  Same coupling as footgun 50, different cause.  Measured
+        # 2026-09-01: AR4521 arrived as `latitude: 98` having been `9` the day
+        # before, with srs.txt independently saying N09 -- a keying error at
+        # NOAA, not a parse error here.
+        #
+        # DROP the record; do NOT repair it from srs.txt.  srs.txt happened to
+        # carry the right latitude that day, but a source that reaches for a
+        # second feed to patch the first would invent a position on the days
+        # the two disagree for a legitimate reason -- and they do disagree, by
+        # epoch and by region set (see daily_history).  One region missing from
+        # one day's chip is a rounding error to a guest; a sunspot marker drawn
+        # at a latitude nobody measured is a lie printed over imagery that
+        # shows the truth.
+        #
+        # Bounds mirror validate.py's region checks on purpose: whatever this
+        # keeps, the validator must accept.  Loud, per footgun 32 -- degrade
+        # quietly for the guest, never quietly for the operator.
+        if not (abs(lat_i) <= 60 and abs(lon_i) <= 180
+                and 0 <= clon_i < 360 and spots_raw >= 0):
+            print("  WARN solar_regions.json {0} AR{1}: impossible record "
+                  "(lat {2}, lon {3}, carr_lon {4}, spots {5}) -- dropped"
+                  .format(d.isoformat(), rnumber, lat_i, lon_i, clon_i,
+                          spots_raw))
+            continue
         out.setdefault(d, []).append({
             "rnumber": rnumber,
             # Floored at 1: the seed builder wants at least one seed for a
@@ -164,10 +202,10 @@ def fetch_regions_json(timeout: float = 30.0) -> Dict[date, List[Region]]:
             # as published (0 for a spotless plage region) and is what a
             # sunspot COUNT must be summed from -- see daily_history.
             "numSpots": int(rec.get("number_spots") or 1),
-            "nSpotsRaw": int(rec.get("number_spots") or 0),
-            "lat": int(lat),
-            "lon": -int(rec.get("longitude") or 0),      # E+/W- -> W+
-            "cLon": int(clon),
+            "nSpotsRaw": spots_raw,
+            "lat": lat_i,
+            "lon": lon_i,
+            "cLon": clon_i,
             "area": int(rec.get("area") or 0),
             "ext": int(rec.get("extent") or 0),
             "zurich": rec.get("spot_class") or "",

@@ -162,7 +162,93 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzzzz. What changed on 2026-08-31 (THIRTEENTH session — most recent)
+## 3zzzzzzzzzzz. What changed on 2026-09-01 (FOURTEENTH session — most recent)
+
+**Asked for:** update the PFSS field lines and the related data on the live site. Done — the
+eighth hand-republish (T1). But the live site was not merely stale: a **bad record in NOAA's
+region feed was blocking CI's publish entirely**, so this session is one pipeline fix plus the
+republish.
+
+### The blocking bug: NOAA published a sunspot at latitude 98
+
+The 13:26Z scheduled `data` run had failed at `Validate` — and *not* on the `ar_index` bound that
+the last three CI failures were:
+
+```
+FAIL  history 2026-09-01 AR4521: lat_deg within +/-60  -- got 98.0
+```
+
+`json/solar_regions.json` carried AR4521 at `"latitude": 98` on 09-01 having carried the same
+region at `9` on 08-31; `srs.txt` independently said `N09E67`. A keying error at NOAA, 98 for 9.
+
+Because `Validate` runs before `Publish`, that single record **discarded the five products CI had
+just built correctly** — which is why the live `index.json` was 11.5 h old on *everything*, with
+`pfss` stale at 12.66 h on top. This is footgun 50's coupling reached by a completely different
+route, and it is now **footgun 51**.
+
+Fixed in `pipeline/sources/srs.py`: `fetch_regions_json` — the one place that feed is parsed —
+drops physically impossible records, loudly, with bounds mirroring `validate.py`'s own region
+checks so that whatever the source keeps the validator must accept.
+
+```
+WARN solar_regions.json 2026-09-01 AR4521: impossible record
+     (lat 98, lon -53, carr_lon 263, spots 1) -- dropped
+```
+
+Two calls worth remembering:
+
+- **Dropped, not repaired.** `srs.txt` had the right latitude, but patching one NOAA product from
+  the other would invent positions on the days they legitimately disagree — and they do, by epoch
+  and by region set (footgun 30). One region missing from one day's sunspot chip is a rounding
+  error to a guest; a marker at a latitude nobody measured is a lie printed over imagery that
+  shows the truth.
+- **The validator's bound was not loosened.** It is the only thing standing between a hand-keyed
+  feed and a sunspot marker at latitude 98.
+
+**Checked, not assumed:** the day's spot count falls 27 → 12, which is the shape of the fake cliff
+footgun 30 warns about. It is real. NOAA's raw feed says 08-31 = 27 spots/9 regions and 09-01 =
+**13** spots/8 regions; we publish 12/7, exactly that minus AR4521's single spot. AR4517's 6 spots
+rotated off the disk, 4520 went 9→6, 4518 6→1, and both days come from the one JSON series as
+footgun 30 requires.
+
+### The republish
+
+Published as `gh-pages` commit **`5f915030`** at **16:40:27Z**. **132** data files, down from 142
+(25 texture orphans out of the window, 10 new frames deferred by the cap) — a falling count is
+normal, count the difference not the total.
+
+- **19/19 slots had a magnetogram within 3 h.** 19 frames, 1307 lines (1152 background + 155
+  region, seed `id=c609eea3`), 18,386 verts, 2.06 MB, dequant err 3.97e-05 R_sun, 269.2 s. Window
+  `2026-08-29T16:00Z .. 2026-09-01T16:00Z`, a full 72 h. Newest slot filled by a **15:14Z**
+  magnetogram, **1.47 h** old — mid-band.
+- **Textures rebuilt** (`--with-texture --with-hires`) because the seeded copy, though complete,
+  was **19.0 h** old — past step 4's "a few hours" rule. All five channels earned a `high_res
+  8192` map, **0304 included**, at 40-63 s each rather than footgun 40's ~3 min. Limb fits 0171
+  -0.00%, 0304 +2.37%, 0193 +1.67%, HMIIC +0.10%, HMIB +0.12% — all inside tolerance, with the
+  sharp-limbed HMI channels at 0.3-0.5 px scatter against the diffuse EUV ones.
+- **10 of 95 history frames deferred by the per-run cap**, leaving every channel at 17/19.
+  Published deliberately: no validator minimum, the app falls back to the nearest frame, and CI
+  *can* build textures (only GONG is blocked), so it converges at +10/run on the next scheduled
+  run. Refilling locally would have cost ~8 min and forced a redundant `--with-hires` pass.
+- `events` printed **`AR join: 4/4`**, a full match (the seventh run's 0/4 was also correct then).
+- `validate --root` and `validate --url` both **0 failed / 0 warnings**. Live `index.json`:
+  `last_attempt_status: ok`, all six products `ok` at 0.0 h.
+- Footgun 49 held a **fifth** time — the force-push auto-triggered a Pages build against the right
+  commit, `built` in 31.4 s, no explicit `POST /pages/builds`.
+
+### Worth knowing next time
+
+- **A `Validate` failure is not automatically the `ar_index` one.** Three CI failures in a row had
+  been, and the runbook says to expect it. Read the actual `FAIL` line.
+- **`publish_gh_pages.sh` can print nothing at all on success.** It produced zero stdout through
+  `2>&1 | tail -20`, which reads exactly like a failed push. Verify by fetching `origin/gh-pages`
+  and reading the commit, never by the script's console output.
+- Nothing was queued or in flight at publish time; the **16:07Z cron slot was dropped outright**,
+  the runbook's "~4 runs against 6 slots" once more.
+- Still open and unchanged by this session: the 3D view has never been confirmed in a browser, and
+  the GONG relay (T2) remains the permanent fix for this whole chore.
+
+## 3zzzzzzzzzz. What changed on 2026-08-31 (THIRTEENTH session)
 
 **Asked for:** review and update `PFSS-UPDATE.md`, and the live site with it. Both happened — the
 runbook was followed top to bottom for the seventh hand-republish (T1), and then corrected in the

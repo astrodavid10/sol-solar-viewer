@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **7th time** 2026-08-31: 17.6 h -> 0; runbook reviewed + corrected |
+| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **8th time** 2026-09-01: 12.7 h -> 0; a bad NOAA record was blocking CI (footgun 51) |
 | T2 | Land the GONG relay (Option D, workstation mirror) | CODE LANDED | `8650fee`+ | inert until the env vars are set; go-live steps remain |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -300,6 +300,76 @@ a real regression (`TEX_LIMB_FIT_RES = 2048` made the limb fit resolution-indepe
 channels earn a hi-res map — `CLAUDE.md` footgun 40 is stale, which T4 already owns); the newest-
 magnetogram band widened to 1–4 h; a quick-reference row for "index old but the last run passed";
 and the time estimate split by whether textures rebuild (~12 min vs ~20).
+
+**DONE 2026-09-01 16:40Z — eighth run.** Published as `gh-pages` commit **`5f915030`** at
+**16:40:27Z**. 132 data files, **down from 142**: 25 texture orphans scrolled out of the window
+and 10 new history frames were deferred by the per-run cap (see below). A file count that *falls*
+is normal here and is not evidence of a clobbered tree — count the difference, not the total.
+
+**The blocking problem this time was NOT staleness. It was one bad record in NOAA's feed.**
+Live `pfss` was stale at 12.66 h inside an `index.json` that was itself **11.5 h** old, with
+`last_attempt_status: partial:texture` — so every product was behind, not just field lines. Step 2
+found the 13:26Z scheduled `data` run had failed at `Validate`, but **not** on the familiar
+`ar_index` bound:
+
+```
+FAIL  history 2026-09-01 AR4521: lat_deg within +/-60  -- got 98.0
+```
+
+`json/solar_regions.json` was publishing AR4521 at `"latitude": 98` on 09-01 having published the
+same region at `9` on 08-31, and `srs.txt` independently reported `N09E67` for it — a keying error
+at NOAA (98 for 9). Because `Validate` runs before `Publish`, that one record discarded the five
+products CI *had* built correctly, which is why the whole index was 11.5 h old. **Footgun 50's
+coupling, from a completely new cause** — and worth noting that eight runs of this chore had
+trained the expectation that a `Validate` failure means `ar_index`. It did not. Read the FAIL line.
+
+Fixed at the source, in `pipeline/sources/srs.py` — `fetch_regions_json` now drops physically
+impossible records with a loud `WARN` naming every value, with bounds that deliberately mirror
+`validate.py`'s region checks. Recorded as **footgun 51**. Two decisions worth keeping:
+
+- **Dropped, not repaired.** `srs.txt` happened to carry the right latitude, but patching one feed
+  from the other would invent positions on the days they legitimately disagree — and they do, by
+  epoch and by region set (footgun 30). One region missing from one day's chip is a rounding error
+  to a guest; a marker at a latitude nobody measured is a lie over imagery showing the truth.
+- **The validator's bound was NOT loosened.** It is the only thing between a hand-keyed feed and a
+  sunspot at latitude 98.
+
+Verified on the live feed before running: the guard fires exactly once, drops only AR4521 on
+09-01, and keeps that same region's good 08-31 entry.
+
+**The run itself:**
+
+- **19/19 slots had a magnetogram within 3 h** — a fully fresh window. 19 frames, 1307 lines
+  (1152 background + 155 region, seed `id=c609eea3`), 18,386 verts, 2.06 MB, dequant err
+  3.97e-05 R_sun, **269.2 s**. Window `2026-08-29T16:00Z .. 2026-09-01T16:00Z`, a full 72 h.
+- Newest slot 16:00Z filled by a **15:14Z** magnetogram — **1.47 h** old, mid-band.
+- **Textures WERE rebuilt** (`--with-texture --with-hires`): the seeded copy was complete but
+  **19.0 h** old, which is past step 4's "a few hours" rule. All five channels produced a
+  `high_res 8192` map (0171 1.26 MB/62.6 s, 0304 1.99 MB/58.1 s, 0193 1.06 MB/63.2 s, HMIIC
+  1.07 MB/42.4 s, HMIB 3.28 MB/36.5 s) — **including 0304**, again confirming `CLAUDE.md`
+  footgun 40 is stale (T4 owns it). Hi-res cost ~40-63 s per channel, well under footgun 40's
+  ~3 min estimate.
+- Limb fits all inside `TEX_LIMB_RADIUS_TOL`: 0171 -0.00%, 0304 **+2.37%**, 0193 +1.67%, HMIIC
+  +0.10%, HMIB +0.12%. The EUV channels sit high and the HMI ones are near-perfect (0.3-0.5 px
+  scatter), exactly the diffuse-vs-sharp limb split footgun 40 describes.
+- **10 of 95 history frames were deferred by the cap** — `65 reused, 15 built, 0 unavailable, 10
+  deferred`, leaving every channel at **17 of 19** frames. Published anyway, deliberately: the
+  validator has no minimum frame count, the app falls back to the nearest frame it has, and **CI
+  can build textures** (only GONG is blocked), so it converges at +10/run on the next scheduled
+  run. Refilling here would have cost ~8 min, and a bare `texture` re-run would also have had to
+  redo `--with-hires` or silently drop the `high_res` blocks.
+- `events` printed **`AR join: 4/4`** — a full match, in contrast to the seventh run's 0/4 (which
+  was also correct at the time). Footgun 23's join is working.
+- Both `validate --root` and `validate --url` reported **0 failed / 0 warnings**; live
+  `index.json` is `last_attempt_status: ok` with all six products `ok` at 0.0 h.
+- Footgun 49 held a **fifth** time: the force-push auto-triggered a Pages build against the right
+  commit, `built` in **31.4 s**, no explicit `POST /pages/builds` made or needed.
+- Nothing was in flight or queued on GitHub at 16:40Z; the next cron slot was 20:07Z. The 16:07Z
+  slot appears to have been dropped outright — the runbook's "~4 runs against 6 slots" again.
+
+**One process note:** `scripts/publish_gh_pages.sh` produced **no stdout at all** through
+`2>&1 | tail -20`, which looked like a failed push. It had in fact succeeded. Verify a publish by
+fetching `origin/gh-pages` and reading the commit, never by the script's console output.
 
 ---
 

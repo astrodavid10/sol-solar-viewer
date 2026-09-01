@@ -612,6 +612,31 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     region that is not there, and the coupling it exposes is real. The permanent fix is the
     relay (TASKS.md T2).
 
+51. **NOAA publishes impossible region coordinates, and one of them blocks the WHOLE publish.**
+    Measured 2026-09-01: `json/solar_regions.json` carried AR4521 at `"latitude": 98` on
+    09-01 having carried the same region at `9` on 08-31, with `srs.txt` independently
+    reporting `N09E67` for it — a keying error at NOAA (98 for 9), not a parse error here.
+    `validate` range-checks every history region (`|lat| <= 60`; anything beyond the activity
+    belts is a parse error, not a sunspot), so the `data` run at 13:26Z died on
+    `FAIL history 2026-09-01 AR4521: lat_deg within +/-60 -- got 98.0`. **This is footgun 50's
+    coupling from a completely different cause:** `Validate` runs before `Publish`, so one bad
+    record 30 days deep in someone else's feed discarded the five products CI had just built
+    correctly and left the site 11.5 h stale on everything. Expect this class of thing again —
+    the SRS is hand-keyed.
+    **The fix is at the source, and it DROPS the record rather than repairing it.**
+    `fetch_regions_json` is the only place that JSON is parsed, so it is the only place that
+    has to reject it; the bounds there deliberately mirror `validate.py`'s region checks, so
+    whatever the source keeps the validator must accept. Repairing the latitude from `srs.txt`
+    was the tempting alternative and is wrong: the two products legitimately disagree by epoch
+    and by region set (footgun 30), so a source that patched one from the other would invent
+    positions on the days they differ for a real reason. One region missing from one day's
+    sunspot chip is a rounding error to a guest; a marker drawn at a latitude nobody measured
+    is a lie printed over imagery that shows the truth. The drop prints a `WARN … impossible
+    record … dropped` line naming the region and every value, per footgun 32 — degrade quietly
+    for the guest, never quietly for the operator.
+    Do NOT instead widen the validator's bound. It is the only thing standing between a
+    hand-keyed feed and a sunspot marker at latitude 98.
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).

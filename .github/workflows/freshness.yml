@@ -1,0 +1,339 @@
+name: freshness
+
+# WHY THIS EXISTS: every other check in this repo asks "did our run work?".
+# None of them ask "is what a guest would load right now actually current?",
+# and those are different questions -- which is the failure mode that has
+# actually bitten, repeatedly and quietly:
+#
+#   * `data.yml` can report success while the headline product is hours or
+#     days old.  gong2.nso.edu is unreachable from GitHub's address ranges
+#     (CLAUDE.md footgun 33), so CI rebuilds five products on time and traces
+#     zero field lines, forever, and the run is green every time.  Four
+#     consecutive runs once did exactly that before anyone noticed.
+#   * A run that DID fail took the whole publish with it and left the site
+#     11-13 h stale on all six products (footguns 50, 51).  Six of the 41
+#     scheduled runs in the 9.8 days to 2026-09-02 failed that way; two of
+#     them were that same day and nobody knew.
+#   * A publish can succeed and the SITE still not update: a forced orphan
+#     push can leave Pages building a commit that no longer exists (footgun
+#     34), and racing the automatic build fails both (footgun 49).  Nothing
+#     in `data.yml` can see that, because it is downstream of everything
+#     `data.yml` does.
+#
+# PFSS-UPDATE.md ends by saying the standing workaround is a human noticing
+# the live site is stale and running the runbook.  This workflow is the
+# noticing.  It is the ONLY check here that reads the published site rather
+# than the tree that was meant to become it, so it is also the only one that
+# can catch a Pages-side failure at all.
+#
+# Every 2 h, at minute 17.  Two hours because the sphere textures update on
+# roughly a 2 h observation cadence and the thresholds below are ~10-12 h:
+# checking faster cannot detect anything sooner, checking slower would put
+# most of a threshold's width inside one polling interval and blur "10 h
+# stale" into "somewhere between 10 and 18".  Minute 17 keeps it off both the
+# top of the hour (queue crush) and minute 7 (`data.yml`'s own slot), so this
+# check is not queued behind the run it is checking.
+on:
+  schedule:
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+
+# Only issues.  No checkout, nothing to write to the repo.
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # A curl and a json parse.  If this is anywhere near the limit, the thing
+    # being measured is GitHub Pages being unreachable, which is the answer.
+    timeout-minutes: 5
+    env:
+      SITE: https://astrodavid10.github.io/sol-solar-viewer
+
+      # THRESHOLDS.
+      #
+      # INDEX_STALE_HOURS: the pipeline's own STALE_HOURS is 8 h (2 slots of
+      # the 4 h frame grid).  10 h is that plus scheduling slop, and the slop
+      # is measured, not guessed: over the 9.8 days to 2026-09-02 the median
+      # cron delay was 74 min and 9 of 40 inter-run gaps exceeded 8 h with a
+      # worst case of 13.0 h.  At 8 h flat this would cry wolf on those 9
+      # gaps; at 10 h it still catches every real outage, just an hour later.
+      # Raising it further is how you get back to not noticing.
+      #
+      # PFSS_STALE_HOURS: 12 h, deliberately looser.  Field lines come off a
+      # 4 h slot grid and GONG's own publication lag puts the newest
+      # magnetogram 2-4 h behind the clock even on a perfect run (3.33 h when
+      # this was written), so anything under ~8 h would fire on healthy runs.
+      # 12 h means "a slot grid's worth of latency plus two missed slots".
+      # EXPECT THIS ONE TO FIRE ROUGHLY DAILY until the relay (TASKS.md T2)
+      # is live -- that is not noise, it is the honest report of footgun 33,
+      # and the response is the PFSS-UPDATE.md runbook.  If it becomes noise
+      # anyway, land the relay; do not raise the number.
+      INDEX_STALE_HOURS: "10"
+      PFSS_STALE_HOURS: "12"
+    steps:
+      - name: Check the live data products
+        run: |
+          set -o pipefail
+          SITE="${SITE%/}"
+          echo "checking $SITE"
+
+          # A non-200 IS the failure and must be loud.  --retry covers a
+          # single CDN hiccup; three strikes and the site is not serving the
+          # manifest, which is worse than any staleness this could report.
+          CODE=$(curl -sS --retry 2 --retry-delay 5 --max-time 30 \
+                   -o index.json -w '%{http_code}' "$SITE/data/index.json") || CODE=000
+          if [ "$CODE" != "200" ]; then
+            echo ""
+            echo "STALE: $SITE/data/index.json returned HTTP $CODE -- the live data"
+            echo "       manifest is not being served at all. Check Pages (footguns"
+            echo "       34 and 49) before assuming the pipeline is at fault."
+            exit 1
+          fi
+
+          # The field-line age: ask the INDEX first, fetch the ~30 KB
+          # manifest only when the index cannot answer.  On the success path
+          # `products.pfss.data_age_hours` is there and is the honest number;
+          # the fallback exists because a rolled-back or older-schema pfss
+          # product may carry no such key, and "we could not tell how old the
+          # field lines are" must not read as "they are fine".
+          if ! python3 -c "import json,sys; d=json.load(open('index.json')); v=(d.get('products') or {}).get('pfss') or {}; sys.exit(0 if isinstance(v.get('data_age_hours'),(int,float)) else 1)"; then
+            echo "index carries no products.pfss.data_age_hours -- falling back to pfss/manifest.json"
+            CODE=$(curl -sS --retry 2 --retry-delay 5 --max-time 60 \
+                     -o pfss.json -w '%{http_code}' "$SITE/data/pfss/manifest.json") || CODE=000
+            if [ "$CODE" != "200" ]; then
+              echo "note: pfss/manifest.json returned HTTP $CODE -- no fallback age available"
+              rm -f pfss.json
+            fi
+          fi
+
+          python3 - <<'PY'
+          import datetime, json, os, pathlib, sys
+
+          def parse(s):
+              return datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+          now = datetime.datetime.now(datetime.timezone.utc)
+          index_max = float(os.environ.get("INDEX_STALE_HOURS") or 10)
+          pfss_max = float(os.environ.get("PFSS_STALE_HOURS") or 12)
+
+          d = json.loads(pathlib.Path("index.json").read_text(encoding="utf-8"))
+          gen = d.get("generated_iso")
+          attempt = d.get("last_attempt_status")
+          products = d.get("products") or {}
+
+          index_age = None
+          if gen:
+              try:
+                  index_age = (now - parse(gen)).total_seconds() / 3600.0
+              except ValueError:
+                  pass
+
+          # WHY data_age_hours AND NOT age_hours, per product.
+          # `age_hours` is the age of the MANIFEST WRITE, so it is 0.00 on
+          # every run of every product whether or not the data under it moved
+          # -- the live index reads 0.0 for all six even on a run that traced
+          # nothing.  It is not a freshness measure, it is a "did we just
+          # write a file" measure.  The case that matters is the partial one:
+          # a half-working relay fills 15 of 19 slots, the manifest is
+          # rewritten, `age_hours` says 0.0, and the newest field line is
+          # still yesterday's.  `data_age_hours` (and `obs_age_hours` on the
+          # texture product) is the age of the OBSERVATION, which is what a
+          # guest is actually looking at.  Prefer it wherever a product
+          # publishes one; fall back only to keep the table complete.
+          def age_of(v):
+              for key in ("data_age_hours", "obs_age_hours", "age_hours"):
+                  a = v.get(key)
+                  if isinstance(a, (int, float)):
+                      return a, key
+              return None, None
+
+          out = [
+              "live   %s" % (os.environ.get("SITE") or "").rstrip("/"),
+              "now    %s" % now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "index  %s  %s  last_attempt_status=%s"
+              % (gen, ("%.2f h old" % index_age) if index_age is not None else "unparseable", attempt),
+              "",
+              "  %-14s %-9s %9s  %-18s %s" % ("product", "status", "age", "age from", "note"),
+          ]
+          stale = []
+          for name in sorted(products):
+              v = products[name] if isinstance(products[name], dict) else {}
+              st = v.get("status", "?")
+              age, key = age_of(v)
+              out.append("  %-14s %-9s %9s  %-18s %s" % (
+                  name, st,
+                  ("%.2f h" % age) if age is not None else "? h",
+                  key or "-",
+                  v.get("note", "") or "",
+              ))
+              if st != "ok":
+                  stale.append("products.%s.status=%s%s"
+                               % (name, st, (" (%s)" % v["note"]) if v.get("note") else ""))
+
+          # pfss gets its own line and its own threshold: it is the headline
+          # product and the one that goes stale on its own (footgun 33).
+          pfss = products.get("pfss") if isinstance(products.get("pfss"), dict) else {}
+          pfss_age = pfss.get("data_age_hours")
+          pfss_src = "index products.pfss.data_age_hours"
+          if not isinstance(pfss_age, (int, float)):
+              pfss_age = None
+              m = pathlib.Path("pfss.json")
+              if m.exists():
+                  mm = json.loads(m.read_text(encoding="utf-8"))
+                  newest = mm.get("newest_mag_iso")
+                  if newest:
+                      pfss_age = (now - parse(newest)).total_seconds() / 3600.0
+                      pfss_src = "pfss/manifest.json newest_mag_iso=%s" % newest
+                  else:
+                      # Older manifests carry no top-level newest_*: take the
+                      # newest frame.  mag_unix first because it needs no
+                      # date parsing and cannot disagree with mag_iso.
+                      best = None
+                      for f in mm.get("frames") or []:
+                          if not isinstance(f, dict):
+                              continue
+                          u, t = f.get("mag_unix"), f.get("mag_iso")
+                          if isinstance(u, (int, float)):
+                              cand = datetime.datetime.fromtimestamp(u, datetime.timezone.utc)
+                          elif t:
+                              cand = parse(t)
+                          else:
+                              continue
+                          if best is None or cand > best:
+                              best = cand
+                      if best is not None:
+                          pfss_age = (now - best).total_seconds() / 3600.0
+                          pfss_src = ("pfss/manifest.json max(frames[*].mag_*)=%s"
+                                      % best.strftime("%Y-%m-%dT%H:%M:%SZ"))
+          out += [
+              "",
+              "pfss field-line data: %s   (from %s)"
+              % (("%.2f h old" % pfss_age) if pfss_age is not None else "UNKNOWN", pfss_src),
+              "thresholds: index %.0f h, pfss %.0f h" % (index_max, pfss_max),
+          ]
+
+          table = "\n".join(out)
+          print(table)
+          pathlib.Path("freshness.txt").write_text(table + "\n", encoding="utf-8")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write("### live data freshness\n\n```\n%s\n```\n" % table)
+
+          if attempt != "ok":
+              stale.insert(0, "last_attempt_status=%s -- the last pipeline run did not"
+                              " finish clean, so this tree is whatever survived it" % attempt)
+          if index_age is None:
+              stale.insert(0, "generated_iso=%r could not be parsed" % gen)
+          elif index_age > index_max:
+              stale.insert(0, "the index is %.1f h old (> %.0f h): either the last run failed"
+                              " or the cron never fired -- PFSS-UPDATE.md step 2 tells you which"
+                              % (index_age, index_max))
+          if pfss_age is None:
+              stale.append("the field-line data age could not be determined at all --"
+                           " neither the index nor pfss/manifest.json would say")
+          elif pfss_age > pfss_max:
+              stale.append("pfss field-line data is %.1f h old (> %.0f h): run the"
+                           " PFSS-UPDATE.md runbook from a GONG-reachable machine"
+                           % (pfss_age, pfss_max))
+
+          if stale:
+              print("")
+              for s in stale:
+                  print("STALE: %s" % s)
+              sys.exit(1)
+          print("")
+          print("FRESH: index %.1f h, pfss data %.1f h, all %d products ok."
+                % (index_age, pfss_age, len(products)))
+          PY
+
+      # Same open-or-update shape as data.yml's "Notify on failure", and for
+      # the same reason: ONE issue with a FIXED title is a dashboard, one
+      # issue per failure is a thing people mute.  This check runs 12x a day,
+      # so per-failure issues would be unusable within a week.
+      #
+      # Everything here is tolerant -- `|| true` on the gh calls, the label
+      # optional -- because a GitHub API hiccup must not turn a real stale
+      # verdict into a confusing second failure.  The verdict itself is NOT
+      # tolerated: it already failed the step above, and this step cannot
+      # change that.
+      - name: Open or update the stale issue
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # REQUIRED here, unlike in data.yml: there is no checkout, so `gh`
+          # has no git remote to infer the repository from and every call
+          # would fail with "not a git repository".
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE='live data is stale'
+
+          {
+            echo "Live-data check failed at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+            echo
+            echo "$RUN_URL"
+            echo
+            if [ -s freshness.txt ]; then
+              echo '```'
+              cat freshness.txt
+              echo '```'
+            else
+              echo "The check did not get as far as reading the manifest -- see the run."
+            fi
+            echo
+            echo "Stale \`pfss\` alone is the standing GONG block (CLAUDE.md footgun 33):"
+            echo "follow \`PFSS-UPDATE.md\`. Everything stale at once usually means the last"
+            echo "\`data\` run failed or Pages is wedged (footguns 34, 49, 50, 51) --"
+            echo "\`PFSS-UPDATE.md\` step 2 distinguishes them."
+          } > stale-comment.md
+
+          LABEL=()
+          if gh label list --limit 200 --json name --jq '.[].name' 2>/dev/null | grep -qx pipeline; then
+            LABEL=(--label pipeline)
+          elif gh label create pipeline --color B60205 \
+                 --description "data pipeline / live-data automation" >/dev/null 2>&1; then
+            LABEL=(--label pipeline)
+          else
+            echo "note: no 'pipeline' label and could not create one -- continuing unlabelled"
+          fi
+
+          NUM=$(gh issue list --state open --search "in:title \"$TITLE\"" \
+                  --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -z "$NUM" ] || [ "$NUM" = "null" ]; then
+            gh issue create --title "$TITLE" --body-file stale-comment.md "${LABEL[@]}" || true
+          else
+            gh issue comment "$NUM" --body-file stale-comment.md || true
+            echo "commented on issue #$NUM"
+          fi
+
+      # THE DASHBOARD HAS TO SELF-CLEAR.  A `live data is stale` issue left
+      # open after a republish is worse than no issue: the next reader cannot
+      # tell whether it is the current state or a leftover, and a stale
+      # staleness alarm is exactly the kind of thing that gets the whole
+      # mechanism ignored.  A hand-publish fixes the site and touches nothing
+      # on GitHub, so this step is the only thing that will ever close it.
+      # Idempotent: no open issue means nothing to do, and it says so.
+      - name: Close the stale issue when fresh again
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TITLE='live data is stale'
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          NUM=$(gh issue list --state open --search "in:title \"$TITLE\"" \
+                  --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -z "$NUM" ] || [ "$NUM" = "null" ]; then
+            echo "no open '$TITLE' issue -- nothing to close"
+            exit 0
+          fi
+          # One comment, then closed.  The fallback covers older `gh` builds
+          # without --reason/--comment on `issue close`; failing to close is
+          # not worth failing a run that just proved the site is healthy.
+          gh issue close "$NUM" --reason completed --comment "fresh again at $NOW" \
+            || { gh issue comment "$NUM" --body "fresh again at $NOW" || true
+                 gh issue close "$NUM" || true; }
+          echo "closed issue #$NUM"

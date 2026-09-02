@@ -1,5 +1,7 @@
 # Sol — the Sun Right Now
 
+![live data](https://github.com/astrodavid10/sol-solar-viewer/actions/workflows/freshness.yml/badge.svg)
+
 A mobile-first solar data explorer for planetarium guests ("Data to Dome, Dome to Phone").
 Scan a QR code during or after a show and take the Sun home with you.
 

@@ -1,8 +1,20 @@
 name: data
 
-# Every 4 hours, matching the 4 h frame spacing: one skipped run still lands
-# exactly on the 8 h staleness threshold instead of past it.  Minute 7 avoids
-# the top-of-hour GitHub Actions queue crush.
+# Every 4 hours, matching the 4 h frame spacing.  Minute 7 avoids the
+# top-of-hour GitHub Actions queue crush.
+#
+# This comment used to claim that "one skipped run still lands exactly on the
+# 8 h staleness threshold instead of past it".  That was arithmetic about a
+# schedule GitHub does not actually deliver.  Measured 2026-09-02 across the
+# 41 scheduled runs of the previous 9.8 days:
+#   * 4.2 runs/day FIRED of the 6 slots requested, and only ~3.3/day
+#     PUBLISHED anything -- 6 of the 41 died before the publish step;
+#   * median cron delay 74 min, mean 92, worst 240 (four hours late is a
+#     whole slot: the run lands on top of the next one);
+#   * 9 of the 40 inter-run gaps were longer than 8 h, the worst 13.0 h.
+# So the cron cadence cannot be the staleness guarantee, and no rearrangement
+# of it will be.  `freshness.yml` is the guarantee instead: it checks the
+# LIVE site every 2 h and opens an issue when what a guest would load is old.
 on:
   schedule:
     - cron: "7 */4 * * *"
@@ -23,6 +35,11 @@ on:
 
 permissions:
   contents: write
+  # For the "Notify on failure" step: a failed run has to leave a mark
+  # somewhere a human will see without going looking.  Six of the 41
+  # scheduled runs in the 9.8 days to 2026-09-02 failed, TWO of them that
+  # day, and nobody noticed until someone read the live index by hand.
+  issues: write
 
 # Serialized with app-deploy.yml: both force-push a single orphan commit to
 # gh-pages, so they must never interleave their checkouts.
@@ -64,9 +81,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r pipeline/requirements.txt
 
-      # Rolling cache of GONG FITS + traced-frame npz (~10 MB/day).  The
-      # run_id key always misses so the cache is always re-saved; restore-keys
-      # pull the newest previous copy.  With it, 18 of 19 frames hit.
+      # Rolling cache of GONG FITS + traced-frame npz.  The run_id key always
+      # misses so the cache is always re-saved; restore-keys pull the newest
+      # previous copy.
+      #
+      # This used to claim "with it, 18 of 19 frames hit".  That is the local
+      # number, not the CI one.  In CI the cache is ~27-52 KB and hits 0 of 19
+      # frames, and the reason is not the cache: gong2.nso.edu is unreachable
+      # from GitHub's address ranges (footgun 33), so no magnetogram is ever
+      # fetched and no frame is ever traced, and there is nothing to store.
+      # KEEP THE STEP ANYWAY.  It is correct, it costs a few seconds, and it
+      # is the difference between a ~4 min and a ~15 min run the moment the
+      # relay (TASKS.md T2) is live -- at which point this comment becomes
+      # wrong in the other direction and should be re-measured.
       - name: Restore pipeline cache
         uses: actions/cache@v4
         with:
@@ -163,9 +190,30 @@ jobs:
           if [ -n "$MAX_FRAMES" ]; then ARGS="$ARGS --max-frames $MAX_FRAMES"; fi
           python -m pipeline $ARGS
 
-      - name: Validate
-        run: python -m pipeline validate --root dist-data --strict
-
+      # PUBLISH FIRST.  `Validate` used to sit here, ahead of this step, and
+      # that ordering is footguns 50 and 51: one unusable record in somebody
+      # else's feed -- a frozen seed set pointing past a shrunken
+      # regions.json (50), NOAA keying an active region's latitude as 98 when
+      # it meant 9 (51) -- failed the whole check and therefore discarded the
+      # five products CI had just built CORRECTLY, leaving the live site
+      # 11-13 h stale on everything.  Measured: 6 of the 41 scheduled runs in
+      # the 9.8 days to 2026-09-02 died at Validate, and every one of them
+      # threw away six good products to punish one bad one.
+      #
+      # The build step is the gate now, and under the pipeline's exit-code
+      # contract it is a real one: `pipeline all` validates each product
+      # BEFORE promoting it, rolls a failing product back to the previously
+      # published copy, and exits non-zero ONLY when it could not promote a
+      # tree / write an index at all.  So "the build step succeeded" means
+      # exactly "dist-data is a publishable tree", degraded products included
+      # -- and publishing a tree carrying one rolled-back product is strictly
+      # better for a guest than publishing nothing.
+      #
+      # The condition is unchanged, and the missing `success()` is not an
+      # oversight: a step-level `if` with no status-check function in it still
+      # carries the implicit success() gate, so a failed build skips this.
+      # Verified against run 33631551481 (2026-09-02), where `Validate`
+      # failed and this exact step reports conclusion `skipped`.
       - name: Publish to gh-pages
         if: ${{ inputs.dry_run != true }}
         env:
@@ -173,6 +221,184 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
         run: bash scripts/publish_gh_pages.sh dist-data data
+
+      # A TRIPWIRE, and deliberately powerless.  The pipeline already
+      # validated every product before promoting it, so a failure HERE does
+      # not mean "the data is bad" -- it means the pipeline's own per-product
+      # checks let something through, i.e. the bug is in that logic.  That is
+      # worth a red run and an issue, which is what the next two steps are
+      # for.  It is NOT worth withholding six good products from the live
+      # site, which is what this check did for six runs while it ran first
+      # (footguns 50, 51).
+      #
+      # So: it runs AFTER the publish and it cannot un-publish anything.
+      # gh-pages is a single forced orphan commit with no history, so there
+      # is nothing here to revert to and nothing to revert with -- a rollback
+      # would mean re-pushing the tree we just replaced, which is the stale
+      # tree this run existed to fix.  No `continue-on-error` either: we WANT
+      # the job red.  It just does not get to hold the publish hostage.
+      - name: Validate (post-publish tripwire)
+        run: python -m pipeline validate --root dist-data --strict
+
+      # A DEGRADED PUBLISH IS A GREEN RUN THAT NOBODY SHOULD BE HAPPY ABOUT.
+      # `pipeline all` exits 0 whenever it promoted a tree, so the exit code
+      # alone cannot distinguish "published six fresh products" from
+      # "published yesterday's field lines again because GONG was
+      # unreachable".  Both of 2026-09-02's failures went unnoticed until a
+      # human read the live index; a rolled-back product is quieter still,
+      # because it looks like success from every angle except the manifest.
+      #
+      # This step reads the index that was just published and makes anything
+      # other than all-ok RED.  After the publish, so redness costs nothing
+      # but attention -- which is the whole point: the guest keeps the best
+      # tree available and the operator still gets told.
+      #
+      # `!cancelled()` rather than `always()`: it must still report when the
+      # tripwire above failed (that is the case where the table matters
+      # most), but a cancelled run has nothing to say and should not open an
+      # issue on the way out.
+      - name: Verdict
+        if: ${{ !cancelled() }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, sys
+
+          p = pathlib.Path("dist-data/index.json")
+          if not p.exists():
+              print("VERDICT: FAIL -- no dist-data/index.json.")
+              print("  The build writes one whenever it promoted a tree, so a missing")
+              print("  index means it promoted nothing and nothing was published.")
+              print("  There is no verdict to give; the build step's own log is the")
+              print("  place to look.")
+              sys.exit(1)
+
+          d = json.loads(p.read_text(encoding="utf-8"))
+          attempt = d.get("last_attempt_status")
+          products = d.get("products") or {}
+
+          out = [
+              "generated_iso        %s" % d.get("generated_iso", "?"),
+              "last_attempt_status  %s" % attempt,
+              "",
+              "  %-14s %-9s %9s  %s" % ("product", "status", "age", "note"),
+          ]
+          bad = []
+          for name in sorted(products):
+              v = products[name] if isinstance(products[name], dict) else {}
+              st = v.get("status", "?")
+              # data_age_hours where the product publishes one (pfss does on
+              # the success path): age_hours is only when the MANIFEST was
+              # written, which is 0.00 on every run and therefore says
+              # nothing.  See freshness.yml for the same argument at length.
+              age = v.get("data_age_hours", v.get("age_hours"))
+              age_s = ("%.2f h" % age) if isinstance(age, (int, float)) else "? h"
+              out.append("  %-14s %-9s %9s  %s"
+                         % (name, st, age_s, v.get("note", "") or ""))
+              if st != "ok":
+                  bad.append("%s=%s" % (name, st))
+          if attempt != "ok":
+              bad.insert(0, "last_attempt_status=%s" % attempt)
+
+          table = "\n".join(out)
+          print(table)
+          # Handed to "Notify on failure" below, and to the run page so the
+          # table is readable without opening a log.
+          pathlib.Path("verdict.txt").write_text(table + "\n", encoding="utf-8")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write("### data verdict\n\n```\n%s\n```\n" % table)
+
+          if bad:
+              print("")
+              print("VERDICT: FAIL -- " + ", ".join(bad))
+              print("The tree above IS published and IS being served; this run is red")
+              print("so the degradation is seen rather than inferred a day later.")
+              sys.exit(1)
+          print("")
+          print("VERDICT: ok -- all %d products ok." % len(products))
+          PY
+
+      # `failure() && github.event_name != 'workflow_dispatch'` was the old
+      # shape of this and it is too narrow: a hand-dispatched run is usually
+      # somebody actively fixing something, which is exactly when the record
+      # is worth having.  Plain `failure()`.
+      #
+      # ONE issue with a FIXED title is the dashboard; each failure is a
+      # comment on it.  A new issue per failure would have produced six in
+      # 9.8 days and trained everyone to close them unread.
+      - name: Notify on failure
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # No GH_REPO and `gh` guesses from the git remote.  There IS a
+          # checkout in this job so it would work, but freshness.yml has no
+          # checkout at all and needs this -- keep the two steps the same
+          # shape so a fix to one is obviously portable to the other.
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -o pipefail
+          TITLE='data pipeline: scheduled run failing'
+
+          # The STEP NAMES, not the log.  `gh run view --log-failed` is
+          # actively misleading here (PFSS-UPDATE.md step 2 says so): it
+          # prints whatever exited non-zero, and this query does not -- a
+          # `continue-on-error` step that failed reports conclusion
+          # `success` in --json jobs.  Verified on run 33631551481, where
+          # `Probe upstreams (never fatal)` exited 1 as it does every run
+          # (GONG, footgun 33) and is reported `success`, while `Validate`
+          # is the one `failure`.  So this list is signal with no noise.
+          FAILED=$(gh run view "$RUN_ID" --json jobs \
+            --jq '[.jobs[].steps[] | select(.conclusion=="failure") | .name] | join(", ")' \
+            2>/dev/null || true)
+          [ -n "$FAILED" ] && [ "$FAILED" != "null" ] || FAILED='(no step reported failure yet -- open the run)'
+
+          {
+            echo "\`$FAILED\` failed on a \`$EVENT\` run at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+            echo
+            echo "$RUN_URL"
+            echo
+            if [ -s verdict.txt ]; then
+              echo "Verdict on the tree this run published:"
+              echo
+              echo '```'
+              cat verdict.txt
+              echo '```'
+            else
+              echo "No verdict table: the build never wrote \`dist-data/index.json\`, so nothing was promoted and nothing was published."
+            fi
+            echo
+            echo "If \`pfss\` is the stale product, this is the standing GONG block"
+            echo "(CLAUDE.md footgun 33) and the fix is the \`PFSS-UPDATE.md\` runbook,"
+            echo "not a code change. The permanent fix is the relay, TASKS.md T2."
+          } > notify-comment.md
+
+          # Label only if there is a label to use.  A missing or unlabelable
+          # issue must never be the reason a failure goes unreported, so
+          # every step of this is tolerant and the label is optional.
+          LABEL=()
+          if gh label list --limit 200 --json name --jq '.[].name' 2>/dev/null | grep -qx pipeline; then
+            LABEL=(--label pipeline)
+          elif gh label create pipeline --color B60205 \
+                 --description "data pipeline / live-data automation" >/dev/null 2>&1; then
+            LABEL=(--label pipeline)
+          else
+            echo "note: no 'pipeline' label and could not create one -- continuing unlabelled"
+          fi
+
+          # Searched by exact TITLE, not by label: a hand-edited label would
+          # otherwise orphan the thread and silently start a second one.
+          NUM=$(gh issue list --state open --search "in:title \"$TITLE\"" \
+                  --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -z "$NUM" ] || [ "$NUM" = "null" ]; then
+            gh issue create --title "$TITLE" --body-file notify-comment.md "${LABEL[@]}"
+          else
+            gh issue comment "$NUM" --body-file notify-comment.md
+            echo "commented on issue #$NUM"
+          fi
 
       # The 7-day artifact IS the audit trail: gh-pages keeps no history.
       - name: Upload artifact

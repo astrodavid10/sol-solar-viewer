@@ -59,6 +59,7 @@ from .config import (CACHE_DIR, DEFAULT_OUT, FRAME_SPACING_HOURS,
 from .io_utils import (PipelineError, Staging, age_hours, human_bytes, iso_z,
                        json_dumps, parse_iso_z, prune_dirs, read_json, unix_s,
                        utcnow, write_json)
+from .manifest_urls import manifest_url_set
 from .pfss import export as pfss_export
 from .pfss import seeds as pfss_seeds
 from .pfss import solve as pfss_solve
@@ -1212,6 +1213,21 @@ def _prune_orphan_textures(ctx: Ctx, results: List[ProductResult]) -> None:
     rsync would carry every frame ever built to gh-pages forever; the 443 KB of
     stale schema-1 maps this stage left behind before the switch to per-slot
     names is what that looks like at one file per channel.
+
+    "Orphan" is defined as NOT REFERENCED BY THE MANIFEST, not as "matches the
+    history-frame name pattern".  The pattern version missed the three schema-1
+    `aia*_carrington_2048x1024.jpg` maps entirely -- 443 KB that had been
+    published for two schema revisions and would have stayed forever, because
+    they predate the naming convention the pattern knew about.
+
+    The keep-set comes from ``manifest_urls.manifest_url_set``, i.e. a generic
+    walk, and not from a hand-written traversal.  The hand-written one was
+    patched four times -- ``off_limb.url``, then ``off_limb.tiers[]``, then
+    ``frames[].near_side.url``, then ``high_res.url`` -- and each omission
+    deleted files the SAME run had just written, on the very publish that
+    wrote them.  ``validate``'s existence pass now reads the same walker, so a
+    keep-set that forgets a nested url and a validator that misses it are no
+    longer independent mistakes.
     """
     res = next((r for r in results if r.name == "texture"), None)
     if res is None or res.status not in ("ok", "degraded"):
@@ -1219,48 +1235,7 @@ def _prune_orphan_textures(ctx: Ctx, results: List[ProductResult]) -> None:
     doc = read_json(ctx.out / "texture/texture.json")
     if not doc:
         return
-    layers = doc.get("layers") or []
-    # "Orphan" is defined as NOT REFERENCED BY THE MANIFEST, not as "matches the
-    # history-frame name pattern". The pattern version missed the three
-    # schema-1 `aia*_carrington_2048x1024.jpg` maps entirely -- 443 KB that had
-    # been published for two schema revisions and would have stayed forever,
-    # because they predate the naming convention the pattern knew about.
-    #
-    # Off-limb crops MUST be in the keep set: they are referenced from a nested
-    # `off_limb` block rather than as a layer url, and forgetting them here
-    # would delete the corona billboard on every publish.
-    keep = set()
-    for layer in layers:
-        if layer.get("url"):
-            keep.add(str(layer["url"]))
-        off = layer.get("off_limb")
-        if isinstance(off, dict):
-            if off.get("url"):
-                keep.add(str(off["url"]))
-            # And every rung of the ladder. `off_limb.url` names only the
-            # DEFAULT one, so keeping just that would delete the 2048 and 4096
-            # crops this same run wrote -- the exact failure mode the comment
-            # above records for off-limb crops generally, one nesting deeper.
-            for tier in (off.get("tiers") or []):
-                if isinstance(tier, dict) and tier.get("url"):
-                    keep.add(str(tier["url"]))
-        for fr in (layer.get("frames") or []):
-            if fr.get("url"):
-                keep.add(str(fr["url"]))
-            # ...and its near-side window, which hangs off the frame rather
-            # than being a frame url of its own. Same trap as off_limb.tiers:
-            # miss it and the prune deletes 19 windows per channel on the very
-            # publish that wrote them.
-            near = fr.get("near_side")
-            if isinstance(near, dict) and near.get("url"):
-                keep.add(str(near["url"]))
-        # The opt-in high-res map: absent when the layer was built without
-        # --with-hires (or its hi-res build failed), present as its own
-        # sibling .jpg otherwise. Missing this would delete the file the
-        # SAME run just wrote, on its very first publish.
-        hires = layer.get("high_res")
-        if isinstance(hires, dict) and hires.get("url"):
-            keep.add(str(hires["url"]))
+    keep = manifest_url_set(doc)
     # A manifest that named nothing would make every file an orphan. Refuse.
     if not keep:
         print("  WARN texture.json references no images; skipping prune")
@@ -1523,8 +1498,13 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     from .validate import validate
+    # Orphans are checked here and nowhere else: this command runs against a
+    # PROMOTED tree, where the pruner has already been.  The pre-promote pass
+    # inside `all` must not (an orphan is normal until the prune runs), and
+    # --url mode cannot (no directory listing over HTTP).
     ok, text = validate(root=args.root, base_url=args.url,
-                        strict=bool(args.strict), verbose=bool(args.verbose))
+                        strict=bool(args.strict), verbose=bool(args.verbose),
+                        check_orphans=bool(args.root))
     print("[validate] {0}".format(args.url or args.root or "."))
     print(text)
     return 0 if ok else 1

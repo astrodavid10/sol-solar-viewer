@@ -54,7 +54,8 @@ from .config import (CME_MIN_SPEED_KMS, EVENTS_MAX_BYTES,
                      TEX_OUT_H, TEX_OUT_W, TEX_HIST_H, TEX_HIST_W,
                      TEX_HIST_MAX_BYTES, TEX_HIST_TOLERANCE_HOURS,
                      WIND_BIN_MINUTES, WINDOW_HOURS)
-from .io_utils import age_hours, http_get, parse_iso_z
+from .io_utils import age_hours, http_get, http_size, parse_iso_z
+from .manifest_urls import iter_manifest_urls, manifest_url_set
 from .pfss.export import (MAX_DEQUANT_ERR, dequantize, frame_bytes_expected,
                           topology_bytes_expected, unpack_frame,
                           unpack_topology)
@@ -123,6 +124,34 @@ def _loader(root: Optional[str], base_url: Optional[str]
     return get_file
 
 
+def _prober(root: Optional[str], base_url: Optional[str]
+            ) -> Callable[[str], Optional[int]]:
+    """Cheap "is this file there, and non-empty?" probe -> size or None.
+
+    Separate from ``_loader`` because the existence pass covers EVERY file a
+    manifest names -- 110 of them in the published tree, ~28 MB -- and the
+    point is to assert presence without paying to download it.  Locally that
+    is a ``stat``; over HTTP it is a HEAD with a ranged-GET fallback (see
+    ``io_utils.http_size``).
+    """
+    if base_url:
+        base = base_url if base_url.endswith("/") else base_url + "/"
+
+        def probe_url(rel: str) -> Optional[int]:
+            return http_size(urljoin(base, rel))
+        return probe_url
+
+    rootp = Path(root or ".")
+
+    def probe_file(rel: str) -> Optional[int]:
+        p = rootp / rel
+        try:
+            return p.stat().st_size if p.is_file() else None
+        except OSError:
+            return None
+    return probe_file
+
+
 def _json(get: Callable[[str], Optional[bytes]], rel: str) -> Optional[dict]:
     import json
     raw = get(rel)
@@ -138,6 +167,107 @@ def _rz(deg: float) -> np.ndarray:
     a = math.radians(deg)
     c, s = math.cos(a), math.sin(a)
     return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+
+
+# Where each product's manifest lives.  Also the product-name vocabulary
+# ``cli.build_index`` uses for index entries, deliberately -- a per-product
+# report keyed on anything else would need a translation table.
+PRODUCT_MANIFESTS = {
+    "pfss": "pfss/manifest.json",
+    "active_regions": "ar/regions.json",
+    "ephemeris": "ephem/spacecraft.json",
+    "stats": "stats/summary.json",
+    "texture": "texture/texture.json",
+    "events": "events/events.json",
+}
+
+# Products that own data files next to their manifest, and the globs that say
+# what "every file in this directory" means for the orphan check.  Anything
+# matching and unreferenced is an orphan; anything not matching (the manifest
+# itself, a .nojekyll) is not this check's business.
+_PRODUCT_OWNED_GLOBS = {
+    "pfss": ("*.bin",),
+    "texture": ("*.jpg",),
+}
+
+
+def _check_referenced_files(rep: Report, probe: Callable[[str], Optional[int]],
+                            product: str, doc: Optional[dict]) -> int:
+    """Every file this manifest names is present and non-empty.
+
+    THE CHEAP CHECK THAT WAS MISSING.  ``_check_texture_frames`` decodes three
+    frames per channel of eighteen, so 60 of 110 referenced files were never
+    looked at in any way -- delete a non-sampled history frame from a copy of
+    the published tree and ``validate --strict`` passed.  Footgun 35's
+    production failure was precisely that shape: a ``texture.json`` naming
+    fifteen history frames of which four were on disk, exit code 0.
+
+    It runs BEFORE the decode sampling and does not replace it: presence is a
+    different question from "decodes at the declared size and is not blank",
+    and this one is affordable for all 110 files where that one is not.
+
+    Returns the number of files probed, so the coverage is never silent.
+    """
+    if not doc:
+        return 0
+    directory = PRODUCT_MANIFESTS[product].rpartition("/")[0]
+    names = list(iter_manifest_urls(doc))
+    missing, empty = [], []
+    for name in names:
+        size = probe("{0}/{1}".format(directory, name) if directory else name)
+        if size is None:
+            missing.append(name)
+        elif size <= 0:
+            empty.append(name)
+    rep.check(not missing,
+              "{0}: every file the manifest names is in the tree".format(
+                  product),
+              "{0} of {1} missing: {2}".format(len(missing), len(names),
+                                               sorted(missing)[:8]))
+    rep.check(not empty,
+              "{0}: no referenced file is zero bytes".format(product),
+              "{0}".format(sorted(empty)[:8]))
+    rep.info("{0}: {1} referenced file(s) probed".format(product, len(names)))
+    return len(names)
+
+
+def _check_no_orphans(rep: Report, root: Optional[str], product: str,
+                      doc: Optional[dict]) -> None:
+    """No file in the product's directory is unreferenced by its manifest.
+
+    ROOT MODE ONLY (there is no directory listing over HTTP) and POST-PROMOTE
+    only: before the prune runs, an orphan is the NORMAL state -- the window
+    slid, last run's oldest history frame is still on disk, and the pruner has
+    not been called yet.  Asserting it there would fail every healthy run,
+    which is why ``check_orphans`` is a parameter and defaults to off.
+
+    Why it is a FAIL and not a warning: ``publish_gh_pages.sh`` rsyncs the
+    tree, so an orphan is bytes served forever.  The 443 KB of schema-1 maps
+    that survived two schema revisions is what that looks like when nobody
+    checks.
+    """
+    if not doc or root is None:
+        return
+    globs = _PRODUCT_OWNED_GLOBS.get(product)
+    if not globs:
+        return
+    directory = Path(root) / PRODUCT_MANIFESTS[product].rpartition("/")[0]
+    if not directory.is_dir():
+        return
+    keep = manifest_url_set(doc)
+    if not keep:
+        # Same refusal as the pruner's: a manifest that named nothing would
+        # make every file an orphan, and that is a manifest bug, not 110 of
+        # them.  Other checks will have failed already.
+        rep.warn("{0}: manifest references no files; orphan check "
+                 "skipped".format(product))
+        return
+    orphans = sorted(p.name for g in globs for p in directory.glob(g)
+                     if p.name not in keep)
+    rep.check(not orphans,
+              "{0}: no unreferenced files in {1}/".format(
+                  product, directory.name),
+              "{0} orphan(s): {1}".format(len(orphans), orphans[:8]))
 
 
 def _check_index(rep: Report, idx: Optional[dict]) -> None:
@@ -1345,13 +1475,32 @@ def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict,
 
 
 def validate(root: Optional[str] = None, base_url: Optional[str] = None,
-             strict: bool = False, verbose: bool = False) -> Tuple[bool, str]:
-    """Validate a data tree.  Returns (ok, report_text)."""
+             strict: bool = False, verbose: bool = False,
+             check_orphans: bool = False) -> Tuple[bool, str]:
+    """Validate a data tree.  Returns (ok, report_text).
+
+    ``check_orphans`` asserts that nothing in ``pfss/`` or ``texture/`` is
+    unreferenced.  Root mode only, and only meaningful POST-promote: before
+    the pruner runs an orphan is the normal state.  See _check_no_orphans.
+    """
     get = _loader(root, base_url)
+    probe = _prober(root, base_url)
     rep = Report(verbose=verbose)
 
     idx = _json(get, "index.json")
     _check_index(rep, idx)
+
+    # Cheap and total, before anything expensive: every file every manifest
+    # names is actually in the tree.  The decode sampling below covers three
+    # frames per channel; this covers all 110.
+    for name, rel in PRODUCT_MANIFESTS.items():
+        doc = _json(get, rel)
+        if doc is None:
+            continue
+        _check_referenced_files(rep, probe, name, doc)
+        if check_orphans:
+            _check_no_orphans(rep, root, name, doc)
+
     n_regions = _check_side_products(rep, get, idx)
     _check_texture(rep, get, idx)
     _check_events(rep, get, idx)

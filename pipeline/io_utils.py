@@ -332,6 +332,52 @@ def http_get(url: str, timeout: float = 30.0) -> bytes:
     return http_get_full(url, timeout)[0]
 
 
+def http_size(url: str, timeout: float = 15.0) -> Optional[int]:
+    """Byte size of a remote file, or None if it is not there.
+
+    Exists so ``validate --url`` can assert that every file a manifest names
+    is actually served without downloading it: the published texture tree is
+    ~28 MB across 110 files, and confirming presence is not worth 28 MB.
+
+    HEAD first -- GitHub Pages answers it with a real ``Content-Length``.  The
+    fallback is a one-byte ranged GET, because a HEAD is the request origins
+    are most likely to refuse (CCMC DONKI 403s a HEAD and 200s the identical
+    GET, per the data-sources notes), and a 206 carries ``Content-Range``
+    whose total after the slash is the true size.  A 200 to the ranged request
+    means the origin ignored the range, so the body length is the size.
+
+    None means "could not be confirmed present", which is what the caller
+    reports -- deliberately NOT distinguished from a 404, because for a
+    publish decision an unreachable file and a missing one have the same
+    consequence for the guest.
+    """
+    req = urllib.request.Request(url, headers=HEADERS, method="HEAD")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            n = resp.headers.get("content-length")
+            if n is not None:
+                return int(n)
+            return len(resp.read())
+    except Exception:                                          # noqa: BLE001
+        pass
+    req = urllib.request.Request(
+        url, headers=dict(HEADERS, Range="bytes=0-0"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            rng = resp.headers.get("content-range") or ""
+            total = rng.rpartition("/")[2].strip()
+            if total.isdigit():
+                return int(total)
+            body = resp.read()
+            if resp.status == 200:
+                return len(body)
+            # A 206 with no parseable Content-Range still proves the file is
+            # there and non-empty, which is all this check is for.
+            return len(body) or None
+    except Exception:                                          # noqa: BLE001
+        return None
+
+
 def http_get_text(url: str, timeout: float = 30.0) -> str:
     return http_get(url, timeout).decode("utf-8", errors="replace")
 

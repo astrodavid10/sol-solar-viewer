@@ -26,7 +26,13 @@ HEADERS = {"User-Agent": USER_AGENT}
 
 # Schema identifiers written into every product (the app pins on these).
 SCHEMA_INDEX = "sol.index/1"
-SCHEMA_PFSS = "sol.pfss/1"
+SCHEMA_PFSS = "sol.pfss/2"    # /2 adds `seed_regions` + `newest_mag_unix`
+# The pfss validator accepts /1 as well, which no other product's does, for a
+# specific reason: CI cannot retrace the field at all (footgun 33 -- gong2.nso
+# is unreachable from GitHub runners), so a schema bump that rejected the
+# served manifest would block every publish until someone rebuilt by hand from
+# a GONG-reachable machine. Both new fields are additive, so /1 stays valid.
+SCHEMA_PFSS_ACCEPTED = ("sol.pfss/1", "sol.pfss/2")
 SCHEMA_EPHEM = "sol.ephem/1"
 SCHEMA_AR = "sol.ar/3"        # /2 adds `history`; /3 adds its positions
 SCHEMA_STATS = "sol.stats/1"

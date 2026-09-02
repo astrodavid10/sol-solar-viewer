@@ -58,7 +58,8 @@ import numpy as np
 
 from .config import (CME_MIN_SPEED_KMS, EVENTS_MAX_BYTES,
                      EVENTS_WINDOW_SLACK_HOURS, LIM_RSUN, SCHEMA_AR,
-                     SCHEMA_EPHEM, SCHEMA_EVENTS, SCHEMA_INDEX, SCHEMA_PFSS,
+                     SCHEMA_EPHEM, SCHEMA_EVENTS, SCHEMA_INDEX,
+                     SCHEMA_PFSS_ACCEPTED,
                      SCHEMA_STATS, SCHEMA_TEXTURE,
                      TEX_NEAR_W, TEX_NEAR_H, TEX_NEAR_CDELT_DEG,
                      TEX_NEAR_LON_SPAN_DEG, TEX_NEAR_MAX_BYTES,
@@ -85,6 +86,15 @@ class Report:
         self.lines: List[str] = []
         self.failures = 0
         self.warnings = 0
+        # Advisory WARN lines: printed like any other warning, but NOT counted
+        # in `warnings`, so --strict does not promote them to failures.  This
+        # level exists because `--strict` (which is how CI runs) makes a
+        # warning exactly as fatal as a failure, and there is one thing the
+        # validator has to SAY without being able to stop a publish for it:
+        # that some of a frozen seed set's regions have left NOAA's list.
+        # That is normal (footgun 23), it happens on a ~2-day fuse, and making
+        # it fatal is how footgun 50 blocked six products at once.
+        self.advisories = 0
         self.verbose = verbose
 
     def check(self, cond: bool, label: str, detail: str = "") -> bool:
@@ -96,8 +106,13 @@ class Report:
                 label, "  -- " + detail if detail else ""))
         return bool(cond)
 
-    def warn(self, label: str) -> None:
-        self.warnings += 1
+    def warn(self, label: str, strict_fatal: bool = True) -> None:
+        """A WARN line.  ``strict_fatal=False`` makes it advisory -- see
+        ``self.advisories``."""
+        if strict_fatal:
+            self.warnings += 1
+        else:
+            self.advisories += 1
         self.lines.append("  WARN  {0}".format(label))
 
     def info(self, label: str) -> None:
@@ -109,10 +124,12 @@ class Report:
         return self.failures == 0
 
     def text(self) -> str:
+        extra = ("" if not self.advisories
+                 else ", {0} advisory".format(self.advisories))
         return "\n".join(self.lines + [
-            "  {0}: {1} check(s) failed, {2} warning(s)".format(
+            "  {0}: {1} check(s) failed, {2} warning(s){3}".format(
                 "FAILED" if self.failures else "OK", self.failures,
-                self.warnings)])
+                self.warnings, extra)])
 
 
 def _loader(root: Optional[str], base_url: Optional[str]
@@ -338,8 +355,14 @@ _FRAME_KEYS = ("index", "url", "bytes", "target_iso", "mag_iso", "mag_unix",
 
 
 def _check_manifest_schema(rep: Report, man: dict) -> None:
-    rep.check(man.get("schema") == SCHEMA_PFSS, "manifest schema",
-              "got {0!r}".format(man.get("schema")))
+    # A SET, unlike every other product's exact-equality schema check, and for
+    # a stated reason: CI cannot retrace the field (footgun 33), so rejecting
+    # the served /1 manifest on a schema bump would block every publish until
+    # someone rebuilt by hand from a GONG-reachable machine. Both of /2's
+    # additions (seed_regions, newest_mag_unix) are additive.
+    rep.check(man.get("schema") in SCHEMA_PFSS_ACCEPTED, "manifest schema",
+              "got {0!r}, accept {1}".format(man.get("schema"),
+                                             list(SCHEMA_PFSS_ACCEPTED)))
     for key in _MANIFEST_KEYS:
         rep.check(key in man, "manifest has {0}".format(key))
     rep.check(man.get("status") in ("ok", "degraded"), "manifest status",
@@ -436,8 +459,77 @@ def _check_matrices(rep: Report, man: dict) -> None:
                       "{0:.3e}".format(e_q))
 
 
-def _check_binaries(rep: Report, get, man: dict, n_regions: Optional[int]
-                    ) -> None:
+def _check_ar_index(rep: Report, man: dict, ar: "np.ndarray",
+                    region_numbers: Optional[List[int]]) -> None:
+    """topology.bin's ar_index column.
+
+    THE BOUND IS SELF-CONSISTENT NOW, and that is the whole fix.  ar_index is a
+    POSITION, and it used to be bounded against ``ar/regions.json`` -- a table
+    CI regenerates every four hours -- while the seed set that produced it is
+    frozen for the day it was traced.  NOAA's list went 6 -> 5 -> 4 over three
+    days, so any published product older than the next contraction failed:
+
+        FAIL ar_index within regions.json bounds -- range [-1,5] vs 5 regions
+
+    Measured 2026-08-30, and because ``Validate`` ran before ``Publish`` and
+    judged the tree as a whole, the five products CI *could* build were
+    discarded with it -- the site fell 13 h behind on everything (footgun 50).
+    Five of the six CI failures were this.
+
+    Schema /2's ``seed_regions`` records what the seeds were frozen against, so
+    the hard bound becomes ``max(ar_index) < len(seed_regions)``, which no
+    upstream can invalidate.  The comparison against today's list survives as
+    ADVICE -- a region leaving the SRS is normal (footgun 23 already says an
+    ar_index of -1 is normal for exactly this reason) -- and advisory means
+    "printed, never fatal, even under --strict" (see Report.advisories).
+
+    A manifest WITHOUT ``seed_regions`` gets the old behaviour, deliberately:
+    the currently published product is schema /1 and CI cannot retrace it
+    (footgun 33), so it has to keep validating as it did.
+    """
+    lo, hi = int(ar.min()), int(ar.max())
+    rep.check(lo >= -1, "ar_index >= -1", "min {0}".format(lo))
+
+    seed_regions = man.get("seed_regions")
+    if not isinstance(seed_regions, list) or not seed_regions:
+        if seed_regions is not None and not isinstance(seed_regions, list):
+            rep.check(False, "manifest seed_regions is a list",
+                      "got {0!r}".format(type(seed_regions).__name__))
+        n_regions = None if region_numbers is None else len(region_numbers)
+        if n_regions is None:
+            rep.warn("regions.json missing; ar_index upper bound unchecked")
+        else:
+            rep.check(hi < max(1, n_regions),
+                      "ar_index within regions.json bounds (legacy manifest, "
+                      "no seed_regions)",
+                      "range [{0},{1}] vs {2} regions".format(lo, hi,
+                                                              n_regions))
+        return
+
+    rep.check(all(isinstance(v, int) and v > 0 for v in seed_regions),
+              "seed_regions are positive NOAA region numbers",
+              "got {0}".format(seed_regions[:8]))
+    rep.check(hi < len(seed_regions),
+              "ar_index within seed_regions bounds",
+              "range [{0},{1}] vs {2} seed region(s)".format(
+                  lo, hi, len(seed_regions)))
+
+    if region_numbers is None:
+        rep.info("ar/regions.json absent; seed_regions cross-check skipped")
+        return
+    today = set(region_numbers)
+    gone = [n for n in seed_regions if n not in today]
+    if gone:
+        rep.warn("{0} of {1} seed regions no longer listed in "
+                 "ar/regions.json (rotated off or dropped): {2}".format(
+                     len(gone), len(seed_regions), gone),
+                 strict_fatal=False)
+    else:
+        rep.check(True, "every seed region is still listed in ar/regions.json")
+
+
+def _check_binaries(rep: Report, get, man: dict,
+                    region_numbers: Optional[List[int]]) -> None:
     geom = man["geometry"]
     n_lines = int(geom["n_lines"])
     n_verts = int(geom["n_verts_total"])
@@ -470,14 +562,7 @@ def _check_binaries(rep: Report, get, man: dict, n_regions: Optional[int]
     rep.check(int(off[0]) == 0, "line_offset[0] == 0")
     rep.check(int(off[-1]) == n_verts, "line_offset[n_lines] == n_verts_total")
     ar = topo["ar_index"].astype(np.int64)
-    lo, hi = int(ar.min()), int(ar.max())
-    if n_regions is None:
-        rep.warn("regions.json missing; ar_index upper bound unchecked")
-        rep.check(lo >= -1, "ar_index >= -1", "min {0}".format(lo))
-    else:
-        rep.check(lo >= -1 and hi < max(1, n_regions),
-                  "ar_index within regions.json bounds",
-                  "range [{0},{1}] vs {2} regions".format(lo, hi, n_regions))
+    _check_ar_index(rep, man, ar, region_numbers)
     rep.check(int((ar[:int(geom["n_bg_lines"])] == -1).all()),
               "first n_bg_lines rows are background (ar_index == -1)")
 
@@ -694,19 +779,29 @@ def _check_regions(rep: Report, get, idx: Optional[dict]) -> Optional[int]:
     return n_regions
 
 
-def _region_count(get) -> Optional[int]:
-    """Region count WITHOUT reporting anything -- the cross-product read.
+def _region_numbers(get) -> Optional[List[int]]:
+    """Today's NOAA region numbers, in ar_index order, WITHOUT reporting.
 
-    pfss and events both address ``ar/regions.json`` by position, so both need
-    this number; neither owns the file, so neither may report on it.  Keeping
-    the read silent is what stops a regions defect from appearing as a failure
-    of its two consumers as well (which is how one bad latitude took down six
-    products).
+    The cross-product read.  pfss and events both address ``ar/regions.json``
+    by position, so both need it; neither owns the file, so neither may report
+    on it.  Keeping the read silent is what stops a regions defect from
+    appearing as a failure of its two consumers as well -- which is how one
+    bad latitude took down six products (footgun 51).
+
+    The NUMBERS and not just the count, because the pfss seed_regions
+    cross-check has to name the regions that have left the list.  None means
+    the file is absent; an empty list means it is present and empty.
     """
     doc = _json(get, "ar/regions.json")
     if doc is None:
         return None
-    return len(doc.get("regions") or [])
+    out = []
+    for r in doc.get("regions") or []:
+        if isinstance(r, dict) and isinstance(r.get("number"), int):
+            out.append(int(r["number"]))
+        else:
+            out.append(-1)          # malformed; _check_regions reports it
+    return out
 
 
 def _check_ephem(rep: Report, get, idx: Optional[dict]) -> None:
@@ -1514,7 +1609,7 @@ def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict,
 
 
 def _check_pfss(rep: Report, get, idx: Optional[dict],
-                n_regions: Optional[int]) -> None:
+                region_numbers: Optional[List[int]]) -> None:
     """pfss/manifest.json + topology.bin + every fNN.bin."""
     man = _json(get, "pfss/manifest.json")
     if man is None:
@@ -1525,7 +1620,7 @@ def _check_pfss(rep: Report, get, idx: Optional[dict],
         return
     _check_manifest_schema(rep, man)
     if "geometry" in man and "frames" in man:
-        _check_binaries(rep, get, man, n_regions)
+        _check_binaries(rep, get, man, region_numbers)
         _check_matrices(rep, man)
 
 
@@ -1690,9 +1785,9 @@ def validate_products(target, *, strict: bool = False,
     if "index" in want:
         _check_index(report("index"), idx)
 
-    n_regions: Optional[int] = None
+    region_numbers: Optional[List[int]] = None
     if want & {"pfss", "events"}:
-        n_regions = _region_count(get)
+        region_numbers = _region_numbers(get)
 
     for name in PRODUCT_ORDER:
         if name == "index" or name not in want:
@@ -1717,7 +1812,7 @@ def validate_products(target, *, strict: bool = False,
         elif name == "events":
             _check_events(rep, get, idx)
         elif name == "pfss":
-            _check_pfss(rep, get, idx, n_regions)
+            _check_pfss(rep, get, idx, region_numbers)
 
     return reports
 

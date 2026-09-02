@@ -15,7 +15,8 @@ interleaved rather than convenient.
     uint32[n_lines+1]  line_offset       # cumulative; [n_lines]==n_verts_total
     int16[n_lines]     seed_lat_cdeg     # seed latitude * 100, degrees
     uint16[n_lines]    seed_lon_u16      # seed Carrington lon * 65536/360
-    int16[n_lines]     ar_index          # index into regions.json, -1 = grid
+    int16[n_lines]     ar_index          # index into manifest.seed_regions,
+                                         # -1 = background grid
 
 ``fNN.bin`` -- one per frame, NN = 00..12 with the highest index newest::
 
@@ -32,6 +33,21 @@ interleaved rather than convenient.
 
 Polarity is per FRAME, not per line: a loop that opens up between two
 magnetograms genuinely changes class, and the app recolors accordingly.
+
+``ar_index`` USED to be documented as an index into ``ar/regions.json``, and
+that was the bug: it is a POSITION into a table CI regenerates every four
+hours, while the seed set that produced it is frozen for the day it was
+traced.  NOAA's region list went 6 -> 5 -> 4 over three days, so any published
+product older than the next contraction had an ar_index running off the end of
+the current list -- a ~2-day fuse that took down the WHOLE publish (footgun
+50), because validation was all-or-nothing and ran after the promote.
+Schema ``sol.pfss/2`` therefore ships ``seed_regions``: the NOAA region numbers
+the seed set was frozen against, aligned with the ar_index positions, so
+``ar_index i`` means ``seed_regions[i]``.  The binary format is UNCHANGED --
+this is a manifest field, not a format change -- and the bound the validator
+enforces becomes self-consistent (``max(ar_index) < len(seed_regions)``) with
+the comparison against today's ``regions.json`` demoted to advice, since a
+region leaving the SRS is normal (footgun 23).
 """
 
 from __future__ import annotations
@@ -309,7 +325,19 @@ def build_manifest(*, generated: datetime, run_id: str, status: str,
         "render_hints": dict(render_hints(),
                              recommended_first_frame=len(frames) - 1),
         "frames": frames,
+        # What ar_index actually addresses: the NOAA region numbers this seed
+        # set was FROZEN against, in ar_index order.  See the module docstring
+        # for why a bare position into ar/regions.json was a ~2-day fuse.
+        # Empty only when the seed set came from an npz predating the field and
+        # its cached region list was gone too, in which case the validator
+        # falls back to the old bound.
+        "seed_regions": list(ss.region_numbers),
         "active_regions_url": "../ar/regions.json",
+        "seed_regions_note": (
+            "ar_index i in topology.bin refers to seed_regions[i], the NOAA "
+            "AR number this seed set was frozen against; -1 is the background "
+            "grid. A number missing from ar/regions.json means the region "
+            "rotated off or was dropped since the trace, which is normal."),
     }
 
 

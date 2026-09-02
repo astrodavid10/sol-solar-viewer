@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -81,6 +81,11 @@ class SeedSet:
     regions: List[Dict]
     srs_epoch: Optional[date]
     seed_set_id: str
+    # NOAA region numbers (the 4-digit SRS ones, footgun 23) in ar_index
+    # ORDER: entry k is the region `ar_index == k` refers to.  This is what
+    # makes `ar_index` self-describing instead of a bare position into a table
+    # NOAA rewrites daily -- see build_manifest's `seed_regions`.
+    region_numbers: List[int] = field(default_factory=list)
     source: str = "srs"
 
     @property
@@ -154,6 +159,20 @@ def build_seed_arrays(regions: Sequence[Dict], rng_seed: int = SEED_RNG_SEED
     return (lats_all, lons_all, rs_all, ar_all.astype(np.int16), n_bg, counts)
 
 
+def region_numbers_for(regions: Sequence[Dict]) -> List[int]:
+    """NOAA region numbers in ar_index order.
+
+    One line, but it has one job: `build_seed_arrays` enumerates `regions` and
+    writes `ri` into `ar_index`, and `regions.export` writes `regions.json` in
+    the SAME order, so position k means the same region in three files.  This
+    is that mapping made explicit and shippable.
+
+    `rnumber` is the SRS 4-digit number (footgun 23: DONKI reports the same
+    region 10000 higher, and joining on the wrong one silently matches zero).
+    """
+    return [int(r["rnumber"]) for r in regions]
+
+
 def _seed_cache_path(cache_root: Path, seed_set_id: str) -> Path:
     return Path(cache_root) / "seeds" / "{0}.npz".format(seed_set_id)
 
@@ -168,6 +187,7 @@ def save_seed_set(cache_root: Path, ss: SeedSet) -> Path:
         str(tmp), lats=ss.lats, lons=ss.lons, rs=ss.rs,
         ar_index=ss.ar_index, n_bg=np.int32(ss.n_bg),
         region_seed_counts=np.asarray(ss.region_seed_counts, dtype=np.int32),
+        region_numbers=np.asarray(ss.region_numbers, dtype=np.int64),
         regions_json=np.array(json.dumps(ss.regions)),
         srs_epoch=np.array(ss.srs_epoch.isoformat() if ss.srs_epoch else ""),
         seed_set_id=np.array(ss.seed_set_id),
@@ -190,16 +210,33 @@ def load_newest_seed_set(cache_root: Path) -> Optional[SeedSet]:
         try:
             with np.load(str(path), allow_pickle=False) as z:
                 epoch_s = str(z["srs_epoch"])
+                regions = json.loads(str(z["regions_json"]))
+                # An npz written before `region_numbers` existed simply has no
+                # such array.  Re-deriving it from the cached `regions` list is
+                # EXACTLY what freeze_seed_set would have stored -- both read
+                # `rnumber` off the same list in the same order -- so a rebuild
+                # of the arrays would burn a second for a bit-identical answer.
+                # If the cached regions are gone too, the list is empty and the
+                # manifest publishes no `seed_regions`, which falls back to the
+                # legacy bound-against-regions.json check by design.
+                if "region_numbers" in getattr(z, "files", []):
+                    numbers = [int(v) for v in z["region_numbers"]]
+                else:
+                    numbers = region_numbers_for(regions)
+                    print("  seed cache {0}: no region_numbers; derived {1} "
+                          "from the cached region list".format(
+                              path.name, len(numbers)))
                 return SeedSet(
                     lats=z["lats"], lons=z["lons"], rs=z["rs"],
                     ar_index=z["ar_index"].astype(np.int16),
                     n_bg=int(z["n_bg"]),
                     region_seed_counts=[int(v) for v in
                                         z["region_seed_counts"]],
-                    regions=json.loads(str(z["regions_json"])),
+                    regions=regions,
                     srs_epoch=(_date.fromisoformat(epoch_s) if epoch_s
                                else None),
                     seed_set_id=str(z["seed_set_id"]),
+                    region_numbers=numbers,
                     source="cached seeds {0}".format(path.name),
                 )
         except Exception as exc:
@@ -215,6 +252,7 @@ def freeze_seed_set(regions: Sequence[Dict], srs_epoch: Optional[date],
                  region_seed_counts=counts, regions=list(regions),
                  srs_epoch=srs_epoch,
                  seed_set_id=compute_seed_set_id(srs_epoch, regions),
+                 region_numbers=region_numbers_for(regions),
                  source=source)
     save_seed_set(cache_root, ss)
     return ss

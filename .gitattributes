@@ -1,0 +1,3 @@
+# Publish every byte verbatim: a magnetogram must not be
+# line-ending-normalized by core.autocrlf. See gong_mirror.py.
+* -text

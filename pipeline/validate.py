@@ -1,8 +1,21 @@
 """Validate a published data tree (local directory or live URL).
 
-Runs in CI with ``--strict`` so a bad product fails the build instead of being
-served.  The checks are ordered cheapest-first and each one exists because
-getting it wrong produces a *silent* visual bug rather than an error:
+Runs in CI with ``--strict`` so a bad product is not served.  Two entry points,
+and the difference between them is the whole failure policy:
+
+* :func:`validate_products` judges ONE PRODUCT AT A TIME and returns a
+  :class:`Report` each.  ``cmd_all`` runs it over a staging-over-published
+  overlay (:func:`overlay_tree`) BEFORE the promote, so a product that fails
+  can be rolled back on its own and the rest still publish.  This exists
+  because all-or-nothing validation after the promote is what turned one bad
+  record in someone else's feed into six stale products, twice: footgun 50
+  (a frozen seed set's ar_index running off the end of a shrinking NOAA
+  region list) and footgun 51 (NOAA keying a sunspot at latitude 98).
+* :func:`validate` ANDs the lot for a tree that is already published, which
+  is what ``python -m pipeline validate`` and the ``--url`` path want.
+
+The checks are ordered cheapest-first and each one exists because getting it
+wrong produces a *silent* visual bug rather than an error:
 
 1. schema/keys      -- app pins on ``schema``; a rename must fail loudly.
 2. topology.bin     -- monotone offsets, final offset == n_verts_total,
@@ -37,7 +50,8 @@ import io
 import math
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import (Callable, Dict, Iterable, List, NamedTuple, Optional, Set,
+                    Tuple)
 from urllib.parse import urljoin
 
 import numpy as np
@@ -654,8 +668,14 @@ def _check_region_history(rep: Report, regions: dict) -> None:
                                                               n_spotted))
 
 
-def _check_side_products(rep: Report, get, idx: Optional[dict]
-                         ) -> Optional[int]:
+def _check_regions(rep: Report, get, idx: Optional[dict]) -> Optional[int]:
+    """ar/regions.json.  Returns the region count, or None if it is absent.
+
+    Split out of a combined `_check_side_products` so a per-product report can
+    exist: footguns 50 and 51 are both "one bad record in this file discarded
+    the five products CI had just built correctly", and that is only fixable if
+    the checks are addressable one product at a time.
+    """
     n_regions: Optional[int] = None
     regions = _json(get, "ar/regions.json")
     if regions is None:
@@ -663,15 +683,33 @@ def _check_side_products(rep: Report, get, idx: Optional[dict]
             rep.check(False, "ar/regions.json present (index says ok)")
         else:
             rep.info("ar/regions.json absent (index does not claim it)")
-    else:
-        rep.check(regions.get("schema") == SCHEMA_AR, "regions.json schema")
-        rep.check(isinstance(regions.get("regions"), list),
-                  "regions.json regions is a list")
-        n_regions = len(regions.get("regions") or [])
-        rep.check(int(regions.get("count", -1)) == n_regions,
-                  "regions.json count matches array length")
-        _check_region_history(rep, regions)
+        return None
+    rep.check(regions.get("schema") == SCHEMA_AR, "regions.json schema")
+    rep.check(isinstance(regions.get("regions"), list),
+              "regions.json regions is a list")
+    n_regions = len(regions.get("regions") or [])
+    rep.check(int(regions.get("count", -1)) == n_regions,
+              "regions.json count matches array length")
+    _check_region_history(rep, regions)
+    return n_regions
 
+
+def _region_count(get) -> Optional[int]:
+    """Region count WITHOUT reporting anything -- the cross-product read.
+
+    pfss and events both address ``ar/regions.json`` by position, so both need
+    this number; neither owns the file, so neither may report on it.  Keeping
+    the read silent is what stops a regions defect from appearing as a failure
+    of its two consumers as well (which is how one bad latitude took down six
+    products).
+    """
+    doc = _json(get, "ar/regions.json")
+    if doc is None:
+        return None
+    return len(doc.get("regions") or [])
+
+
+def _check_ephem(rep: Report, get, idx: Optional[dict]) -> None:
     ephem = _json(get, "ephem/spacecraft.json")
     if ephem is None:
         if _claims_present(idx, "ephemeris"):
@@ -690,6 +728,8 @@ def _check_side_products(rep: Report, get, idx: Optional[dict]
         rep.check(isinstance(ni, int) and 0 <= ni < max(1, len(epochs)),
                   "spacecraft.json now_index in range")
 
+
+def _check_stats(rep: Report, get, idx: Optional[dict]) -> None:
     stats = _json(get, "stats/summary.json")
     if stats is None:
         if _claims_present(idx, "stats"):
@@ -700,7 +740,6 @@ def _check_side_products(rep: Report, get, idx: Optional[dict]
         rep.check(stats.get("schema") == SCHEMA_STATS, "summary.json schema")
         rep.check("carrington" in stats, "summary.json carrington block")
         _check_wind_window(rep, stats)
-    return n_regions
 
 
 def _check_wind_window(rep: Report, stats: dict) -> None:
@@ -1474,48 +1513,255 @@ def _check_texture_jpeg(rep: Report, get, doc: dict, name, entry: dict,
               "mean {0:.1f} std {1:.1f}".format(mean, std))
 
 
-def validate(root: Optional[str] = None, base_url: Optional[str] = None,
-             strict: bool = False, verbose: bool = False,
-             check_orphans: bool = False) -> Tuple[bool, str]:
-    """Validate a data tree.  Returns (ok, report_text).
-
-    ``check_orphans`` asserts that nothing in ``pfss/`` or ``texture/`` is
-    unreferenced.  Root mode only, and only meaningful POST-promote: before
-    the pruner runs an orphan is the normal state.  See _check_no_orphans.
-    """
-    get = _loader(root, base_url)
-    probe = _prober(root, base_url)
-    rep = Report(verbose=verbose)
-
-    idx = _json(get, "index.json")
-    _check_index(rep, idx)
-
-    # Cheap and total, before anything expensive: every file every manifest
-    # names is actually in the tree.  The decode sampling below covers three
-    # frames per channel; this covers all 110.
-    for name, rel in PRODUCT_MANIFESTS.items():
-        doc = _json(get, rel)
-        if doc is None:
-            continue
-        _check_referenced_files(rep, probe, name, doc)
-        if check_orphans:
-            _check_no_orphans(rep, root, name, doc)
-
-    n_regions = _check_side_products(rep, get, idx)
-    _check_texture(rep, get, idx)
-    _check_events(rep, get, idx)
-
+def _check_pfss(rep: Report, get, idx: Optional[dict],
+                n_regions: Optional[int]) -> None:
+    """pfss/manifest.json + topology.bin + every fNN.bin."""
     man = _json(get, "pfss/manifest.json")
     if man is None:
         if _claims_present(idx, "pfss"):
             rep.check(False, "pfss/manifest.json present (index says ok)")
         else:
             rep.info("pfss/manifest.json absent (index does not claim it)")
-    else:
-        _check_manifest_schema(rep, man)
-        if "geometry" in man and "frames" in man:
-            _check_binaries(rep, get, man, n_regions)
-            _check_matrices(rep, man)
+        return
+    _check_manifest_schema(rep, man)
+    if "geometry" in man and "frames" in man:
+        _check_binaries(rep, get, man, n_regions)
+        _check_matrices(rep, man)
 
-    ok = rep.failures == 0 and (rep.warnings == 0 if strict else True)
-    return ok, rep.text()
+
+# -----------------------------------------------------------------------------
+# Trees: where a validation run reads its files from
+# -----------------------------------------------------------------------------
+
+class Tree(NamedTuple):
+    """A readable data tree: bytes, a cheap size probe, and a label.
+
+    ``root`` is the local directory when there is exactly one, and None
+    otherwise (a URL, or the staging overlay).  Only the orphan check needs
+    it, and only a single real directory can answer that question.
+    """
+
+    get: Callable[[str], Optional[bytes]]
+    probe: Callable[[str], Optional[int]]
+    root: Optional[str]
+    label: str
+
+
+def tree_from_root(root: str) -> Tree:
+    return Tree(_loader(str(root), None), _prober(str(root), None),
+                str(root), str(root))
+
+
+def tree_from_url(base_url: str) -> Tree:
+    return Tree(_loader(None, base_url), _prober(None, base_url), None,
+                base_url)
+
+
+def overlay_tree(staging_dir, published_dir) -> Tree:
+    """Staging over published: the tree AS IT WILL BE after ``promote()``.
+
+    THE POINT OF THE WHOLE REFACTOR.  Validation used to run in CI *after* the
+    publish, so its only available verdict was "fail the workflow" and every
+    product went down together -- footgun 50 (a frozen seed set's ar_index
+    running off the end of a shrinking region list) and footgun 51 (NOAA
+    keying a sunspot at latitude 98) each discarded five products that had
+    been built correctly, leaving the site 11-13 h stale on EVERYTHING.  Six
+    of forty-four runs.
+
+    ``Staging.promote()`` walks ``produced`` and ``os.replace``s each staged
+    file over ``out``, touching nothing else -- so "after promote" is exactly
+    "staging if it has this path, else published".  That is a two-line
+    resolver, and having it means a product can be judged, and rolled back
+    ALONE, before anything is moved.
+
+    No orphan check is possible here (``root`` is None) and none is wanted:
+    before the pruner runs, an unreferenced file in ``out`` is normal.
+    """
+    staging = Path(staging_dir)
+    published = Path(published_dir)
+
+    def resolve(rel: str) -> Optional[Path]:
+        for base in (staging, published):
+            p = base / rel
+            if p.is_file():
+                return p
+        return None
+
+    def get(rel: str) -> Optional[bytes]:
+        p = resolve(rel)
+        if p is None:
+            return None
+        try:
+            return p.read_bytes()
+        except OSError:
+            return None
+
+    def probe(rel: str) -> Optional[int]:
+        p = resolve(rel)
+        if p is None:
+            return None
+        try:
+            return p.stat().st_size
+        except OSError:
+            return None
+
+    return Tree(get, probe, None,
+                "{0} over {1}".format(staging, published))
+
+
+def _as_tree(target) -> Tree:
+    return target if isinstance(target, Tree) else tree_from_root(str(target))
+
+
+# -----------------------------------------------------------------------------
+# Per-product entry point
+# -----------------------------------------------------------------------------
+
+# The order a full report prints in, chosen to match what `validate` printed
+# before it was split up, so a diff of two runs' output stays readable.
+PRODUCT_ORDER = ("index", "active_regions", "ephemeris", "stats", "texture",
+                 "events", "pfss")
+
+# Consumer -> the products it addresses BY POSITION, and therefore cannot be
+# judged independently of.  `ar_index` is an index into `ar/regions.json`, in
+# both the pfss topology and every event record; if that list reverts to the
+# published copy, its consumers have to be re-checked against the copy they
+# will actually be served next to.  See footgun 23 (an ar_index of -1 is
+# normal) and footgun 50 (the coupling is real -- which is why it is written
+# down here rather than the checks being deleted).
+CONSUMES = {"pfss": ("active_regions",), "events": ("active_regions",)}
+
+
+def plan_rollbacks(failures: Dict[str, List[str]],
+                   consumes: Optional[Dict[str, Tuple[str, ...]]] = None
+                   ) -> Tuple[Set[str], Set[str]]:
+    """(products to roll back, products to RE-CHECK) from a failure map.
+
+    Pure, because the only other way to test this is a five-minute pipeline
+    run against a deliberately corrupted feed.
+
+    A consumer is NOT rolled back transitively.  After its producer reverts to
+    the published copy the consumer may well still be valid against it (an
+    ar_index that addressed five regions is fine if the published list also
+    has five), and rolling back a correct product would discard good work for
+    nothing.  So the answer is "re-check it", and the caller iterates to a
+    fixed point.
+    """
+    consumes = CONSUMES if consumes is None else consumes
+    roll = {name for name, fails in failures.items() if fails}
+    recheck = {consumer for consumer, producers in consumes.items()
+               if consumer not in roll and set(producers) & roll}
+    return roll, recheck
+
+
+def validate_products(target, *, strict: bool = False,
+                      products: Optional[Iterable[str]] = None,
+                      check_orphans: bool = False, verbose: bool = False
+                      ) -> "Dict[str, Report]":
+    """Validate a tree PRODUCT BY PRODUCT.  Returns {product: Report}.
+
+    ``target`` is a :class:`Tree` or a local root path; ``products`` selects a
+    subset (default: everything, including the "index" pseudo-product).  The
+    names are the ones ``cli.build_index`` uses for index entries, so a caller
+    can map a report straight onto the entry it has to rewrite.
+
+    Cross-product checks belong to the CONSUMER, not the producer: pfss's
+    ar_index bound and events' ar_index bound are both asserted inside the
+    report of the product that does the addressing.  So a defect in
+    ``ar/regions.json`` lands on ``active_regions`` and, at worst, on its
+    consumers -- never the other way round.  ``_region_count`` reads that file
+    silently for exactly this reason.
+    """
+    tree = _as_tree(target)
+    get, probe = tree.get, tree.probe
+    want = set(PRODUCT_ORDER) if products is None else set(products)
+    unknown = sorted(want - set(PRODUCT_ORDER))
+    if unknown:
+        raise ValueError("unknown product(s): {0}".format(unknown))
+
+    idx = _json(get, "index.json")
+    reports: "Dict[str, Report]" = {}
+
+    def report(name: str) -> Report:
+        rep = Report(verbose=verbose)
+        reports[name] = rep
+        return rep
+
+    if "index" in want:
+        _check_index(report("index"), idx)
+
+    n_regions: Optional[int] = None
+    if want & {"pfss", "events"}:
+        n_regions = _region_count(get)
+
+    for name in PRODUCT_ORDER:
+        if name == "index" or name not in want:
+            continue
+        rep = report(name)
+        doc = _json(get, PRODUCT_MANIFESTS[name])
+        # Cheap, total, and FIRST: every file this manifest names is in the
+        # tree.  Affordable for all 110 texture files, where the decode
+        # sampling further down is not.
+        if doc is not None:
+            _check_referenced_files(rep, probe, name, doc)
+            if check_orphans:
+                _check_no_orphans(rep, tree.root, name, doc)
+        if name == "active_regions":
+            _check_regions(rep, get, idx)
+        elif name == "ephemeris":
+            _check_ephem(rep, get, idx)
+        elif name == "stats":
+            _check_stats(rep, get, idx)
+        elif name == "texture":
+            _check_texture(rep, get, idx)
+        elif name == "events":
+            _check_events(rep, get, idx)
+        elif name == "pfss":
+            _check_pfss(rep, get, idx, n_regions)
+
+    return reports
+
+
+def failing_checks(rep: Report) -> List[str]:
+    """The FAIL lines of a report, trimmed to the check label + detail."""
+    out = []
+    for line in rep.lines:
+        text = line.strip()
+        if text.startswith("FAIL"):
+            out.append(text[4:].strip())
+    return out
+
+
+def product_ok(rep: Report, strict: bool = False) -> bool:
+    """One product's verdict.  ``strict`` makes warnings count."""
+    return rep.failures == 0 and (rep.warnings == 0 if strict else True)
+
+
+def validate(root: Optional[str] = None, base_url: Optional[str] = None,
+             strict: bool = False, verbose: bool = False,
+             check_orphans: bool = False) -> Tuple[bool, str]:
+    """Validate a whole data tree.  Returns (ok, report_text).
+
+    A thin wrapper over :func:`validate_products` that ANDs every product's
+    verdict and concatenates the reports, kept because ``cmd_validate`` and the
+    ``--url`` path want exactly one answer for a tree that is already
+    published.  The per-product entry point is what ``cmd_all`` uses to roll a
+    single failing product back before the promote.
+
+    ``check_orphans`` asserts that nothing in ``pfss/`` or ``texture/`` is
+    unreferenced.  Root mode only, and only meaningful POST-promote: before
+    the pruner runs an orphan is the normal state.  See _check_no_orphans.
+    """
+    tree = tree_from_url(base_url) if base_url else tree_from_root(root or ".")
+    reports = validate_products(tree, strict=strict, verbose=verbose,
+                                check_orphans=check_orphans)
+    merged = Report(verbose=verbose)
+    for name in PRODUCT_ORDER:
+        rep = reports.get(name)
+        if rep is None:
+            continue
+        merged.lines.extend(rep.lines)
+        merged.failures += rep.failures
+        merged.warnings += rep.warnings
+    ok = merged.failures == 0 and (merged.warnings == 0 if strict else True)
+    return ok, merged.text()

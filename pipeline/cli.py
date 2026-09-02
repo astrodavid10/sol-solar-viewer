@@ -31,6 +31,37 @@ Failure policy (from the plan, implemented in :func:`run_pfss`)
   because a non-zero exit fails the CI step and would stop the publish, taking
   the freshly traced field lines down with a decorative product.  The previous
   JPEG and texture.json keep being served and the index entry goes stale.
+
+Pre-promote validation
+----------------------
+Before ``all`` promotes anything it validates the staged tree PRODUCT BY
+PRODUCT against a staging-over-published overlay (``validate.overlay_tree``),
+and rolls back only the products that failed.  This exists because
+all-or-nothing validation ran AFTER the publish, so one bad record in
+someone else's feed discarded five correctly-built products: footgun 50 (a
+frozen seed set's ar_index running off the end of a shrinking NOAA region
+list) and footgun 51 (NOAA keying a sunspot at latitude 98) each left the
+site 11-13 h stale on EVERYTHING.  Six of forty-four runs.  A rolled-back
+product's index entry becomes ``degraded`` with the failing check names in
+``last_error``, and its name joins ``last_attempt_status``'s
+``partial:...`` list.
+
+EXIT CODE CONTRACT (``all``)
+----------------------------
+``python -m pipeline all`` returns **0 whenever it promoted a tree and wrote
+index.json** -- including runs where a stage raised, a product was rolled
+back, or everything is degraded.  It returns non-zero ONLY when nothing was
+promoted and no index could be written, i.e. the app has no heartbeat.
+
+That is deliberate and it is the opposite of what this command used to do
+(``return 1 if failures else 0``).  A non-zero exit fails the workflow step,
+which stops the publish -- so the old contract took the whole tree down for
+exactly the partial failures the failure policy above exists to survive.  The
+honest report of what went wrong is ``index.json``:
+``products.<name>.status`` / ``.last_error`` and ``last_attempt_status``.  A
+workflow that wants to alert on a degraded run must read those, not ``$?``.
+
+``python -m pipeline validate`` is unchanged: non-zero on any failed check.
 """
 
 from __future__ import annotations
@@ -1247,6 +1278,100 @@ def _prune_orphan_textures(ctx: Ctx, results: List[ProductResult]) -> None:
             ctx.log("  removed orphan texture {0}".format(f.name))
 
 
+def _staged_products(ctx: Ctx) -> List[str]:
+    """The products that actually have files waiting to be promoted.
+
+    This -- not "which run_* function returned" -- is the right definition of
+    "regenerated this run": a product with no staged files cannot be rolled
+    back and its index entry already describes the published copy, so
+    validating it before the promote would be judging bytes this run is not
+    responsible for.  It is also how a soft failure that already rolled itself
+    back drops out of the list for free.
+    """
+    staged = {str(rel).replace("\\", "/") for rel in ctx.staging.produced}
+    return [name for name, prefix in _STAGE_PREFIX.items()
+            if any(rel.startswith(prefix) for rel in staged)]
+
+
+def _validate_before_promote(ctx: Ctx, results: List[ProductResult]
+                             ) -> List[str]:
+    """Validate the staged tree PER PRODUCT and roll back only what failed.
+
+    WHY THIS RUNS HERE.  Validation used to run in CI as a separate step AFTER
+    the publish, over the whole tree at once, so its only verdict was "fail the
+    workflow".  Footgun 50 and footgun 51 are both the same accident from
+    different causes -- a frozen seed set's ar_index running off the end of a
+    shrinking NOAA region list, and NOAA keying a sunspot at latitude 98 -- and
+    each one discarded the five products CI had just built CORRECTLY, leaving
+    the site 11-13 h stale on everything.  Six of forty-four runs.
+
+    ``overlay_tree`` reads staging-over-published, which is exactly what the
+    tree will be after ``promote()``, so a product can be judged and reverted
+    on its own while the rest still publish.  Its index entry then becomes the
+    same ``degraded`` fallback a raised stage gets (Task 2's _fallback_status),
+    with the failing check names in ``last_error``.
+
+    DEPENDENCY RULE.  ``events`` and ``pfss`` both address ``ar/regions.json``
+    BY POSITION, so if active_regions reverts to the published copy they have
+    to be re-judged against that copy -- not rolled back transitively, because
+    an ar_index that addressed five regions is perfectly valid if the published
+    list also has five.  ``validate.plan_rollbacks`` owns that decision and the
+    loop below iterates it to a fixed point.
+
+    Returns the names rolled back, for ``last_attempt_status``.
+    """
+    from .validate import (failing_checks, overlay_tree, plan_rollbacks,
+                           product_ok, validate_products)
+
+    pending = _staged_products(ctx)
+    if not pending:
+        return []
+    tree = overlay_tree(ctx.staging.dir, ctx.out)
+    print("[validate] {0} staged product(s) against the tree as it will be "
+          "after promote".format(len(pending)))
+
+    by_name = {r.name: r for r in results}
+    rolled: List[str] = []
+    todo = set(pending)
+    while todo:
+        reports = validate_products(tree, strict=True, products=sorted(todo))
+        failures = {name: failing_checks(rep) for name, rep in reports.items()
+                    if not product_ok(rep, strict=True)}
+        for name, rep in sorted(reports.items()):
+            if name in failures:
+                continue
+            print("  {0:15s} OK   ({1} check(s))".format(
+                name, len(rep.lines)))
+        roll, recheck = plan_rollbacks(failures)
+        for name in sorted(roll):
+            checks = failures[name] or ["strict: warnings"]
+            # LOUD, per footgun 32: degrade quietly for the guest, never
+            # quietly for the operator.  A rolled-back product looks exactly
+            # like a healthy run in every other line of this log.
+            print("  {0:15s} INVALID -- rolling back {1} staged file(s)".format(
+                name, ctx.staging.rollback(_STAGE_PREFIX[name])))
+            for line in checks[:10]:
+                print("      FAIL {0}".format(line))
+            if len(checks) > 10:
+                print("      ... and {0} more".format(len(checks) - 10))
+            entry = _existing_product(
+                ctx, name,
+                failure="validation failed: {0}".format(checks[0]))
+            entry.last_error = "validation failed: " + "; ".join(checks[:5])
+            if name in by_name:
+                results[results.index(by_name[name])] = entry
+            else:                                          # pragma: no cover
+                results.append(entry)
+            by_name[name] = entry
+            rolled.append(name)
+        # Anything that consumed a rolled-back product is re-judged against
+        # the published copy it will now be served beside.  Nothing else is:
+        # re-running the whole set would re-download and re-decode a texture
+        # tree for no new information.
+        todo = {n for n in recheck if n not in rolled}
+    return rolled
+
+
 def cmd_all(args: argparse.Namespace) -> int:
     ctx = make_ctx(args)
     ctx.staging.reset()
@@ -1319,9 +1444,12 @@ def cmd_all(args: argparse.Namespace) -> int:
                 soft_failures.append("texture")
                 results.append(_existing_product(ctx, "texture", failure=exc))
 
+        invalid = _validate_before_promote(ctx, results)
+
         attempt = "ok"
-        if failures or soft_failures:
-            attempt = "partial:" + ",".join(failures + soft_failures)
+        rolled = failures + soft_failures + invalid
+        if rolled:
+            attempt = "partial:" + ",".join(rolled)
         elif any(r.status in ("degraded", "stale")
                  for r in results if r.name != "texture"):
             # The texture's own status is excluded on purpose: a 20 h old AIA
@@ -1334,13 +1462,24 @@ def cmd_all(args: argparse.Namespace) -> int:
         moved = ctx.staging.promote()
         _prune_orphan_frames(ctx, results)
         _prune_orphan_textures(ctx, results)
+    except Exception as exc:                                  # noqa: BLE001
+        # The ONLY non-zero exit: nothing was promoted and no index was
+        # written, so the app has no heartbeat and the workflow must not
+        # publish.  Everything softer than this -- a stage that raised, a
+        # product rolled back for failing validation -- exits 0 with an
+        # honest index; see the exit-code contract in the module docstring.
+        import traceback
+        traceback.print_exc()
+        print("[publish] NOTHING PROMOTED: {0}".format(exc))
+        return 1
     finally:
         ctx.staging.cleanup()
 
     print("[publish] {0} file(s) into {1}".format(len(moved), ctx.out))
     for r in results:
         print("  {0:15s} {1:9s} {2}".format(r.name, r.status, r.note or ""))
-    return 1 if failures else 0
+    print("  last_attempt_status {0}".format(attempt))
+    return 0
 
 
 _SINGLE_TO_PRODUCT = {"pfss": "pfss", "ephem": "ephemeris",
@@ -1556,7 +1695,16 @@ def build_parser() -> argparse.ArgumentParser:
         description="Sol data pipeline {0}".format(PIPELINE_VERSION))
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("all", help="build every product + index.json")
+    p = sub.add_parser(
+        "all", help="build every product + index.json",
+        description="Build every product, validate the staged tree product by "
+                    "product, promote what passed, and write index.json. "
+                    "EXIT CODE: 0 whenever a tree was promoted and index.json "
+                    "written -- including runs with a failed stage or a "
+                    "rolled-back product; non-zero ONLY when nothing was "
+                    "promoted. Read products.<name>.status, .last_error and "
+                    "last_attempt_status in index.json to tell a clean run "
+                    "from a degraded one.")
     _add_common(p)
     p.add_argument("--with-texture", action="store_true",
                    help="also build texture/ (default ON in the CI workflow)")

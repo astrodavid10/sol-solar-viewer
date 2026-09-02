@@ -1214,6 +1214,10 @@ export default defineComponent({
       if (moved || now - rt.lastProjectMs > PROJECT_MS) {
         rt.lastProjectMs = now;
         this.updateSpacecraft();
+        // Sphere frame + far-side note + off-limb billboard. Separate from
+        // updateSpacecraft() because it must NOT be gated on the optional
+        // ephemeris product; see updateSurfaceFrame()'s own comment.
+        this.updateSurfaceFrame();
         this.updateSurfaceMarkers();
         this.layoutLabels();
         this.tuneWind();
@@ -1532,17 +1536,40 @@ export default defineComponent({
         chip.visible = point.visible;
         chip.detail = this.formatDistance(rSunAt(body, ephemeris.epochs, unix));
       });
+    },
+
+    /**
+     * Keep the SPHERE in step with the playhead: which history map is on it,
+     * how much of it the guest is looking at that nobody has imaged, and where
+     * the off-limb billboard points.
+     *
+     * These three used to live at the bottom of updateSpacecraft(), behind its
+     * `if (!stage || !trails || !ephemeris || !this.chips.length) return`. That
+     * guard is about SPACECRAFT: `trails` and `ephemeris` only exist once
+     * `ephem/spacecraft.json` has loaded, and that product is optional -- a dev
+     * tree or a partial publish need not have it. So on any tree without it the
+     * early return skipped the time alignment entirely and the sphere kept the
+     * NEWEST map while the field lines morphed through 72 h: historical
+     * magnetic field over today's Sun, with the terminator parked at today's
+     * sub-earth longitude. Which is the exact failure the comment below says it
+     * fixed. Called from tick()'s throttled block instead, immediately after
+     * updateSpacecraft() so the order within the pass is unchanged, and on the
+     * same `moved || PROJECT_MS` cadence -- no new per-frame work.
+     *
+     * The scene time comes from the playhead (`sceneUnix`), which is derived
+     * from the field-line frame count, so this needs no ephemeris at all.
+     */
+    updateSurfaceFrame(): void {
+      const surface = this.rt.surface;
+      if (!this.rt.stage || !surface) { return; }
 
       // The imagery follows the playhead, so the photosphere, the sunspots and
-      // the field lines all describe the same hour. Without this the sphere
-      // carried the NEWEST map while the field lines morphed through three days
-      // -- historical magnetic field over today's Sun, with the terminator
-      // parked at today's sub-earth longitude.
+      // the field lines all describe the same hour.
       //
       // setFrameTime snaps to the nearest 4 h slot and no-ops when that is
-      // already the frame on screen, so calling it on the chip cadence costs a
-      // comparison per pass and only does work at a slot boundary.
-      this.rt.surface?.setFrameTime(unix);
+      // already the frame on screen, so calling it on the projection cadence
+      // costs a comparison per pass and only does work at a slot boundary.
+      surface.setFrameTime(this.sceneUnix());
 
       // HYSTERESIS, not a single threshold. `unobservedFraction` is a smooth
       // function of camera angle, so one threshold means a drag that hovers near
@@ -1550,12 +1577,17 @@ export default defineComponent({
       // several times a second. Show above 0.58, hide below 0.50, and in the
       // band between keep doing whatever it was doing.
 
-      const frac = this.rt.surface?.unobservedFraction() ?? 0;
+      // `?? 0` is not just null-safety on the optional chain this used to be:
+      // unobservedFraction() itself returns null for "not applicable" (artist
+      // surface, no camera yet, no sub-Earth point), and 0 is the right
+      // reading of that -- nothing unobserved, so no note.
+      const frac = surface.unobservedFraction() ?? 0;
       this.rt.unobservedFrac = frac;
       const shown = this.unobservedShown ? frac > 0.50 : frac > 0.58;
       // Guarded because this is the only reactive write left in the per-frame
       // path here, and it must stay a no-op unless the note actually changes.
       if (shown !== this.unobservedShown) { this.unobservedShown = shown; }
+
       this.updateOffLimb();
     },
 

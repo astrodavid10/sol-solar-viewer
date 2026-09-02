@@ -255,6 +255,7 @@ def build_manifest(*, generated: datetime, run_id: str, status: str,
                    ss: SeedSet, nv: np.ndarray, topology_bytes: int,
                    frames: List[dict], tracer: str,
                    newest_mag_iso: str, newest_mag_age_hours: float,
+                   newest_mag_unix: int,
                    window_hours: int, frame_spacing_hours: int,
                    constants: dict, max_error_rsun: float) -> dict:
     """Assemble pfss/manifest.json."""
@@ -268,6 +269,13 @@ def build_manifest(*, generated: datetime, run_id: str, status: str,
         "run_id": run_id,
         "status": status,
         "newest_mag_iso": newest_mag_iso,
+        # The same instant as newest_mag_iso, as an integer.  Additive, and it
+        # exists because the STALE path reads this manifest back to report how
+        # old the field data it is still serving is: a reader that has to
+        # re-parse an ISO string to answer that will eventually get it wrong,
+        # and this pipeline has already paid for one timezone bug (footgun on
+        # parse_iso_z).  Asserted == max(frames[*].mag_unix) by the validator.
+        "newest_mag_unix": int(newest_mag_unix),
         "newest_mag_age_hours": newest_mag_age_hours,
         "window_hours": window_hours,
         "frame_spacing_hours": frame_spacing_hours,

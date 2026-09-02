@@ -81,6 +81,10 @@ class ProductResult:
     generated: Optional[datetime] = None
     extra: Dict = field(default_factory=dict)
     note: str = ""
+    # Short text of the exception (or the failing validator checks) that made
+    # this run fall back to the published copy.  Empty for a product that was
+    # built, and for one that was deliberately skipped -- see _fallback_status.
+    last_error: str = ""
 
 
 @dataclass
@@ -262,6 +266,48 @@ def _trace_all(ctx: Ctx, ss: pfss_seeds.SeedSet,
     return traced, timings
 
 
+def published_mag_unix(man: Optional[dict]) -> Optional[int]:
+    """Newest magnetogram time in an already-published pfss manifest.
+
+    Exists so the STALE path can report ``data_age_hours`` too.  That field is
+    the only honest answer to "how old is the field the app is drawing", and it
+    was written only on the success path -- so the moment it mattered most (CI
+    cannot reach GONG at all, footgun 33, and the served frames keep ageing)
+    the index entry silently stopped carrying it.  ``age_hours`` there is the
+    age of the RUN, which is minutes; the data can be days old.
+
+    ``frames[*].mag_unix`` first because it is the authority: the manifest's
+    own ``newest_mag_iso`` is derived from it, and a truncated re-export could
+    in principle disagree.  ``newest_mag_unix`` (schema /2) and then
+    ``newest_mag_iso`` are the fallbacks for a manifest written before this.
+    """
+    if not man:
+        return None
+    times = []
+    for fr in man.get("frames") or []:
+        try:
+            times.append(int(fr["mag_unix"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if times:
+        return max(times)
+    nm = man.get("newest_mag_unix")
+    if isinstance(nm, (int, float)):
+        return int(nm)
+    dt = parse_iso_z(man.get("newest_mag_iso") or "")
+    return unix_s(dt) if dt is not None else None
+
+
+def _prev_pfss_extra(prev_man: Optional[dict], now: datetime) -> Dict:
+    """``extra`` for a pfss result that is serving the previous frames."""
+    extra: Dict = {"frames": 0}
+    mag = published_mag_unix(prev_man)
+    if mag is not None:
+        extra["data_age_hours"] = round(age_hours(
+            datetime.fromtimestamp(mag, tz=timezone.utc), now), 3)
+    return extra
+
+
 def _reuse_candidate(prev_man: Optional[dict], target: datetime
                      ) -> Optional[dict]:
     """Closest previously published frame within STALE_HOURS of ``target``."""
@@ -343,7 +389,7 @@ def run_pfss(ctx: Ctx, ss: Optional[pfss_seeds.SeedSet] = None
             status="stale" if prev_man else "absent", generated=gen,
             note="{0} freshly traced frame(s) of {1} slot(s)".format(
                 n_own, len(slots)),
-            extra={"frames": 0}), ss)
+            extra=_prev_pfss_extra(prev_man, ctx.now)), ss)
 
     # Pass B: vertex plan.  Reusing a published frame forces the published
     # vertex plan on the whole run so every frame keeps identical topology.
@@ -370,7 +416,8 @@ def run_pfss(ctx: Ctx, ss: Optional[pfss_seeds.SeedSet] = None
                     name="pfss", url="pfss/manifest.json", status="stale",
                     generated=parse_iso_z(
                         (prev_man or {}).get("generated_iso", "")),
-                    note="topology change dropped reused frames"), ss)
+                    note="topology change dropped reused frames",
+                    extra=_prev_pfss_extra(prev_man, ctx.now)), ss)
 
     n_verts_total = int(nv.sum())
     topo_blob = pfss_export.pack_topology(ss, nv)
@@ -429,6 +476,7 @@ def run_pfss(ctx: Ctx, ss: Optional[pfss_seeds.SeedSet] = None
         generated=ctx.now, run_id=ctx.run_id, status=status, ss=ss, nv=nv,
         topology_bytes=len(topo_blob), frames=frames,
         tracer=pfss_solve.tracer_name(), newest_mag_iso=newest["mag_iso"],
+        newest_mag_unix=int(newest["mag_unix"]),
         newest_mag_age_hours=age_hours(newest_dt, ctx.now),
         window_hours=WINDOW_HOURS, frame_spacing_hours=FRAME_SPACING_HOURS,
         constants=frames_orient.constants_block(
@@ -962,17 +1010,73 @@ _PRODUCT_URLS = {
 }
 
 
-def _existing_product(ctx: Ctx, name: str) -> ProductResult:
-    """Describe a product this run did not touch, from what is on disk."""
+def short_error(exc: object, limit: int = 200) -> str:
+    """One-line, bounded rendering of an exception for index.json.
+
+    A traceback belongs in the log; the index entry is read by the app and by
+    a human triaging a run, so it gets the type and the message on one line.
+    """
+    if exc is None:
+        return ""
+    if isinstance(exc, BaseException):
+        text = "{0}: {1}".format(type(exc).__name__, exc)
+    else:
+        text = str(exc)
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit - 3] + "..."
+
+
+def _fallback_status(have_doc: bool, gen: Optional[datetime], now: datetime,
+                     failure: str = "") -> Tuple[str, str, str]:
+    """(status, note, last_error) for a product this run did not write.
+
+    Pure on purpose -- it is the whole decision, and getting it wrong is how
+    index.json came to call a stage that RAISED ``ok``.  The old version
+    derived status from the age of the published copy alone, so a texture
+    stage that died four minutes in published ``status: "ok", note: "not
+    regenerated this run"`` (footgun 48 records exactly this reading like an
+    upstream hiccup rather than a self-inflicted ImportError).
+
+    The distinction the caller must preserve is FAILED vs SKIPPED.  A stage
+    the run never attempted -- texture without ``--with-texture`` -- is
+    genuinely ``ok``: the published copy is being served on purpose and
+    nothing went wrong.  A stage that raised is ``degraded``, because the
+    bytes are fine but the pipeline is not.
+
+    ``stale`` outranks ``degraded``: it is the stronger statement (the data
+    itself is too old to trust) and the app already keys its "data is old"
+    copy on it, so a failure must not quietly downgrade that to a fresher-
+    sounding word.  The note still names the failure in that case.
+    """
+    err = short_error(failure)
+    if not have_doc:
+        # Nothing served AND nothing built: `absent` whatever the reason.
+        note = ("stage failed this run: {0}; nothing has ever been published"
+                .format(err) if err else "")
+        return "absent", note, err
+    stale = gen is None or age_hours(gen, now) > STALE_HOURS
+    if not err:
+        return ("stale" if stale else "ok"), "not regenerated this run", ""
+    return (("stale" if stale else "degraded"),
+            "stage failed this run: {0}; serving the previously published "
+            "copy".format(err), err)
+
+
+def _existing_product(ctx: Ctx, name: str, failure: object = None
+                      ) -> ProductResult:
+    """Describe a product this run did not write, from what is on disk.
+
+    ``failure`` is the exception (or a short string) that made this run fall
+    back; pass it whenever a stage RAISED, and leave it None when the stage was
+    deliberately skipped.  See _fallback_status for why the two must differ.
+    """
     url = _PRODUCT_URLS[name]
     doc = read_json(ctx.out / url)
-    if not doc:
-        return ProductResult(name=name, url=url, status="absent")
-    gen = parse_iso_z(doc.get("generated_iso", ""))
-    stale = gen is None or age_hours(gen, ctx.now) > STALE_HOURS
-    return ProductResult(name=name, url=url,
-                         status="stale" if stale else "ok", generated=gen,
-                         note="not regenerated this run")
+    gen = parse_iso_z(doc.get("generated_iso", "")) if doc else None
+    status, note, last_error = _fallback_status(
+        bool(doc), gen, ctx.now, short_error(failure))
+    return ProductResult(name=name, url=url, status=status, generated=gen,
+                         note=note, last_error=last_error)
 
 
 def _index_entry(ctx: Ctx, r: ProductResult) -> dict:
@@ -988,6 +1092,8 @@ def _index_entry(ctx: Ctx, r: ProductResult) -> dict:
     }
     if r.note:
         entry["note"] = r.note
+    if r.last_error:
+        entry["last_error"] = r.last_error
     entry.update(r.extra)
     return entry
 
@@ -1177,11 +1283,16 @@ def cmd_all(args: argparse.Namespace) -> int:
     ss: Optional[pfss_seeds.SeedSet] = None
 
     def failed(name: str, exc: Exception) -> None:
-        """Un-stage the half-written product and fall back to what is served."""
+        """Un-stage the half-written product and fall back to what is served.
+
+        ``exc`` is carried into the index entry so the served product says
+        ``degraded`` with the reason, rather than ``ok`` with "not regenerated
+        this run" -- which is what a stage that RAISED used to publish.
+        """
         print("  {0} FAILED: {1}".format(name, exc))
         ctx.staging.rollback(_STAGE_PREFIX[name])
         failures.append(name)
-        results.append(_existing_product(ctx, name))
+        results.append(_existing_product(ctx, name, failure=exc))
 
     try:
         try:
@@ -1208,7 +1319,9 @@ def cmd_all(args: argparse.Namespace) -> int:
             print("  events FAILED: {0}".format(exc))
             ctx.staging.rollback(_STAGE_PREFIX["events"])
             soft_failures.append("events")
-            results.append(_existing_product(ctx, "events"))
+            # SOFT means "does not change the exit code", NOT "reports ok":
+            # the index entry still has to say the stage raised.
+            results.append(_existing_product(ctx, "events", failure=exc))
 
         region_count = next((r.extra.get("count") for r in results
                              if r.name == "active_regions"), None)
@@ -1229,7 +1342,7 @@ def cmd_all(args: argparse.Namespace) -> int:
                 print("  texture FAILED: {0}".format(exc))
                 ctx.staging.rollback(_STAGE_PREFIX["texture"])
                 soft_failures.append("texture")
-                results.append(_existing_product(ctx, "texture"))
+                results.append(_existing_product(ctx, "texture", failure=exc))
 
         attempt = "ok"
         if failures or soft_failures:
@@ -1288,7 +1401,7 @@ def _single(args: argparse.Namespace, which: str) -> int:
             traceback.print_exc()
             print("  {0} FAILED: {1}".format(which, exc))
             ctx.staging.rollback(_STAGE_PREFIX[name])
-            results.append(_existing_product(ctx, name))
+            results.append(_existing_product(ctx, name, failure=exc))
             rc = 1
         if which == "texture":
             patch_index_texture(ctx, results[0])

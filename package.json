@@ -4,9 +4,12 @@
   "packageManager": "yarn@4.12.0",
   "scripts": {
     "build": "vue-cli-service build",
+    "check:labels": "node scripts/check_label_layout.mjs",
+    "check:pipeline": "python scripts/check_pipeline_names.py",
     "clean": "rimraf dist",
     "lint": "vue-cli-service lint src --no-fix",
     "serve": "vue-cli-service serve",
+    "test:pipeline": "python -m pytest pipeline/tests -q",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

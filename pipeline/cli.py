@@ -1210,6 +1210,32 @@ _STAGE_PREFIX = {"pfss": "pfss/", "active_regions": "ar/",
                  "texture": "texture/", "events": "events/"}
 
 
+def warn_max_frames(ctx: Ctx) -> None:
+    """Announce a --max-frames run, loudly, BEFORE it deletes anything.
+
+    `_prune_orphan_frames` below unlinks every published ``fNN.bin`` at or
+    past the new frame count, and --max-frames is the one flag whose whole
+    job is to lower that count. Against a scratch ``--out`` that is the flag
+    working; against a tree that IS the published product it is a permanent
+    deletion, because CI cannot retrace field lines at all (footgun 33) --
+    the frames on gh-pages were built by hand from a GONG-reachable machine.
+    There is no --dry-run in this CLI to soften it either.
+
+    It used to be reachable as a `data.yml` workflow_dispatch input, where
+    `--out dist-data` is SEEDED from the live gh-pages tree (footgun 31) and
+    the publish rsyncs with `--delete` -- so `max_frames=2` from the Actions
+    UI would have deleted 17 of the 19 live frames and published the result as
+    success. That input is gone; this line is what stands in its place.
+    """
+    if not ctx.max_frames:
+        return
+    n = int(ctx.max_frames)
+    print("  WARN --max-frames {0} is a LOCAL QUICK-TEST flag: this run keeps "
+          "only the {0} newest slot(s) and DELETES published frames f{0:02d}"
+          ".bin onward from {1} -- unrecoverable in CI (footgun 33)".format(
+              n, ctx.out))
+
+
 def _prune_orphan_frames(ctx: Ctx, results: List[ProductResult]) -> None:
     """Delete published fNN.bin files the new manifest no longer references.
 
@@ -1377,6 +1403,7 @@ def cmd_all(args: argparse.Namespace) -> int:
     ctx.staging.reset()
     print("sol pipeline {0} run {1} -> {2}".format(
         PIPELINE_VERSION, ctx.run_id, ctx.out))
+    warn_max_frames(ctx)
     results: List[ProductResult] = []
     failures: List[str] = []
     soft_failures: List[str] = []
@@ -1490,6 +1517,7 @@ _SINGLE_TO_PRODUCT = {"pfss": "pfss", "ephem": "ephemeris",
 def _single(args: argparse.Namespace, which: str) -> int:
     ctx = make_ctx(args)
     ctx.staging.reset()
+    warn_max_frames(ctx)
     name = _SINGLE_TO_PRODUCT[which]
     results: List[ProductResult] = []
     rc = 0
@@ -1676,7 +1704,13 @@ def _add_common(p: argparse.ArgumentParser, *, pfss_flags: bool = True) -> None:
     if not pfss_flags:
         return
     p.add_argument("--max-frames", type=int, default=None,
-                   help="use only the N newest slots (quick local test)")
+                   help="LOCAL QUICK-TEST FLAG: use only the N newest slots. "
+                        "It also PRUNES: every published frame f<NN>.bin at "
+                        "or past N is unlinked from --out, and CI cannot "
+                        "retrace field lines (footgun 33), so against a live "
+                        "tree that deletion is permanent. Point --out at a "
+                        "scratch directory. Deliberately NOT exposed as a "
+                        "data.yml workflow_dispatch input for that reason.")
     p.add_argument("--keep-npz", action="store_true",
                    help="do not prune old traced-frame caches")
     p.add_argument("--from-cache", action="store_true",

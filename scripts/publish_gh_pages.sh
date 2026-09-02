@@ -87,6 +87,32 @@ cd .ghp
 git init -q
 git add -A
 git commit -q -m "publish ${DEST:-app} @ $(date -u +%FT%TZ) [${GITHUB_SHA:0:7}]"
-git push -q --force \
-  "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+
+# Authenticate with a per-invocation `http.extraheader` over a PLAIN remote
+# URL -- never `https://x-access-token:${GITHUB_TOKEN}@github.com/...`, which
+# is what this line used to be. git echoes the remote URL VERBATIM in its own
+# failure messages ("fatal: Authentication failed for 'https://.../'", and
+# every redirect/proxy warning), so an embedded token is one bad push away
+# from the log. Actions masks `secrets.GITHUB_TOKEN`, but publishing BY HAND
+# from a workstation is a normal operation here (PFSS-UPDATE.md: GONG is
+# unreachable from runners, footgun 33) and it runs with
+# GITHUB_TOKEN="$(gh auth token)" where nothing masks anything.
+# git never echoes a `-c` value, and `-c` is scoped to this one invocation --
+# it reaches neither .git/config nor the reflog. Same approach as
+# actions/checkout and `scripts/gong_mirror.py:_push`.
+#
+# `base64` wraps at 76 columns by default on Git Bash AND on ubuntu-latest, so
+# a long token yields a multi-line header: measured, a 200-char token base64s
+# to 3 lines. `tr -d '\n'` is load-bearing, not tidying.
+#
+# $GITHUB_TOKEN is still expanded bare, so `set -u` aborts a run that has no
+# token exactly as it did before (the same property `${GITHUB_SHA:0:7}` above
+# relies on) rather than pushing anonymously and failing more obscurely.
+# GIT_TERMINAL_PROMPT=0 so a bad or expired token fails in ~1 s instead of
+# blocking on a credential prompt nobody is watching.
+GHP_AUTH="AUTHORIZATION: basic $(
+  printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+GIT_TERMINAL_PROMPT=0 git -c http.extraheader="$GHP_AUTH" \
+  push -q --force \
+  "https://github.com/${GITHUB_REPOSITORY}.git" \
   HEAD:"$BR"

@@ -142,12 +142,17 @@ def test_an_impossible_region_latitude_fails_only_active_regions(tree):
 
 @live
 def test_dropping_regions_does_not_fail_the_regions_product_itself(tree):
-    """Footgun 50's shape: the list shrinks and its CONSUMER is what fails.
+    """Footgun 50's shape: the list shrinks and only a CONSUMER can complain.
 
     This is the check that proves the cross-product assertions live with the
     consumer. Truncating the array leaves regions.json internally consistent,
-    so `active_regions` passes -- and pfss, whose frozen ar_index column now
-    runs off the end, is the one that fails.
+    so `active_regions` must pass whatever else happens. Which consumer
+    notices depends on the manifest generation (1d33584): a legacy pfss
+    manifest (no `seed_regions`) still bounds `ar_index` against
+    regions.json and FAILS; a `sol.pfss/2` manifest is self-consistent and
+    only records an ADVISORY (footgun 50 is what that change removed), while
+    `events`, whose `ar_index` still addresses regions.json directly, fails
+    if any of its records pointed past the surviving region.
     """
     doc = _read(tree / "ar" / "regions.json")
     assert len(doc["regions"]) >= 2
@@ -159,8 +164,20 @@ def test_dropping_regions_does_not_fail_the_regions_product_itself(tree):
     bad = _bad(reports)
     assert "active_regions" not in bad, failing_checks(
         reports["active_regions"])
-    assert "pfss" in bad
-    assert any("ar_index" in c for c in failing_checks(reports["pfss"]))
+    # The producer never fails; whoever does is a consumer of regions.json.
+    assert set(bad) <= {"pfss", "events"}, {
+        n: failing_checks(reports[n]) for n in bad}
+
+    manifest = _read(tree / "pfss" / "manifest.json")
+    if manifest.get("seed_regions"):
+        # Self-describing manifest: pfss may only WARN, never fail, and the
+        # shrinkage must still be visible somewhere -- as that advisory or as
+        # an events record now pointing off the end of the list.
+        assert "pfss" not in bad, failing_checks(reports["pfss"])
+        assert reports["pfss"].advisories > 0 or "events" in bad
+    else:
+        assert "pfss" in bad
+        assert any("ar_index" in c for c in failing_checks(reports["pfss"]))
 
 
 # ── a corrupt binary ─────────────────────────────────────────────────────────

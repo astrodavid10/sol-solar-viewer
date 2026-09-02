@@ -1,8 +1,12 @@
 # Getting GONG data into CI
 
-**Status:** the code seam is in and tested; the relay itself needs one deploy
-step that only an account holder can do. Until it is deployed, the scheduled
-pipeline still cannot build field lines — see `CLAUDE.md` footgun 33.
+**Status (2026-09-02): Option D is LIVE.** The `gong-cache` branch exists and is
+fed hourly by the `SolGongMirror` Scheduled Task on the workstation; the two
+repository secrets are set; see "Live configuration" at the end of the Option D
+section for exactly what is deployed and how to check it. Option A (the
+Cloudflare Worker) remains written and undeployed as the upgrade path that would
+take the workstation out of the critical path. Footgun 33 still describes the
+underlying block — NSO drops GitHub's runners — it is just routed around now.
 
 ## The problem, precisely
 
@@ -168,16 +172,39 @@ The Scheduled Task itself needs no repository secret at all: it authenticates
 its push with `gh auth token` (falling back to whatever the Windows
 credential manager already has configured for `git push`), read from the
 account that registered the task, never written to a file or the reflog.
+**"Never written to a file" was false until `85e626c`:** `_git`'s error
+message was built from `" ".join(args)`, and `_push` passes the credential as
+an `http.extraheader=` argument, so any failed push wrote a decodable token
+straight into the Scheduled Task log. `_redact_args`/`_redact_text` are what
+make the sentence true now — do not restore the plain join. The same commit
+made the mirror **refuse to push when its state dir holds zero files**: before
+it, a fresh or wiped `%LOCALAPPDATA%` would have force-pushed an EMPTY tree over
+a good branch and only then printed FAILURE (the mirror-side twin of footgun
+31), and the state repo now carries `* -text` in `.gitattributes` because Git
+for Windows' SYSTEM config sets `core.autocrlf=true` and the mirror's contract
+is byte-verbatim.
 
 **What was measured, 2026-08-23/24, `--retain-days 5` (the default):**
 
 - Cadence: GONG publishes roughly hourly, with real gaps — a `--dry-run`
-  against the live site saw 18–24 files per day directory (`GONG_TOLERANCE_HOURS
+  against the live site saw 18–24 files per day directory in August and
+  23–24 on every complete day measured 2026-09-02 (`GONG_TOLERANCE_HOURS
   = 3.0` in `pipeline/config.py` already assumes gaps this size are normal).
-- One magnetogram is ~237 KiB (`243,051`–`243,335` bytes observed).
-- A full 5-day retention window (7 day directories: today−5 .. today+1,
-  the last one necessarily thin or empty since it is the future) mirrored
-  **109 files, 26,512,370 bytes (~25.3 MB)** end to end.
+- One magnetogram is ~237 KiB (`242,785`–`243,382` bytes observed).
+- A full 5-day retention window (7 day directories: today−5 .. today+1;
+  the last one is the FUTURE and 404s outright, which shows up in every run's
+  log as `WARN GONG …/mrzqs<tomorrow>/: HTTP 404 Not Found` — normal, not a
+  fault) mirrored **135 files, 32,817,395 bytes (31.3 MB)** end to end in
+  **61 s** cold, 2 s warm (re-measured 2026-09-02; August's first measurement
+  was 109 files / 25.3 MB).
+- **Why `--retain-days 5` and not fewer.** It is not a free parameter.
+  `WINDOW_HOURS = 72` back from `snap_down(now)` puts the oldest slot target on
+  `today−3`, and `gong_list` scrapes each target's day ±1, so the pipeline can
+  ask for **`today−4`**. 4 is exact, 5 is one day of margin, and **3 leaves a
+  hole that reads in CI as `0 file(s)` — indistinguishable from GONG being
+  down.** If `WINDOW_HOURS` ever grows, retain-days must grow with it;
+  `pipeline/tests/test_gong_mirror.py::test_default_retention_covers_every_day_the_pipeline_scrapes`
+  fails loudly if they drift apart.
 - `raw.githubusercontent.com` answers `Cache-Control: max-age=300` on branch
   content (measured against this same repo's `main` branch) — so a file the
   mirror just pushed can be **up to ~5 minutes** invisible to a CI run that
@@ -220,6 +247,25 @@ gh workflow run data.yml -f dry_run=true
 # then read the [GONG] block in the probe-sources log: "via relay ... directory
 # index: index.html" plus a real file listing is the proof.
 ```
+
+### Live configuration (deployed 2026-09-02)
+
+| piece | value |
+|---|---|
+| Branch | `gong-cache`, single amended commit, first pushed 2026-09-02 17:50Z with 136 files (27 stale files from an August test dir pruned on the way) |
+| Read path from CI | `https://raw.githubusercontent.com/astrodavid10/sol-solar-viewer/gong-cache/oQR/zqs/<YYYYMM>/mrzqs<YYMMDD>/index.html` → 200, 18 files listed for 2026-09-02 at deploy time; a FITS `HEAD` → 200, `Content-Length: 243016`, `Cache-Control: max-age=300` |
+| Repository secrets | `SOL_GONG_PROXY_BASE` = `https://raw.githubusercontent.com/astrodavid10/sol-solar-viewer/gong-cache/oQR/zqs`; `SOL_GONG_PROXY_INDEX` = `index.html`; `SOL_GONG_PROXY_TOKEN` deliberately **unset** |
+| Scheduled Task | `SolGongMirror`, hourly (`-Once` + 1 h repetition, indefinite), `-StartWhenAvailable`, `MultipleInstances IgnoreNew`, 30 min execution limit, `RunLevel Limited`. **Registered for the INTERACTIVE logon with no stored password** — it runs while this user is logged on (a locked screen counts), and pauses when logged off. To upgrade to run-when-logged-off, re-register with `-User "$env:USERDOMAIN\$env:USERNAME" -Password '<yours>'` per the ps1 header. Note: `-RepetitionDuration ([TimeSpan]::MaxValue)` is REJECTED on this Windows 11 build; omit it. |
+| Interpreter | `C:\Users\adavi\anaconda3\envs\sdo\python.exe` (3.12), chosen by the ps1's `Test-Path`; the PATH fallback (`anaconda3\python.exe`, 3.8) is also verified to work |
+| State dir / logs | `%LOCALAPPDATA%\sol-gong-mirror\repo` / `%LOCALAPPDATA%\sol-gong-mirror\logs\` (last 15 runs) |
+| Check it | `Get-ScheduledTaskInfo SolGongMirror` (LastTaskResult 0), the newest log's `SUMMARY:` line, `git ls-remote --heads origin gong-cache`, and in a `data.yml` log the `[GONG]` probe block reading `via relay … directory index: index.html` followed by a real listing and `slots: N/19` |
+
+Known, accepted: every run pushes (two timestamps change each run, so "no
+change" is effectively dead code — a harmless heartbeat); ~24 unreachable
+243 KB blobs a day accumulate in the branch's object store as the single
+commit is amended, the same property gh-pages already has; a PARTIALLY wiped
+state dir (a few files) still pushes, because the zero-file refusal cannot tell
+that from a legitimate cold start without fetching the remote first.
 
 ## What NOT to do
 

@@ -25,8 +25,13 @@ credential stores are):
     $repoRoot = 'C:\Users\adavi\Documents\DataStories\sol'
     $action   = New-ScheduledTaskAction -Execute 'powershell.exe' `
         -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$repoRoot\scripts\gong-mirror-task.ps1`""
+    # No -RepetitionDuration: omitted, the repetition runs indefinitely on
+    # Windows 8+/Server 2012+. Passing ([TimeSpan]::MaxValue) -- the idiom older
+    # docs suggest -- is REJECTED on Windows 11 24H2 (measured 2026-09-02):
+    # "The task XML contains a value which is incorrectly formatted or out of
+    # range. (10,42):Duration:P99999999DT23H59M59S", and the task is not created.
     $trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-        -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration ([TimeSpan]::MaxValue)
+        -RepetitionInterval (New-TimeSpan -Hours 1)
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew
     Register-ScheduledTask -TaskName 'SolGongMirror' -Action $action -Trigger $trigger `
         -Settings $settings -RunLevel Limited `

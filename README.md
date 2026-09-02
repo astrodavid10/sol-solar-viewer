@@ -23,7 +23,8 @@ scrubber.
 
 ## Stack
 
-Vue 3 + Vuetify (CosmicDS data-story stack) around the
+Vue 3 (no UI framework — Vuetify was dropped 2026-09-02, saving ~4 MB of published fonts and
+85 KB of gzipped render-blocking CSS) around the
 [WWT WebGL engine](https://github.com/WorldWideTelescope/wwt-webgl-engine)
 (`@wwtelescope/engine-pinia`), with a vendored copy of
 [cosmicds/three-wwt](https://github.com/cosmicds/three-wwt) syncing a three.js overlay for the

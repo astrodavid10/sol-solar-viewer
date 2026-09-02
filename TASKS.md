@@ -30,7 +30,7 @@ the plan says outrank documentation work.
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
 | T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **9th time** 2026-09-02: 22.9 h -> 0; two CI runs had failed on footgun 50's `ar_index` bound |
-| T2 | Land the GONG relay (Option D, workstation mirror) | CODE LANDED | `8650fee`+ | inert until the env vars are set; go-live steps remain |
+| T2 | Land the GONG relay (Option D, workstation mirror) | LIVE, proof run pending | `8650fee`+`85e626c` | branch `gong-cache` pushed 2026-09-02 17:50Z, secrets set, `SolGongMirror` hourly task registered; DoD = a scheduled run tracing ≥ 6 frames |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
 | T12 | Explainer copy pass | TODO | — | **AF** — aurora copy is wrong, not just unclear |
@@ -48,6 +48,7 @@ the plan says outrank documentation work.
 | T17 | Zoom out to the heliosphere, with the Voyagers | TODO | — | **AF** — largest new feature; needs scoping |
 | T18 | A vertical reel of the 72 h field | DONE | — | `scripts/render_reel.py`; asked for outside the plan |
 | T19 | Near-side detail maps at full SDO resolution | PARKED | `8650fee`+ | pipeline DONE; app LOD + cold fill next; parked while T20 lands |
+| T21 | Review fixes, second batch (items 9-13: Vuetify out, texture gate, T5 wiring, token leaks, `max_frames`) | IN PROGRESS | — | two agents; item 12 gates T2's go-live |
 | T20 | Review fixes, 2026-09-02 (eight items from the full code review) | DONE | `dc6aa22`..`68bb960` | wind-tz bug, per-product validate, `seed_regions`, notify + freshness, field-line hole, texture GPU leak; republished `85230e5`; dry-run + freshness verified. **Every scheduled `data` run is now RED while pfss is stale** — by design, until T2 |
 
 **AF** = from Alex's review, 2026-08-24 (see "Alex's review" at the foot of this file for the
@@ -468,7 +469,33 @@ with no human in the loop, and `docs/GONG-RELAY.md` records the live configurati
 
 **Known weakness, to be written down rather than discovered:** a sleeping or offline
 workstation stops the mirror. The pipeline then degrades exactly as it does today — stale,
-not deleted (footgun 31).
+not deleted (footgun 31). **The mirror itself did NOT have that property until `85e626c`:** an
+empty state dir force-pushed an empty tree over the good branch (deleted, not stale). It
+refuses now; footgun 55.
+
+**GO-LIVE, 2026-09-02 (sixteenth session), in the order the list above gives:**
+
+1. Reviewed the landed diff — the full item-by-item review is in T21's progress notes; five
+   defects fixed in `85e626c`, 12 tests added, `docs/GONG-RELAY.md` corrected (stale byte
+   counts, the future-day 404, why `--retain-days 5`, the token sentence).
+2. `--dry-run --retain-days 5 -v`: 7 day dirs, 135 files / 31.3 MB, 61 s, exit 0.
+3. Real run, default state dir `%LOCALAPPDATA%\sol-gong-mirror\repo`: pruned 27 files from an
+   August test (`mrzqs260823/24`), mirrored **136 files**, newest 0.6 h old, **pushed
+   `origin/gong-cache`** (`0f75a8e`). Verified over `raw.githubusercontent.com`: today's
+   `index.html` → 200 listing 18 files; a FITS `HEAD` → 200, 243,016 bytes, `max-age=300`.
+4. Secrets: `SOL_GONG_PROXY_BASE` = the raw URL of `gong-cache/oQR/zqs`;
+   `SOL_GONG_PROXY_INDEX` = `index.html`; token left unset.
+5. `SolGongMirror` registered: hourly, `-StartWhenAvailable`, `IgnoreNew`, 30 min limit,
+   `RunLevel Limited`, **interactive logon, no stored password** — runs while this user is
+   logged on (locked is fine), pauses when logged off. Re-register with a stored password per
+   the ps1 header if run-when-logged-off is wanted. `-RepetitionDuration ([TimeSpan]::MaxValue)`
+   from the header's original snippet is REJECTED on this Windows 11 build (`Duration:
+   P99999999DT23H59M59S` out of range); the snippet now omits it.
+6. `gh workflow run data.yml -f dry_run=true` (run 33663715169) dispatched as the proof — result
+   recorded below when it lands.
+
+**Definition of done:** a scheduled `data.yml` run traces ≥ `MIN_FRAMES_TO_PUBLISH` frames
+with no human in the loop, and `docs/GONG-RELAY.md` records the live configuration (done).
 
 ---
 
@@ -1053,6 +1080,88 @@ own handler still returns `status: stale` for a minutes-old copy (pessimistic, n
 inconsistent with `_fallback_status`); `python -m pipeline <one stage>` does NOT run the
 pre-promote validation, only `all` does; `_check_texture_frames`' pixel sampling is still 3 of
 18 frames per channel (presence is now checked for all). Plus review items 9-13.
+
+---
+
+### T21 — Review fixes, second batch (items 9-13)  *(IN PROGRESS)*
+
+**Why.** The five review items T20 left, worked in the same session because the user asked for
+Option D next and item 12 (token leaks) gates it: `scripts/gong_mirror.py` writes its GitHub
+token into its own error message on a failed push, and a Scheduled Task log is exactly where
+that would land.
+
+| item | what | where |
+|---|---|---|
+| 12 | Token in the publish script's push URL (unmasked when run by hand); token in the mirror's `RuntimeError` text | `scripts/publish_gh_pages.sh`, `scripts/gong_mirror.py` |
+| 13 | `max_frames` dispatch input deletes published frames past N | `.github/workflows/data.yml`, `pipeline/cli.py` help + WARN |
+| 9 | Vuetify loaded for one `<v-app>`: 85 KB gzip render-blocking CSS + 3.6 MB MDI fonts ahead of the engine-free entry chunk | `plugins/vuetify.ts`, `src/main.ts`, `src/sol.vue`, `vue.config.js`, `package.json` |
+| 10 | `setFrameTime` / far-side hysteresis / `updateOffLimb` gated on the ephemeris product loading | `SolarView3D.vue` `updateSpacecraft` → `tick` |
+| 11 | T5: `build.yml` never ran; `app-deploy` lacks typecheck and `--immutable`; the two check scripts and the new pytest suite wired to nothing | `build.yml`, `app-deploy.yml`, `package.json` scripts, `pipeline/tests/conftest.py` |
+
+Also in this task: the go-live review of `scripts/gong_mirror.py` (T2 says "treat the diff as
+unreviewed") and a `--dry-run` of it, both prerequisites for T2's go-live steps.
+
+**Definition of done:** each item committed with lint/typecheck/build green, `build.yml`
+observed running green on `main` after the push (its first run ever), `yarn why vuetify`
+empty, and the token redaction covered by a test.
+
+**Progress:**
+
+- **Item 9 DONE** `04b8e02` (+ the `plugins/vuetify.ts` deletion, swept into `30d7ec1` by the
+  other agent's broad add — content byte-identical). Measured, production build: render-blocking
+  CSS **606,223 → 19,114 B raw** (89,847 → 4,645 gzip); `dist/fonts` **3.6 MB → 93 KB** (the four
+  `materialdesignicons-webfont.*` files gone); webpack "app" entrypoint **885 → 265 KiB**;
+  `chunk-vendors.js` 236 → 189 KB. Entry chunk still engine-free (0 `THREE.`/`wwtlib` hits in
+  `app.*.js` and `chunk-vendors.*.js`). **Vuetify's bundled reset (ress.css + its `html` rule)
+  was load-bearing**: `box-sizing: border-box`, `* { margin: 0; padding: 0 }`,
+  `button { font: inherit; background: transparent; border: none }`, `line-height: 1.5`,
+  `color-scheme: dark`, and `#app`'s text color were all restated explicitly in `common.less`
+  after reading them out of the built vendor CSS (footgun 53). `#app` is no longer duplicated.
+  Layout verified in a browser at a phone viewport. `yarn why vuetify` still shows ONE
+  transitive path via `@cosmicds/vue-toolkit`, which the app imports nowhere — removal
+  follow-up below.
+- **Item 10 DONE** `fad2c52` — `setFrameTime` + far-side hysteresis + `updateOffLimb()` moved
+  from `updateSpacecraft` (lines 1545-1559) into a new `updateSurfaceFrame()` called from
+  `tick()`'s throttled block (`PROJECT_MS = 50`) immediately after `updateSpacecraft()`: same
+  order, same cadence, no dependency on the ephemeris product. Trap met on the way:
+  `unobservedFraction()` returns `number | null`, and dropping the `?? 0` passed `yarn typecheck`
+  and failed `yarn build` with three errors — the CLAUDE.md note about `.vue` script blocks,
+  confirmed live.
+- **Item 11 DONE** (T5) — content in `095122f` (swept, byte-identical). `build.yml` runs on
+  `push` to `main` and on PRs, two jobs: **app** (install `--immutable`, lint, typecheck, build,
+  `yarn check:labels`) and **pipeline** (`check_pipeline_names.py`, pyflakes with the four
+  intentional `sunpy.coordinates` lines filtered, `pytest pipeline/tests`; 20 min timeout).
+  `app-deploy.yml`: `--immutable` + a Typecheck step. `package.json`: `check:labels`,
+  `check:pipeline`, `test:pipeline`. The three test modules that read `public/data` already
+  `skipif` on it — proved by running the suite from a tree with no `public/`: 59 passed, 16
+  skipped, 0 failed.
+- **Item 12 DONE** `30d7ec1` + `85e626c` — `publish_gh_pages.sh` authenticates with a
+  per-invocation `-c http.extraheader` over a PLAIN URL plus `GIT_TERMINAL_PROMPT=0` (proved
+  read-only with `ls-remote`; a bogus token fails in 1 s and the `fatal:` line now carries a
+  token-free URL — exactly where the old form leaked). `gong_mirror.py`: `_redact_args` /
+  `_redact_text` scrub argv and captured output before any error text is built; 3 tests.
+- **Item 13 DONE** `095122f` — `max_frames` input and `MAX_FRAMES` plumbing removed from
+  `data.yml`; `--max-frames` help + a runtime WARN naming `--out` and N.
+- **Mirror go-live review DONE** (`85e626c`, 12 new tests in `pipeline/tests/test_gong_mirror.py`,
+  total suite **75 passing**). Findings fixed: (1) an EMPTY state dir force-pushed an empty tree
+  over a good branch and only then printed FAILURE — now refuses before `_ensure_local_repo`
+  (the mirror-side twin of footgun 31, CLAUDE.md footgun 55); (2) a fresh `git init` inherits
+  `core.autocrlf=true` from Git for Windows' SYSTEM config — `* -text` now written to the state
+  repo (footgun 54); (3) `index.html` was written in text mode (CRLF on Windows) — now LF bytes;
+  (4) a rejected push left only a traceback, no `SUMMARY:` line; (5) a `.format(None)` crash on
+  the SUMMARY line when no filename parsed. Verified OK: the synthetic index round-trips through
+  the REAL `_scrape_gong` parser back to canonical `gong2.nso.edu` URLs (footgun 37 pinned by
+  test); `--retain-days 5` covers `today−4`, the oldest day the pipeline can ask for (4 exact, 3
+  leaves a hole); force-push creates the branch on first run and keeps it at one commit; the lock
+  releases a dead run after 30 min; env hygiene stops the mirror relaying through itself (proved
+  with a bogus relay in the env); `.fits.gz` bytes are verbatim (sha256 against a live
+  re-download); the ps1 picks the `sdo` interpreter, rotates to 15 logs, propagates exit codes.
+  Dry run: 7 day dirs, **135 files / 31.3 MB in 61 s**, one expected 404 WARN for tomorrow's dir.
+- Also this task: `fee65bb` removed `@cosmicds/vue-toolkit` (imported nowhere; the last resolver
+  of `vuetify` and `@mdi/font` — `yarn why vuetify` is now empty) and the dead `plugins/*.ts`
+  tsconfig include; `c5369c0` fixed the one stale local test (the footgun-50 shape test assumed a
+  legacy manifest; against a `sol.pfss/2` manifest `events` is the consumer that fails).
+- **Stale test the app agent found, `@live`-only, now fixed** — see `c5369c0` above.
 
 ---
 

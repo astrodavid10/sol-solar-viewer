@@ -254,6 +254,51 @@ this — loud beats eleven sessions of silent staleness — but whether three co
 issue stays useful is a call for whoever sets T2's go-live date (see T20's note). Do not
 quiet it by exempting pfss from `Verdict`; if anything, throttle `Notify`.
 
+### Second batch (T21) and Option D — same session, continued
+
+The user asked for Option D next and then the remaining review items. Item 12 gates the
+relay (the mirror would log its own token on a failed push), so the order was: two agents on
+items 12+13 (scripts, `cli.py`, `data.yml`) and 9+10+11 (app, `build.yml`, `app-deploy.yml`)
+on disjoint files, then the go-live by hand. Results below as they land.
+
+- **Vuetify is out** (`04b8e02`). It was loaded for a single `<v-app>`; the app imports nothing
+  from `@cosmicds/vue-toolkit` either (SolarView3D says why: it would drag leaflet). Measured:
+  render-blocking CSS 606 KB → 19 KB raw, `dist/fonts` 3.6 MB → 93 KB, app entrypoint 885 →
+  265 KiB. The lesson worth a footgun: a CSS framework's RESET is part of what you remove.
+  Vuetify shipped ress.css, and box-sizing, zeroed margins, `button { font: inherit }`,
+  `line-height: 1.5` and `color-scheme: dark` were all silently holding the layout up. They
+  are now explicit at the top of `common.less`, chosen by reading `.v-application`'s rules out
+  of the built vendor CSS before deleting it. Browser-checked at a phone viewport.
+- **Sphere time alignment un-gated** (`fad2c52`): `updateSurfaceFrame()` runs from `tick()`'s
+  throttled block whether or not `ephem/spacecraft.json` loaded.
+- **T5 is wired** (content in `095122f`): `build.yml` runs on push with an app job and a
+  pipeline job (pytest included); `app-deploy.yml` typechecks and installs `--immutable`. Its
+  first run ever happens on this session's push.
+- **Token leaks closed** (`30d7ec1`, `85e626c`): the publish script no longer puts the token in
+  the push URL (an `http.extraheader` over a plain URL — the `fatal:` line that used to leak it
+  is now clean), and the mirror redacts credentials from argv and captured output.
+- **`max_frames` is gone from the workflow** (`095122f`); the CLI flag warns what it prunes.
+- **The mirror got its review** — and it had a real one: an empty state dir would have
+  force-pushed an empty tree over the good branch (fixed; footgun 55), Git for Windows'
+  system-wide `autocrlf=true` would have applied to a byte-verbatim FITS store (`* -text`;
+  footgun 54), the synthesized `index.html` went out with CRLF (now LF bytes), a rejected push
+  printed no `SUMMARY:` line, and the SUMMARY line itself could crash on `.format(None)`. All
+  fixed and tested (75 tests total now). The invariants that matter are pinned: the synthetic
+  index parses back through the REAL `_scrape_gong` to canonical NSO URLs, and `--retain-days 5`
+  is derived, not chosen (`today−4` is the oldest day the pipeline can ask for).
+
+### Option D went live
+
+Branch `gong-cache` pushed at 17:50Z (136 files, 27 August test files pruned on the way),
+verified readable over `raw.githubusercontent.com` (index 200 with 18 files, FITS HEAD 200 at
+243,016 bytes, `max-age=300`); `SOL_GONG_PROXY_BASE` and `SOL_GONG_PROXY_INDEX` set, token left
+unset; `SolGongMirror` registered hourly for the interactive logon (no stored password — see
+T2 for the upgrade) after discovering that `-RepetitionDuration ([TimeSpan]::MaxValue)` is
+rejected outright on this Windows build. **Its first unattended tick ran at 17:55Z: exit 0,
+`SUMMARY: OK -- 136 file(s) present, newest 0.7 h old, +0/-0`** — the plumbing works without a
+human. A `data.yml` dry run was dispatched as the proof from a runner; its `[GONG]` block and
+`slots:` line are the verdict, recorded in T2.
+
 ### Still not seen in a browser
 
 Items 5 and 6 (field-line hole, texture memory) were verified by a Node harness against the

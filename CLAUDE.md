@@ -28,6 +28,11 @@ yarn serve            # dev server (allowedHosts: all — test on a phone via LA
 yarn lint             # eslint, no fix
 yarn typecheck        # tsc --noEmit — does NOT check .vue script blocks; only yarn build does
 yarn build            # production build to dist/
+yarn check:labels     # node scripts/check_label_layout.mjs  (label de-collision invariants)
+yarn check:pipeline   # python scripts/check_pipeline_names.py
+yarn test:pipeline    # python -m pytest pipeline/tests -q   (needs the sdo env on PATH)
+# build.yml runs ALL of these on every push to main (app job + pipeline job) since 2026-09-02;
+# app-deploy.yml installs --immutable and typechecks before it builds.
 ```
 
 Pipeline (Python, conda env `sdo`):
@@ -36,8 +41,9 @@ Pipeline (Python, conda env `sdo`):
 conda run -n sdo python -m pipeline all --out public\data -v    # dev data for yarn serve
 conda run -n sdo python -m pipeline pfss --from-cache --out public\data  # fast re-export (~2 s)
 conda run -n sdo python -m pipeline validate --root public\data --strict
-conda run -n sdo python -m pytest pipeline/tests -q   # 53 tests, ~1 min; the tz table runs
-                                                       # on THIS workstation on purpose (footgun 52)
+conda run -n sdo python -m pytest pipeline/tests -q   # ~75 tests, ~1 min; the tz table runs on
+                                                       # THIS workstation on purpose (footgun 52);
+                                                       # tests that read public/data skip on a runner
 python scripts/check_pipeline_names.py          # undefined globals; run BEFORE a long build
 node scripts/check_label_layout.mjs             # label de-collision invariants
 # fallback if conda run misbehaves:
@@ -675,6 +681,45 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     failure handler, escapes `cmd_all` and leaves the run with NO `index.json`. Test the parser
     on the workstation, not only in CI: the bug is invisible in every UTC environment, which is
     exactly why four sessions of green CI runs never saw it.
+
+53. **A CSS framework's RESET is part of what you remove.** Vuetify was loaded for exactly one
+    `<v-app>` wrapper and cost 606 KB (85 KB gzip) of render-blocking CSS plus 3.6 MB of MDI
+    webfonts for glyphs the app never drew — but it also shipped ress.css and its own `html`
+    rule, and five of those rules were silently holding the layout up: `box-sizing: border-box`
+    (sol.less sizes padding+border inside declared widths), `* { margin: 0; padding: 0 }` (the
+    title and attract hint are `<p>`s), `button { font: inherit; background: transparent;
+    border: none }` (21 buttons across 10 components, two of which set a font — the rest would
+    have dropped to 13.3 px Arial), `line-height: 1.5`, and `:root { color-scheme: dark }`,
+    which Vuetify injected at runtime from its theme. `#app`'s text colour also came from
+    `.v-application`. All of it is now explicit at the top of `common.less`, chosen by reading
+    `.v-application`'s rules out of the BUILT vendor CSS before deleting the import. Do that
+    read first whenever a framework goes; a diff of your own stylesheets shows nothing.
+    Second lesson from the same session, the Commands note earning its keep: dropping a `?? 0`
+    on a `number | null` in a `.vue` script block passed `yarn typecheck` and failed
+    `yarn build` with three errors. Run the build.
+
+54. **A fresh `git init` on this workstation inherits `core.autocrlf=true` from Git for
+    Windows' SYSTEM config** (measured 2026-09-02). Git decides text-vs-binary with a
+    NUL-in-the-first-8000-bytes heuristic, and it does happen to call a real 243 KB
+    `mrzqs*.fits.gz` binary — but the GONG mirror's whole contract is byte-verbatim, and a
+    heuristic is not a contract. `gong_mirror._ensure_local_repo` writes `* -text` into the
+    state repo's `.gitattributes` so no future file (a stray text-like FITS header, a
+    hand-dropped `.txt`) can be rewritten on the way to `gong-cache`. Same family: the mirror's
+    synthesized `index.html` used `Path.write_text`, so on Windows it went out with CRLF and
+    the published bytes depended on which OS mirrored them. Any file whose bytes must survive
+    a round trip through git on this machine needs `-text`, and any file this pipeline writes
+    for a parser needs explicit LF bytes.
+55. **The mirror-side twin of footgun 31: a relay that force-pushes must refuse to push
+    nothing.** `gong_mirror.py` force-pushes a single amended commit and never fetches
+    `origin/gong-cache` first, so it publishes whatever its state dir holds. Until `85e626c`
+    the "zero files" check ran AFTER the push — so a new workstation, a cleaned
+    `%LOCALAPPDATA%`, a `--state-dir` typo, or a first run during a GONG outage would have
+    replaced a good 31 MB mirror with an EMPTY tree, and CI would have 404'd on every file
+    while the mirror's own log said FAILURE one line too late. The check now runs before the
+    local repo is even touched. Residual, accepted and written down: a PARTIALLY wiped state
+    dir (a few files) still pushes, because refusing that needs a fetch-and-compare the mirror
+    does not do. Footgun 31 says "seed from the published tree so `--delete` cannot eat it";
+    this says the same thing about a force-push: know what is live before you replace it.
 
 ## Data sources (verified live 2026-08)
 

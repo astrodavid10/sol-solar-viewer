@@ -42,8 +42,12 @@ def test_age_hours_on_a_bare_string_does_not_raise():
     # which side of the subtraction the naive value landed on.
     now = datetime(2026, 9, 2, 16, 23, tzinfo=timezone.utc)
     assert abs(age_hours(parse_iso_z(BARE), now) - 1.0) < 1e-9
-    assert abs(age_hours(parse_iso_z(BARE)) -
-               age_hours(parse_iso_z(WITH_Z))) < 1e-9
+    # Same instant, both spellings, against ONE explicit clock: the first CI
+    # run of this suite compared two calls that each read utcnow() and the
+    # 4 us between them was a 1.1e-9 h difference -- a flake, not a bug.
+    assert age_hours(parse_iso_z(BARE), now) == age_hours(parse_iso_z(WITH_Z), now)
+    # And with the implicit clock, only that it does not raise.
+    assert age_hours(parse_iso_z(BARE)) > 0
 
 
 def test_offset_bearing_strings_are_not_forced_to_utc():

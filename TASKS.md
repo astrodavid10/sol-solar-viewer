@@ -48,7 +48,7 @@ the plan says outrank documentation work.
 | T17 | Zoom out to the heliosphere, with the Voyagers | TODO | — | **AF** — largest new feature; needs scoping |
 | T18 | A vertical reel of the 72 h field | DONE | — | `scripts/render_reel.py`; asked for outside the plan |
 | T19 | Near-side detail maps at full SDO resolution | PARKED | `8650fee`+ | pipeline DONE; app LOD + cold fill next; parked while T20 lands |
-| T20 | Review fixes, 2026-09-02 (eight items from the full code review) | IN PROGRESS | — | wind-tz bug, per-product validate, `seed_regions`, notify + freshness, field-line hole, texture GPU leak |
+| T20 | Review fixes, 2026-09-02 (eight items from the full code review) | DONE | `dc6aa22`..`68bb960` | wind-tz bug, per-product validate, `seed_regions`, notify + freshness, field-line hole, texture GPU leak; republished `85230e5`; dry-run + freshness verified. **Every scheduled `data` run is now RED while pfss is stale** — by design, until T2 |
 
 **AF** = from Alex's review, 2026-08-24 (see "Alex's review" at the foot of this file for the
 raw items and how each was mapped).
@@ -943,7 +943,7 @@ confirm, and the extension is still not connected.
 
 ---
 
-### T20 — Review fixes, 2026-09-02  *(IN PROGRESS)*
+### T20 — Review fixes, 2026-09-02  *(DONE)*
 
 **Why.** A full read-only review on 2026-09-02 (four passes: the publish run, the app, the
 pipeline, CI/ops; report at
@@ -1032,6 +1032,27 @@ a footgun.
   is out for the served product too. Cost of purging the poisoned cache: the wind series
   restarts at **25 hourly points** (~1 day) and refills over the next runs. Published as
   `gh-pages` **`85230e5`** at 16:58Z, 137 data files, CI idle at push time.
+- **Verified in CI after the push** (`68bb960`): `Deploy app` green with all 137 data files
+  preserved on `gh-pages` (`9e96172`); `freshness.yml`'s first real run **green** —
+  `FRESH: index 0.1 h, pfss data 0.7 h, all 6 products ok`; and a `data.yml` **dry run**
+  (run 33658429829) that exercised the whole new shape: Build exit 0 with GONG unreachable
+  (`slots: 0/19`, pfss stale, footgun 33), the pre-promote `[validate]` block `OK` for the five
+  staged products (texture 1383 checks), Publish skipped (dry run), the post-publish tripwire
+  0/0, **`Verdict` FAILED on `last_attempt_status: degraded`**, and `Notify on failure` opened
+  the fixed-title issue `data pipeline: scheduled run failing`.
+  **Read that last line as the design working, and as a consequence to decide on:** until T2
+  lands, every scheduled `data` run will come out RED (pfss is stale on every one of them) and
+  will add one comment to that issue, roughly three or four a day. That is the loud signal the
+  review asked for in place of eleven sessions of silent staleness — but if the comment stream
+  trains people to ignore the issue, the `Notify` step should skip commenting when the previous
+  comment is under ~12 h old and names the same stale product. Decide when T2's go-live date is
+  known; do NOT quiet it by exempting pfss from `Verdict`.
+
+**Follow-ups this task deliberately left** (from the pipeline agent's report): `run_ephem`'s
+own handler still returns `status: stale` for a minutes-old copy (pessimistic, not a lie, but
+inconsistent with `_fallback_status`); `python -m pipeline <one stage>` does NOT run the
+pre-promote validation, only `all` does; `_check_texture_frames`' pixel sampling is still 3 of
+18 frames per channel (presence is now checked for all). Plus review items 9-13.
 
 ---
 

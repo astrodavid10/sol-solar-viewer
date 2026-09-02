@@ -61,6 +61,13 @@ for k, v in sorted(d['products'].items()):
 `0 freshly traced frame(s) of 19 slot(s)`. That note is the signature of the GONG block: CI
 tried, reached nothing, and kept serving the frames a workstation published last time.
 
+Since 2026-09-02 (T20) you will usually learn this from GitHub rather than from this check:
+every scheduled `data` run whose `Verdict` step sees `pfss` stale comes out **red** and adds a
+comment to the open issue `data pipeline: scheduled run failing`, and `freshness.yml` opens
+`live data is stale` once the live field-line data passes 12 h. A red `data` run is therefore
+NOT a discarded publish any more — the other five products were published — it is this chore
+asking to be done.
+
 Note the *index* age too. If the whole index is hours old, either the last scheduled run failed
 **or the cron never fired** — step 2 tells you which, so do not assume a bug. Either way
 **every** product is stale, not just PFSS, and step 4 rebuilds all of them.

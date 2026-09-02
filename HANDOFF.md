@@ -239,6 +239,29 @@ the run at 16:56Z (it had been 4.61 h in the future), pfss `sol.pfss/2` with
 `seed_regions [4520, 4521, 4522, 4523]`, `data_age_hours 0.71`. The wind series restarts at 25
 points because the poisoned cache was deleted rather than repaired; it refills one bin per run.
 
+### What CI did with the new shape, first time out
+
+The docs push (`68bb960`) ran `Deploy app` (green, 137 data files preserved), and two
+dispatches followed. `freshness.yml`: **green**, `FRESH: index 0.1 h, pfss data 0.7 h, all 6
+products ok`. `data.yml -f dry_run=true` (run 33658429829): Build exit 0 even though GONG timed
+out from the runner as always (`slots: 0/19`, pfss stale), the five staged products passed the
+pre-promote validation, Publish skipped, the post-publish tripwire 0/0, and then **`Verdict`
+went red on `last_attempt_status: degraded`** and `Notify` opened `data pipeline: scheduled run
+failing`. That is the intended behavior and it has a consequence worth stating plainly for the
+next session: **every scheduled `data` run is red until T2 lands**, because pfss is stale on
+every one of them, and each adds a comment to that one issue. The review argued for exactly
+this — loud beats eleven sessions of silent staleness — but whether three comments a day on one
+issue stays useful is a call for whoever sets T2's go-live date (see T20's note). Do not
+quiet it by exempting pfss from `Verdict`; if anything, throttle `Notify`.
+
+### Still not seen in a browser
+
+Items 5 and 6 (field-line hole, texture memory) were verified by a Node harness against the
+compiled module and by lint/typecheck/build, not on a phone or in Chrome. T8 remains blocked
+on the extension; when it connects, the two things to look at are a scrub with a frame
+deliberately 404'd (the label should read `<stamp> · N frames missing`, the lines should
+draw) and a kiosk left playing for ten minutes with `chrome://gpu` memory open.
+
 ---
 
 ## 3zzzzzzzzzzzz. What changed on 2026-09-02 (FIFTEENTH session)

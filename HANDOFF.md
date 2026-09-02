@@ -296,8 +296,34 @@ unset; `SolGongMirror` registered hourly for the interactive logon (no stored pa
 T2 for the upgrade) after discovering that `-RepetitionDuration ([TimeSpan]::MaxValue)` is
 rejected outright on this Windows build. **Its first unattended tick ran at 17:55Z: exit 0,
 `SUMMARY: OK -- 136 file(s) present, newest 0.7 h old, +0/-0`** — the plumbing works without a
-human. A `data.yml` dry run was dispatched as the proof from a runner; its `[GONG]` block and
-`slots:` line are the verdict, recorded in T2.
+human. **The proof from a runner came back clean** (run 33663715169, dry run): `[GONG] via relay`,
+all four day directories listed through the mirror, `slots: 19/19`, 19 frames traced in 243 s
+on a cold runner cache, every product through pre-promote validation, `last_attempt_status
+ok`, Verdict green, Notify skipped. That is the first `data` run since 2026-08-23 to build
+field lines without a workstation in the loop — footgun 33 is routed around. **The real
+publishing dispatch that followed (run 33664961891) traced 19/19 in 30 s off the now-warm
+runner cache, published `gh-pages` `ca5426f` at 18:13Z with `VERDICT: ok -- all 6 products
+ok`, and the live index reads pfss `ok` from a CI-built tree** — the first field lines CI has
+ever published. Issue #1 was commented and closed. T2 is DONE; T1 becomes the fallback runbook.
+
+### What the next session should know
+
+- **The daily chore is over.** If `pfss` goes stale now, the first question is whether the
+  workstation was on and logged in (the mirror task runs under the interactive logon; see T2 to
+  upgrade it to a stored password), then `Get-ScheduledTaskInfo SolGongMirror` and the newest
+  mirror log's `SUMMARY:` line, then the `data` run's `[GONG]` probe block. `PFSS-UPDATE.md`
+  is the fallback, not the routine.
+- **Every scheduled `data` run should now be green.** A red one is real: read the `Verdict`
+  table. `freshness.yml` watches the live site every 2 h and opens `live data is stale`.
+- **Not yet seen in a browser** (T8): the field-line hole handling, the texture memory fixes,
+  and the post-Vuetify layout on a real phone (it was checked at a phone viewport on the
+  desktop). T8 is still blocked on the Chrome extension.
+- **Review items remaining from the 2026-09-02 report**, all lower value than what landed:
+  the "everything else" tables in the artifact — scrubber-drag latch, the "Sun Now" strings and
+  a retry affordance on the 3D failure card, `backdrop-filter` on the title and icon buttons,
+  the aurora banner vs chip contradiction (T3), Escape/focus on the overlays (T7), the wheel
+  over the layer popover, the events-window validator bound, the unpruned `.cache/gong`, the
+  `_single` stage path skipping pre-promote validation.
 
 ### Still not seen in a browser
 

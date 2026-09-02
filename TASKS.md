@@ -29,13 +29,12 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **9th time** 2026-09-02: 22.9 h -> 0; two CI runs had failed on footgun 50's `ar_index` bound |
-| T2 | Land the GONG relay (Option D, workstation mirror) | LIVE, proof run pending | `8650fee`+`85e626c` | branch `gong-cache` pushed 2026-09-02 17:50Z, secrets set, `SolGongMirror` hourly task registered; DoD = a scheduled run tracing ≥ 6 frames |
+| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage |
+| T2 | Land the GONG relay (Option D, workstation mirror) | DONE | `8650fee`+`85e626c` | LIVE 2026-09-02: `gong-cache` fed hourly by `SolGongMirror`; CI traced 19/19 in run 33663715169 (dry) and **published** in 33664961891 (`gh-pages` `ca5426f`, Verdict ok, issue #1 closed). Formal "scheduled" confirmation = the next cron tick |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
 | T12 | Explainer copy pass | TODO | — | **AF** — aurora copy is wrong, not just unclear |
 | T4 | Reconcile CLAUDE.md / HANDOFF.md with the shipped tree | TODO | — | footgun 40 is wrong |
-| T5 | Wire existing checks into CI | TODO | — | `build.yml` has never run |
 | T6 | First real app tests | TODO | — | tripwire for footguns 19/47 |
 | T13 | Tap a live value to open its explainer | TODO | — | **AF** |
 | T16 | Earth on the textured side (verify, then frame) | TODO | — | **AF** — data proven correct, app path unverified |
@@ -48,7 +47,8 @@ the plan says outrank documentation work.
 | T17 | Zoom out to the heliosphere, with the Voyagers | TODO | — | **AF** — largest new feature; needs scoping |
 | T18 | A vertical reel of the 72 h field | DONE | — | `scripts/render_reel.py`; asked for outside the plan |
 | T19 | Near-side detail maps at full SDO resolution | PARKED | `8650fee`+ | pipeline DONE; app LOD + cold fill next; parked while T20 lands |
-| T21 | Review fixes, second batch (items 9-13: Vuetify out, texture gate, T5 wiring, token leaks, `max_frames`) | IN PROGRESS | — | two agents; item 12 gates T2's go-live |
+| T21 | Review fixes, second batch (items 9-13: Vuetify out, texture gate, T5 wiring, token leaks, `max_frames`) | DONE | `30d7ec1`..`5c0d334` | all five landed; `build.yml` green on `main` for the first time (run 33664390163, app + pipeline jobs) after one deflake; T5 closed by it |
+| T5 | Wire existing checks into CI | DONE | `095122f` | folded into T21 item 11: `build.yml` runs on push (lint, typecheck, build, label check, names check, pyflakes, pytest); `app-deploy` typechecks + `--immutable` |
 | T20 | Review fixes, 2026-09-02 (eight items from the full code review) | DONE | `dc6aa22`..`68bb960` | wind-tz bug, per-product validate, `seed_regions`, notify + freshness, field-line hole, texture GPU leak; republished `85230e5`; dry-run + freshness verified. **Every scheduled `data` run is now RED while pfss is stale** — by design, until T2 |
 
 **AF** = from Alex's review, 2026-08-24 (see "Alex's review" at the foot of this file for the
@@ -435,7 +435,7 @@ runs have not matched.
 
 ---
 
-### T2 — Land the GONG relay: Option D, the workstation mirror
+### T2 — Land the GONG relay: Option D, the workstation mirror  *(DONE 2026-09-02)*
 
 **Decided** this session, over Option A (Cloudflare Worker) and over shelving it.
 
@@ -491,8 +491,22 @@ refuses now; footgun 55.
    the ps1 header if run-when-logged-off is wanted. `-RepetitionDuration ([TimeSpan]::MaxValue)`
    from the header's original snippet is REJECTED on this Windows 11 build (`Duration:
    P99999999DT23H59M59S` out of range); the snippet now omits it.
-6. `gh workflow run data.yml -f dry_run=true` (run 33663715169) dispatched as the proof — result
-   recorded below when it lands.
+6. `gh workflow run data.yml -f dry_run=true` (run 33663715169) — **the relay works from a
+   runner.** `[GONG] via relay … directory index: index.html`; listings 71 / 72 / 66 / 42 files
+   for 08-30 .. 09-02; **`slots: 19/19 have a magnetogram within 3 h`**; `tracing 19 distinct
+   magnetogram(s)` → 19 frames, 1251 lines, 2.10 MB, **243.3 s** on the runner (against 11.8 s
+   cache-warm locally; the runner's `actions/cache` had never held a frame before — footgun 33
+   — so this fills it); pre-promote `[validate]` OK for all SIX staged products; publish
+   skipped (dry run); tripwire 0/0; **`last_attempt_status ok`, Verdict green, Notify
+   skipped.** Whole job well inside the 45 min budget. The first `data` run since 2026-08-23
+   to build field lines without a workstation.
+7. A real (publishing) dispatch followed immediately: **run 33664961891 — `slots: 19/19`, 19
+   frames in 30.0 s** (the dry run had just filled the runner's traced-frame cache, footgun 33's
+   `actions/cache` comment is finally true), `[publish] 62 file(s)`, `VERDICT: ok -- all 6
+   products ok`, published as `gh-pages` **`ca5426f`** at 18:13Z. Live `index.json` 18:05Z `ok`,
+   pfss `data_age_hours 1.85`, manifest `sol.pfss/2`. **The first field lines ever published by
+   CI.** Issue #1 commented and closed. The formal DoD wording ("a *scheduled* run") is met by
+   the next cron tick; `freshness.yml` and a reopened issue #1 are what would say otherwise.
 
 **Definition of done:** a scheduled `data.yml` run traces ≥ `MIN_FRAMES_TO_PUBLISH` frames
 with no human in the loop, and `docs/GONG-RELAY.md` records the live configuration (done).
@@ -1083,7 +1097,7 @@ pre-promote validation, only `all` does; `_check_texture_frames`' pixel sampling
 
 ---
 
-### T21 — Review fixes, second batch (items 9-13)  *(IN PROGRESS)*
+### T21 — Review fixes, second batch (items 9-13)  *(DONE)*
 
 **Why.** The five review items T20 left, worked in the same session because the user asked for
 Option D next and item 12 (token leaks) gates it: `scripts/gong_mirror.py` writes its GitHub
@@ -1162,6 +1176,11 @@ empty, and the token redaction covered by a test.
   tsconfig include; `c5369c0` fixed the one stale local test (the footgun-50 shape test assumed a
   legacy manifest; against a `sol.pfss/2` manifest `events` is the consumer that fails).
 - **Stale test the app agent found, `@live`-only, now fixed** — see `c5369c0` above.
+- **`build.yml`'s first run ever** (33664222749, on `a2ae70e`): app job green; pipeline job red
+  on ONE timing flake — a new tz test compared two `age_hours()` calls that each read
+  `utcnow()`, and the 4 µs between them was 1.1e-9 h against a 1e-9 tolerance. Deflaked in
+  `5c0d334` (explicit shared `now`); **run 2 (33664390163) green on both jobs.** T5 is closed
+  by this.
 
 ---
 

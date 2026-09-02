@@ -6,9 +6,13 @@ the Sun's magnetic field in 3D over the last 72 hours (PFSS field lines from our
 same model + colors as the dome show), Parker Solar Probe / Solar Orbiter positions, and live
 NOAA space-weather numbers.
 
-**Refreshing the field lines?** `PFSS-UPDATE.md` is the standalone runbook for it — the one
-recurring operational chore this project has, and the only one that must be done from a machine
-that can reach GONG (footgun 33). Follow it top to bottom; it needs no other context.
+**Refreshing the field lines?** Since 2026-09-02 CI does it: the GONG relay (`docs/GONG-RELAY.md`
+Option D — an hourly `SolGongMirror` task on the workstation feeding the `gong-cache` branch)
+lets the scheduled `data.yml` run trace all 19 frames itself (proved: run 33663715169,
+`slots: 19/19`). `PFSS-UPDATE.md` remains the standalone runbook for the day the mirror is
+down (the workstation off or logged out); it is no longer a daily chore. If `freshness.yml` or
+issue #1 says `pfss` is stale, check `Get-ScheduledTaskInfo SolGongMirror` before reaching for
+the runbook.
 
 **Start here: `TASKS.md`** — the task ledger: what is in flight, what is next, and the
 definition of done for each. Then **`HANDOFF.md`**, the living status doc (what is done,
@@ -330,6 +334,13 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     allow-list request, a mirror, or a self-hosted runner), treat `pfss` in
     `index.json` as expected-stale and do NOT "fix" it by lowering
     `MIN_FRAMES_TO_PUBLISH`.
+    **Resolved by routing around it, 2026-09-02:** Option D (`docs/GONG-RELAY.md`) mirrors
+    GONG hourly from the workstation to the `gong-cache` branch, and `data.yml` reads it over
+    `raw.githubusercontent.com` via the `SOL_GONG_PROXY_*` secrets. First CI run to trace field
+    lines: 33663715169, `slots: 19/19`, 243 s. The block itself is unchanged — `gong2.nso.edu`
+    still drops runners — so if the mirror stops (workstation off or logged out, task disabled,
+    `gh` token revoked) the symptom is exactly this footgun again. Footgun 55 is the mirror's
+    own trap.
 
 34. **After a forced orphan push, the Pages build can wedge — kick it with an
     explicit `POST /pages/builds`.** Enabling Pages on `gh-pages` produced two

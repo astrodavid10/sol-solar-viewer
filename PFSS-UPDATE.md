@@ -9,10 +9,11 @@ decision, and it comes with a check and a stated rule.
 **Why this exists at all.** GitHub Actions runners cannot reach `gong2.nso.edu` — connect
 timeouts on every request, every run, while the identical request from this workstation answers
 in under a second (`CLAUDE.md` footgun 33). The scheduled pipeline therefore rebuilds every
-*other* product on time and never traces a single field line, so `pfss` goes stale roughly once
-a day until the GONG relay (`TASKS.md` T2) is live. Republishing from a machine that *can* reach
-GONG is the standing workaround; it is task **T1** in `TASKS.md` and has been done by hand many
-times.
+*other* product on time and never traces a single field line, so `pfss` went stale roughly once
+a day until the GONG relay (`TASKS.md` T2) went live on **2026-09-02**. Republishing from a
+machine that *can* reach GONG was the standing workaround — task **T1**, done by hand ten times
+— and is now the FALLBACK for when the relay's workstation mirror is down. See the closing
+paragraph for how to tell the difference before you start.
 
 **Time:** ~20 minutes if the sphere textures need rebuilding (~12 min of pipeline), ~12 minutes
 if they do not (~5 min). Step 4 decides which, and right after a CI run it is usually the
@@ -368,6 +369,10 @@ fail to reach GONG (expected), keep your frames, and pass `Validate` again.
 | live tree still old > 5 min after a `built` Pages build | Pages wedged on a vanished commit | `gh api -X POST "repos/$REPO/pages/builds"` |
 | newest frame 2–4 h old after a successful run | normal — 4 h slot grid + GONG's own latency | nothing |
 
-**The permanent fix is `TASKS.md` T2** — a relay that lets CI reach GONG. Until it is live this
-chore recurs about once a day, and the failure mode when a session skips it is silent: the site
-keeps serving correct-looking field lines that are a day old.
+**The permanent fix, `TASKS.md` T2, went live on 2026-09-02** — the GONG relay
+(`docs/GONG-RELAY.md` Option D). CI now traces all 19 frames itself, so this runbook is for
+the day the relay is down, not a daily chore. Before running it, check the mirror:
+`Get-ScheduledTaskInfo SolGongMirror` (LastTaskResult 0, LastRunTime within the hour) and the
+newest log's `SUMMARY:` line in `%LOCALAPPDATA%\sol-gong-mirror\logs\`. If the mirror is fine and
+`pfss` is still stale, read the latest `data` run's `[GONG]` probe block — the failure is
+between the branch and the runner, and this runbook will only paper over it for a day.

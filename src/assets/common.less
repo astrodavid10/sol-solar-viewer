@@ -1,3 +1,93 @@
+// ── BASE RESET ───────────────────────────────────────────────────────────────
+// These declarations used to arrive from Vuetify. `vuetify/styles` bundles
+// ress.css 2.0.4 plus its own `html` rule, and the whole 587 KB / 85 KB-gzip
+// render-blocking stylesheet was being shipped for exactly one `<v-app>`
+// wrapper in sol.vue (removed 2026-09-02). The wrapper is gone; the parts of
+// its reset the layout actually depended on are restated here, and nothing
+// else is. This block must stay FIRST in the file, so every app rule below
+// still overrides it exactly as it overrode Vuetify's (chunk-vendors.css was
+// linked before app.css).
+//
+// Why each one is load-bearing:
+//   * box-sizing: border-box -- sol.less' panel tokens size padding and border
+//     INSIDE a declared width (--sol-panel-pad + --sol-panel-border on a
+//     `width: 100%` rail panel); content-box would inflate every one of them.
+//   * margin/padding 0 on everything -- the app lays out `<p>` (`.sol-title`,
+//     `.sol-attract-hint`) and `<main>` with no allowance for UA margins.
+//     Several rules zero their own margin defensively; most do not.
+//   * form-control normalization -- 21 `<button>`s across 10 components, and
+//     only two of them set a font, so `font: inherit` is the whole reason they
+//     render in the app's 11pt system-ui rather than the UA's 13.3px Arial.
+//     `background-color: transparent; border-style: none` is what makes an
+//     unstyled button invisible chrome instead of a grey lozenge.
+//   * line-height: 1.5 -- Vuetify set this on <html>; the UA default is ~1.2,
+//     so dropping it would retighten every wrapped string in the app.
+//   * -webkit-text-size-adjust / -webkit-tap-highlight-color -- mobile-only,
+//     and this is a mobile-first app: without them iOS inflates text in
+//     landscape and flashes a grey box on every tap.
+//   * color-scheme: dark -- Vuetify's dark theme injected `:root {
+//     color-scheme: dark }` at runtime. It is what keeps the UA's own bits
+//     (Firefox scrollbars on the internally-scrolling panels, form-control
+//     defaults) dark rather than light on a black app.
+//
+// Deliberately NOT restated: everything in ress that modern browsers already
+// do (`[hidden] { display: none }`, `img { border-style: none }`,
+// `main { display: block }`, `a { background-color: transparent }`), and
+// `.v-application`'s Material theme colors -- its `background: #121212` was
+// completely covered by `.sol-root`'s own `--sol-bg` (#000) over html's #000,
+// and its inherited `color: rgba(255,255,255,.87)` is replaced by the app's
+// own `--sol-text` on `#app` below.
+html {
+  box-sizing: border-box;
+  line-height: 1.5;
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: inherit;
+  background-repeat: no-repeat;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+}
+
+button,
+input,
+optgroup,
+select,
+textarea {
+  font: inherit;
+  background-color: transparent;
+  border-style: none;
+}
+
+[role="button"],
+[type="button"],
+[type="reset"],
+[type="submit"],
+button {
+  cursor: pointer;
+  color: inherit;
+}
+
+[disabled] {
+  cursor: default;
+}
+
+textarea {
+  overflow: auto;
+  resize: vertical;
+}
+
 // The one bundled face, used for the app title and the info-modal heading.
 //
 // Overpass, not Highway Gothic Narrow. Both descend from the US FHWA Standard
@@ -76,12 +166,24 @@ a {
   transition: height 0.1s ease-in-out;
 }
 
+// The mount container from public/index.html, and now the ONLY element in the
+// document carrying this id: sol.vue used to render `<v-app id="app">` INSIDE
+// it, so `#app` matched two nested elements and every rule here silently
+// applied twice. sol.vue's root is `#main-content` now.
+//
+// `color` is here because it used to be inherited from `.v-application`
+// (Material's `rgba(255,255,255,.87)`, i.e. ~#ddd on black). `.sol-root` sets
+// --sol-text for the app proper, but its SIBLINGS inside #main-content -- the
+// kiosk take-home pill, the attract hint, the phone info sheet, the QR modal
+// -- inherit from here, and with no default they would have rendered UA black
+// on a black ground.
 #app {
   width: 100%;
   height: 100%;
   margin: 0;
   overflow: hidden;
   font-size: 11pt;
+  color: var(--sol-text);
 
   .wwtelescope-component {
     position: absolute;

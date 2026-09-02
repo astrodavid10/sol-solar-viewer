@@ -1,77 +1,75 @@
 <template>
-  <v-app id="app">
-    <div id="main-content">
-      <div class="sol-root" :class="{ 'is-wide': wide, 'is-kiosk': kioskMode }">
-        <main class="sol-area-stage">
-          <!-- Was a full-width banner row above the stage. On a phone that
-               spent 44 px of a 640 px screen on a wordmark; now it floats over
-               the Sun, and the Sun got the row back. Rendered HERE rather than
-               inside SolarView3D so it paints with the entry chunk, before the
-               engine has downloaded.
+  <div id="main-content">
+    <div class="sol-root" :class="{ 'is-wide': wide, 'is-kiosk': kioskMode }">
+      <main class="sol-area-stage">
+        <!-- Was a full-width banner row above the stage. On a phone that
+             spent 44 px of a 640 px screen on a wordmark; now it floats over
+             the Sun, and the Sun got the row back. Rendered HERE rather than
+             inside SolarView3D so it paints with the entry chunk, before the
+             engine has downloaded.
 
-               Brand mark and title share one row (E5): they used to be
-               positioned completely independently (brand pinned top-left,
-               title centered with a max-width guessing how much room the
-               brand needed) and at the title's max-width they collided
-               exactly -- see the arithmetic on `.sol-topbar` in <style>
-               below. A grid row reserves the brand's column structurally, so
-               the title can't advance into it no matter how long the
-               subtitle string or how large the guest's font size gets. -->
-          <div class="sol-topbar">
-            <div class="sol-topbar-brand">
-              <brand-mark class="sol-brand" />
-            </div>
-            <p class="sol-title no-select" aria-label="Sol — the Sun right now">
-              <span class="sol-title-name">Sol</span>
-              <span class="sol-title-sub">the Sun right now</span>
-            </p>
+             Brand mark and title share one row (E5): they used to be
+             positioned completely independently (brand pinned top-left,
+             title centered with a max-width guessing how much room the
+             brand needed) and at the title's max-width they collided
+             exactly -- see the arithmetic on `.sol-topbar` in <style>
+             below. A grid row reserves the brand's column structurally, so
+             the title can't advance into it no matter how long the
+             subtitle string or how large the guest's font size gets. -->
+        <div class="sol-topbar">
+          <div class="sol-topbar-brand">
+            <brand-mark class="sol-brand" />
           </div>
+          <p class="sol-title no-select" aria-label="Sol — the Sun right now">
+            <span class="sol-title-name">Sol</span>
+            <span class="sol-title-sub">the Sun right now</span>
+          </p>
+        </div>
 
-          <!-- The whole app. Async because the WWT engine + three.js live only
-               in this chunk, and its module scope installs wwtPinia on the app
-               instance stashed by setAppHandle() below — main.ts must never
-               import the engine (CLAUDE.md "Entry chunk must stay
-               engine-free"). Mounted immediately now that there is nothing
-               else to look at; never unmounted, because tearing down
-               <WorldWideTelescope> leaves the engine's global texture caches
-               pointing at a destroyed GL context and the Sun comes back black
-               (footgun 17). -->
-          <solar-view-3d />
-        </main>
+        <!-- The whole app. Async because the WWT engine + three.js live only
+             in this chunk, and its module scope installs wwtPinia on the app
+             instance stashed by setAppHandle() below — main.ts must never
+             import the engine (CLAUDE.md "Entry chunk must stay
+             engine-free"). Mounted immediately now that there is nothing
+             else to look at; never unmounted, because tearing down
+             <WorldWideTelescope> leaves the engine's global texture caches
+             pointing at a destroyed GL context and the Sun comes back black
+             (footgun 17). -->
+        <solar-view-3d />
+      </main>
 
-        <!-- Desktop rail. On a phone these are overlays the guest opens from
-             a button (see SolarView3D / TopBar); here there is room to leave
-             them open, so the buttons that would duplicate them are hidden. -->
-        <info-modal v-if="wide" inline class="sol-area-info" />
-        <layer-panel v-if="wide" class="sol-area-layers" />
+      <!-- Desktop rail. On a phone these are overlays the guest opens from
+           a button (see SolarView3D / TopBar); here there is room to leave
+           them open, so the buttons that would duplicate them are hidden. -->
+      <info-modal v-if="wide" inline class="sol-area-info" />
+      <layer-panel v-if="wide" class="sol-area-layers" />
 
-        <sun-stats class="sol-area-stats" :layout="wide ? 'two' : 'auto'" />
-      </div>
-
-      <info-modal v-if="!wide && sheet === 'info'" @close="sheet = null" />
-
-      <!-- Kiosk only. Bottom right, inside the strip `.sol-root.is-kiosk`
-           reserves, so the pill can never cover the stats bar (portrait) or
-           the right-hand rail and the 3D scrubber (landscape). -->
-      <button
-        v-if="kioskMode"
-        type="button"
-        class="sol-take-home"
-        @click="showTakeHomeQr"
-      >
-        <font-awesome-icon icon="qrcode" />
-        <span>Take it with you</span>
-      </button>
-
-      <p v-if="attractActive" class="sol-attract-hint" aria-hidden="true">
-        Touch to explore
-      </p>
-
-      <!-- Async so qrcode.vue stays out of the entry chunk: only a kiosk guest
-           tapping the pill (or an intercepted credit link) ever needs it. -->
-      <kiosk-qr-modal v-if="qrUrl" :url="qrUrl" :title="qrTitle" @close="closeQr" />
+      <sun-stats class="sol-area-stats" :layout="wide ? 'two' : 'auto'" />
     </div>
-  </v-app>
+
+    <info-modal v-if="!wide && sheet === 'info'" @close="sheet = null" />
+
+    <!-- Kiosk only. Bottom right, inside the strip `.sol-root.is-kiosk`
+         reserves, so the pill can never cover the stats bar (portrait) or
+         the right-hand rail and the 3D scrubber (landscape). -->
+    <button
+      v-if="kioskMode"
+      type="button"
+      class="sol-take-home"
+      @click="showTakeHomeQr"
+    >
+      <font-awesome-icon icon="qrcode" />
+      <span>Take it with you</span>
+    </button>
+
+    <p v-if="attractActive" class="sol-attract-hint" aria-hidden="true">
+      Touch to explore
+    </p>
+
+    <!-- Async so qrcode.vue stays out of the entry chunk: only a kiosk guest
+         tapping the pill (or an intercepted credit link) ever needs it. -->
+    <kiosk-qr-modal v-if="qrUrl" :url="qrUrl" :title="qrTitle" @close="closeQr" />
+  </div>
 </template>
 
 <script lang="ts">

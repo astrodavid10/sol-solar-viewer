@@ -19,9 +19,7 @@
     "pinia": "^3.0.4",
     "qrcode.vue": "^3.6.0",
     "three": "^0.185.0",
-    "vue": "^3.4.15",
-    "vuetify": "^3.4.4",
-    "webpack-plugin-vuetify": "^2.0.1"
+    "vue": "^3.4.15"
   },
   "devDependencies": {
     "@types/three": "^0.185.0",

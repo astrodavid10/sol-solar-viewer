@@ -7,7 +7,13 @@ import { boolParam } from "./urlParams";
 import "./assets/common.less";
 import "./assets/sol.less";
 
-import vuetify from "../plugins/vuetify";
+// NOTE: Vuetify was removed on 2026-09-02. It was loaded for exactly one
+// `<v-app>` wrapper in sol.vue and cost 587 KB / 85 KB-gzip of
+// render-blocking CSS plus 3.6 MB of Material Design Icons webfonts for
+// glyphs this app never draws (every icon here is a FontAwesome SVG). The
+// parts of its reset the layout actually depended on now live explicitly at
+// the top of assets/common.less. Do not reintroduce it for a component or
+// two — reach for a plain element first.
 
 import { FontAwesomeIcon } from "@fortawesome/vue-fontawesome";
 import { library } from "@fortawesome/fontawesome-svg-core";
@@ -39,7 +45,7 @@ library.add(faTimes);
 document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
 
 // ?kioskStats=1 → mount the standalone usage-stats panel instead of the app
-// (no engine/vuetify boot needed). See kiosk/kioskStats.ts.
+// (no engine boot needed). See kiosk/kioskStats.ts.
 if (boolParam("kioskStats")) {
   createApp(KioskStatsPanel).mount("#app");
 } else {
@@ -55,7 +61,6 @@ if (boolParam("kioskStats")) {
     // guest's phone cannot reach. Set this when the production URL is known.
     kioskHomeUrl: "",
   })
-    .use(vuetify)
     .component("font-awesome-icon", FontAwesomeIcon)
     .component("transition-expand", TransitionExpand)
     .mount("#app");

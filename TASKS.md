@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-08-31 (thirteenth session)
+**Last updated:** 2026-09-02 (fifteenth session)
 
 ---
 
@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **8th time** 2026-09-01: 12.7 h -> 0; a bad NOAA record was blocking CI (footgun 51) |
+| T1 | Republish PFSS from the workstation | DONE | `4ee53fc`+ | **9th time** 2026-09-02: 22.9 h -> 0; two CI runs had failed on footgun 50's `ar_index` bound |
 | T2 | Land the GONG relay (Option D, workstation mirror) | CODE LANDED | `8650fee`+ | inert until the env vars are set; go-live steps remain |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -370,6 +370,66 @@ Verified on the live feed before running: the guard fires exactly once, drops on
 **One process note:** `scripts/publish_gh_pages.sh` produced **no stdout at all** through
 `2>&1 | tail -20`, which looked like a failed push. It had in fact succeeded. Verify a publish by
 fetching `origin/gh-pages` and reading the commit, never by the script's console output.
+
+**DONE 2026-09-02 15:36Z — ninth run.** Published as `gh-pages` commit **`726f69a`** at
+**15:35:55Z**, following `PFSS-UPDATE.md` top to bottom. **137** data files, down from 142: 20
+texture orphans scrolled out of the window against 15 newly built history frames. A falling
+count is normal here — count the difference, not the total.
+
+- Live `pfss` was **stale at 22.92 h** (`generated_iso 2026-09-01T16:27:02Z`) with the usual
+  `0 freshly traced frame(s) of 19 slot(s)`, inside an `index.json` that was itself **16.8 h**
+  old, `last_attempt_status: degraded`.
+- **Both scheduled `data` runs since had failed at `Validate`, and this time it *was* the
+  `ar_index` one.** 04:17Z and 12:43Z, identically:
+  `FAIL ar_index within regions.json bounds -- range [-1,5] vs 4 regions`. So the 16.8 h index
+  age was footgun 50's coupling and not a dropped cron slot — the seed set frozen on 09-01 was
+  built when NOAA listed six regions, today's SRS lists four, and the five products CI *can*
+  build were discarded twice. Footgun 50's normal end state on its usual two-day fuse; the
+  eighth run's warning to *read the actual FAIL line* still stands, it just came out the other
+  way this time.
+- Seeding was again *necessary*: the published tree held **15** files the local one lacked and
+  the local held **5** that had scrolled out of the window.
+- GONG answered this workstation on every request (day listings 71/72/63/39 files):
+  **19/19 slots had a magnetogram within 3 h**, `reused: 0` on all 19 — a fully fresh window.
+  19 frames, **1251 lines** (1152 background + 99 region, seed `id=fd2edf25`), 18,706 verts,
+  2.09 MB, dequant err 3.97e-05 R_sun, **238.4 s**. Window
+  `2026-08-30T12:00Z .. 2026-09-02T12:00Z`, a full 72 h. The log also reported `pruned stale
+  frame cache 1ef475a7` — the seventh run's seed set aging out, which is why nothing was reused.
+- Newest slot 12:00Z filled by a **12:04Z** magnetogram: `mag_age_hours` **0.07 h** off-slot,
+  the closest fill of the nine runs, and **3.33 h** old at run time — inside the runbook's 1-4 h
+  band, which is the 4 h slot grid plus GONG's own latency.
+- **Textures WERE rebuilt** (`--with-texture --with-hires`). The seeded copy was *complete*
+  (five layers, 19 frames each, `high_res 8192` on every one) but **16.8 h** old, which is past
+  step 4's "a few hours" rule — the same call the sixth and eighth runs made. All five channels
+  earned a `high_res 8192x4096` map, **0304 included**: 0171 1.26 MB/61.1 s, 0304 1.98 MB/59.5 s,
+  0193 1.05 MB/57.9 s, HMIIC 1.07 MB/37.4 s, HMIB 3.28 MB/38.3 s. 5 layers, 26.28 MB, **422.3 s**.
+  Third run running that contradicts `CLAUDE.md` footgun 40 (T4 owns it).
+- Limb fits all inside `TEX_LIMB_RADIUS_TOL`: 0171 **-0.62%**, 0304 +2.03%, 0193 +1.78%,
+  HMIIC +0.09%, HMIB +0.11%. 0171 is the first *negative* fit recorded here, and the
+  sharp-limbed HMI channels again scatter 0.6-1.9 px against the EUV channels' 17-18 px.
+- **5 of 95 history frames deferred by the cap** — `70 reused, 15 built, 0 unavailable, 5
+  deferred` — leaving every channel at **18 of 19**. Published deliberately, the eighth run's
+  reasoning: no validator minimum, the app falls back to the nearest frame it has, and CI *can*
+  build textures, so it converges on the next scheduled run. The log says so itself: "net
+  +10/run, so ~1 more run(s) to fill".
+- `events` printed **`AR join: 3/3`** — a full match (footgun 23's `- 10000` join working).
+- Total pipeline wall time **668.6 s** (11 min 9 s), exit code 0. Both `validate --root` and
+  `validate --url` reported **0 failed / 0 warnings**; live `index.json` is
+  `last_attempt_status: ok` with all six products `ok` at 0.0 h.
+- Footgun 49 held a **sixth** time: the force-push auto-triggered a Pages build against the
+  right commit, `built` in **27.5 s**, no explicit `POST /pages/builds` made or needed. And the
+  eighth run's process note held too — `publish_gh_pages.sh` printed **nothing at all** on a
+  successful push, so it was verified by fetching `origin/gh-pages` and reading the commit.
+- Nothing was in flight or queued at 15:35Z (re-checked immediately before the push), 31 minutes
+  ahead of the 16:07Z cron slot.
+
+**Nothing in the runbook needed correcting this time** — it was followed literally end to end and
+every stated expectation held, including the 404 for tomorrow's GONG directory, the `regions`
+epoch note, and the `--log-failed` warning in step 2. Two small things a future run may want
+stated: the newest-frame band is quoted against *run time* while `manifest.json`'s
+`mag_age_hours` measures the offset from the **slot target** (0.07 h here, 3.33 h against the
+clock), and step 4's "what a good run looks like" sample shows `0 deferred`, which the last two
+runs have not matched.
 
 ---
 

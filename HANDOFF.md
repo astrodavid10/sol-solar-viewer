@@ -162,7 +162,79 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzzzzz. What changed on 2026-09-01 (FOURTEENTH session — most recent)
+## 3zzzzzzzzzzzz. What changed on 2026-09-02 (FIFTEENTH session — most recent)
+
+**Asked for:** refresh the PFSS field lines and republish the data products to the live site,
+following `PFSS-UPDATE.md` top to bottom. Done — the **ninth** hand-republish (T1). No code
+changed: this was the chore, run literally, and every expectation the runbook states held.
+
+Published as `gh-pages` commit **`726f69a`** at **15:35:55Z**. **137** data files, down from
+142 — 20 texture orphans out of the window against 15 newly built history frames.
+
+### Why the whole index was behind, and it was not a dropped cron slot this time
+
+Live `pfss` was **stale at 22.92 h** with the usual `0 freshly traced frame(s) of 19 slot(s)`,
+inside an `index.json` that was itself **16.8 h** old at `last_attempt_status: degraded`. Both
+scheduled `data` runs since — 04:17Z and 12:43Z — had failed at `Validate`, identically:
+
+```
+FAIL  ar_index within regions.json bounds  -- range [-1,5] vs 4 regions
+```
+
+That is **footgun 50's coupling**, on its usual roughly two-day fuse: the seed set frozen by the
+eighth republish was built when NOAA's SRS listed six regions, today's lists four, so the frozen
+`ar_index` column pointed past the end of a `regions.json` CI keeps regenerating. Because
+`Validate` runs before `Publish`, the five products CI *can* build were discarded twice — which
+is the entire 16.8 h index age. Rebuilding PFSS re-seeded against today's four regions
+(`id=fd2edf25`) and cleared it.
+
+Worth noting against the fourteenth session's warning: that session found a `Validate` failure
+that was *not* `ar_index` and said to read the actual FAIL line. Still the right advice — it just
+came out the other way this time. Read the line either way.
+
+### The run
+
+- GONG answered this workstation on every request (day listings 71/72/63/39 files):
+  **19/19 slots had a magnetogram within 3 h**, `reused: 0` on all 19 — a fully fresh window.
+  19 frames, 1251 lines (1152 background + 99 region), 18,706 verts, 2.09 MB, dequant err
+  3.97e-05 R_sun, **238.4 s**. Window `2026-08-30T12:00Z .. 2026-09-02T12:00Z`, a full 72 h.
+  The log also `pruned stale frame cache 1ef475a7` — the seventh run's seed set aging out, which
+  is why nothing was reused.
+- Newest slot 12:00Z filled by a **12:04Z** magnetogram — `mag_age_hours` **0.07 h** off-slot,
+  the closest fill of the nine runs, and 3.33 h old against the clock: the 4 h slot grid plus
+  GONG's latency, not staleness.
+- **Textures rebuilt** (`--with-texture --with-hires`) because the seeded copy, though complete,
+  was **16.8 h** old — past step 4's "a few hours" rule. All five channels earned a
+  `high_res 8192x4096` map, **0304 included** (37-61 s each), so footgun 40 is stale for a third
+  run running; T4 owns it. Limb fits 0171 **-0.62%**, 0304 +2.03%, 0193 +1.78%, HMIIC +0.09%,
+  HMIB +0.11%, all inside tolerance, with the sharp-limbed HMI channels at 0.6-1.9 px scatter
+  against the EUV channels' 17-18 px. 5 layers, 26.28 MB, 422.3 s.
+- **5 of 95 history frames deferred by the per-run cap**, leaving every channel at 18/19.
+  Published deliberately, the eighth session's reasoning — no validator minimum, the app falls
+  back to the nearest frame, and CI *can* build textures, so it converges next run.
+- `events` printed `AR join: 3/3`, a full match.
+- Total pipeline wall time **668.6 s** (11 min 9 s), exit 0. `validate --root` and
+  `validate --url` both **0 failed / 0 warnings**. Live `index.json`: `last_attempt_status: ok`,
+  all six products `ok` at 0.0 h.
+- Footgun 49 held a **sixth** time — the force-push auto-triggered a Pages build against the
+  right commit, `built` in 27.5 s, no explicit `POST /pages/builds`. And `publish_gh_pages.sh`
+  again printed nothing at all on success, so the push was verified by fetching `origin/gh-pages`
+  and reading the commit, per the fourteenth session's note.
+- Nothing was in flight or queued at 15:35Z, re-checked immediately before the push, 31 minutes
+  ahead of the 16:07Z cron slot.
+
+### Worth knowing next time
+
+- **`PFSS-UPDATE.md` needed no corrections** — first run of the chore where that is true. Two
+  small clarifications a future session may want: the runbook quotes the newest frame's age
+  against *run time* while `manifest.json`'s `mag_age_hours` is the offset from the **slot
+  target** (0.07 h here versus 3.33 h against the clock), and its "what a good run looks like"
+  sample shows `0 deferred`, which neither of the last two texture rebuilds matched.
+- Still open and unchanged: the 3D view has never been confirmed in a browser, and the GONG
+  relay (T2) remains the permanent fix for this whole chore — nine hand-publishes in fifteen
+  sessions.
+
+## 3zzzzzzzzzzz. What changed on 2026-09-01 (FOURTEENTH session)
 
 **Asked for:** update the PFSS field lines and the related data on the live site. Done — the
 eighth hand-republish (T1). But the live site was not merely stale: a **bad record in NOAA's

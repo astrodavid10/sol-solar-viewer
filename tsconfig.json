@@ -31,7 +31,6 @@
     ]
   },
   "include": [
-    "plugins/*.ts",
     "src/**/*.ts",
     "src/**/*.vue"
   ]

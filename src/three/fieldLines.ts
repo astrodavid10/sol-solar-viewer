@@ -78,8 +78,13 @@ export interface FieldLines {
   addFrame: (frame: PfssFrame) => void;
   /** Total frames decoded so far. */
   loadedCount: () => number;
-  /** Oldest index of the contiguous newest-first run we can animate. */
+  /** Oldest index of the contiguous run ending at `loadedTo()`. */
   loadedFrom: () => number;
+  /**
+   * Newest LOADED frame index — which is NOT `frameCount - 1` when the newest
+   * frame never arrived. -1 while nothing has loaded.
+   */
+  loadedTo: () => number;
   /** Current playhead, in fractional frame indices. */
   time: () => number;
   /** Frame A of the current pair, i.e. the integer frame under the playhead. */
@@ -325,7 +330,10 @@ export function createFieldLines(options: FieldLinesOptions): FieldLines {
 
   const frames = new Array<GpuFrame | null>(options.frameCount).fill(null);
   let loaded = 0;
+  // The animatable run is [from, to]. `to` is the newest frame we HAVE, not the
+  // newest the manifest promised — see recomputeLoadedRange().
   let from = options.frameCount;
+  let to = -1;
   let playhead = Math.max(0, options.frameCount - 1);
   let boundA = -1;
   let boundB = -1;
@@ -350,7 +358,7 @@ export function createFieldLines(options: FieldLinesOptions): FieldLines {
 
   /** Apply `playhead`: pick the pair, set uMix, slerp the orientation. */
   function apply(): void {
-    const last = options.frameCount - 1;
+    const last = to;
     if (from > last) { return; }
 
     const clamped = Math.min(Math.max(playhead, from), last);
@@ -371,17 +379,35 @@ export function createFieldLines(options: FieldLinesOptions): FieldLines {
 
   /** Frame A of the pair the playhead currently straddles; -1 if none loaded. */
   function currentIndexA(): number {
-    const last = options.frameCount - 1;
+    const last = to;
     if (from > last) { return -1; }
     const clamped = Math.min(Math.max(playhead, from), last);
     return Math.min(Math.floor(clamped), last);
   }
 
-  /** Longest run of loaded frames ending at the newest — what we can animate. */
-  function recomputeLoadedFrom(): void {
-    let k = options.frameCount;
+  /**
+   * The animatable run: the longest stretch of loaded frames that ends at the
+   * newest frame we ACTUALLY HAVE.
+   *
+   * It used to anchor on `frameCount - 1`, which made one missing frame fatal
+   * to the whole layer rather than to itself. A 404 during a gh-pages publish
+   * (or a truncated body on venue wifi) at the newest index left `from` past
+   * the end forever, so apply() returned before bind() had ever set a
+   * `position` attribute — and a geometry with no `position` renders nothing,
+   * silently, with no error (footgun 46a). 18 of 19 frames on the GPU and a
+   * black sky.
+   */
+  function recomputeLoadedRange(): void {
+    let newest = -1;
+    for (let i = options.frameCount - 1; i >= 0; i--) {
+      if (frames[i]) { newest = i; break; }
+    }
+    let k = newest + 1;
     while (k > 0 && frames[k - 1]) { k -= 1; }
-    from = k;
+    to = newest;
+    // frameCount (not 0) when empty: `from > to` is what every guard reads as
+    // "nothing to animate", and the scrubber's tick bar uses the same sentinel.
+    from = newest < 0 ? options.frameCount : k;
   }
 
   return {
@@ -409,16 +435,22 @@ export function createFieldLines(options: FieldLinesOptions): FieldLines {
       frames[frame.index] = gpu;
       loaded += 1;
       const wasEmpty = from >= options.frameCount;
-      recomputeLoadedFrom();
+      // Frames arrive in whatever order the pool finishes them, so "resting on
+      // the newest we had" has to be sampled BEFORE the range moves.
+      const wasAtNewest = to >= 0 && playhead >= to - 1e-4;
+      recomputeLoadedRange();
 
       // First frame in is the newest (load_order: newest_first) — park there,
-      // because the app is fundamentally about "now".
-      if (wasEmpty) { playhead = frame.index; }
+      // because the app is fundamentally about "now". Same reason a playhead
+      // already parked at the newest follows a newer frame in: what "now" means
+      // just changed, and nobody asked to look at four hours ago.
+      if (wasEmpty || wasAtNewest) { playhead = to; }
       apply();
     },
 
     loadedCount: () => loaded,
     loadedFrom: () => from,
+    loadedTo: () => to,
     time: () => playhead,
     frameIndex: currentIndexA,
 
@@ -488,7 +520,7 @@ export function createFieldLines(options: FieldLinesOptions): FieldLines {
     },
 
     advance(dtSec: number): void {
-      const last = options.frameCount - 1;
+      const last = to;
       if (from >= last) { return; }
       const span = last - from;
       let next = playhead + dtSec / SECONDS_PER_FRAME;

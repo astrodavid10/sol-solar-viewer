@@ -207,7 +207,9 @@
             v-else-if="frameCount > 0"
             :frame-count="frameCount"
             :loaded-from="loadedFrom"
+            :loaded-to="loadedTo"
             :loaded-count="loadedCount"
+            :load-done="loadDone"
             :times="frameTimes"
             :frame-t="frameT"
             :stale="dataStale"
@@ -670,7 +672,13 @@ export default defineComponent({
 
       frameCount: 0,
       loadedFrom: 0,
+      /** Newest LOADED frame; -1 until one arrives. Not frameCount-1 when the
+       *  newest frame 404d — the scrubber's right-hand end reads this. */
+      loadedTo: -1,
       loadedCount: 0,
+      /** True once loadPfss has stopped trying, so a frame still missing is
+       *  missing for good (the scrubber stops saying "Loading…"). */
+      loadDone: false,
       dataStale: false,
       dataStaleHours: 0,
 
@@ -1323,6 +1331,11 @@ export default defineComponent({
       }
       if (rt.destroyed) { return; }
 
+      // Every frame either arrived or was given up on (loadPfss console.warns
+      // and skips the ones that failed), so whatever is missing now is missing
+      // for good — the scrubber has to stop counting toward a total it will
+      // never reach.
+      this.loadDone = true;
       this.dataStale = result.stale;
       this.dataStaleHours = result.staleHours ?? this.dataStaleHours;
       if (result.status === "absent" || result.framesLoaded === 0) {
@@ -1361,6 +1374,7 @@ export default defineComponent({
       if (!lines) { return; }
       this.loadedCount = lines.loadedCount();
       this.loadedFrom = lines.loadedFrom();
+      this.loadedTo = lines.loadedTo();
       this.rt.published = lines.time();
       this.frameT = this.rt.published;
     },

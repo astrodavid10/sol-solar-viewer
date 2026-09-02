@@ -1069,7 +1069,8 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
    * crossed, on the main thread, while the guest is dragging.
    *
    * A JS Map iterates in insertion order, so re-inserting on every hit makes
-   * the first entry the least recently used and eviction is `keys().next()`.
+   * the first entry the least recently used, and eviction is the first key
+   * that is not pinned (see the protected set in `touchResident`).
    */
   const resident = new Map<string, Texture>();
   let residentBytes = 0;
@@ -1081,22 +1082,58 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
    * would jump to now, which reads as the scrubber breaking.
    */
   let wantUnix: number | null = null;
-  /** Prefetches in flight, so two scrub steps do not request the same map. */
+  /** Loads in flight, keyed on url — prefetches AND the adopt-and-paint loads
+   *  in `loadTexture`, so at most one decode of a url is ever running. */
   const pending = new Set<string>();
+  /**
+   * A map `loadTexture` wants on the sphere that a prefetch is already
+   * fetching, with the meta to adopt it under.
+   *
+   * One slot: only the newest ask can matter, and `loadTexture` clears it
+   * whenever it commits to anything else. Without this, sharing `pending`
+   * between the two loaders would leave the sphere showing the previous frame
+   * until some caller happened to ask again.
+   */
+  let adoptOnArrival: { url: string; meta: SunTextureInfo } | null = null;
 
   function touchResident(url: string, tex: Texture, bytes: number): void {
-    if (resident.has(url)) {
+    const held = resident.get(url);
+    if (held) {
       resident.delete(url);
       resident.set(url, tex);
+      // Same URL, so the byte charge is unchanged — but if a second decode of
+      // it exists, the DISPLACED object has to be disposed or its GPU memory
+      // leaks with nothing holding a handle to free it. `tex` wins, never
+      // `held`: adoptTexture writes `sdo.map = next` BEFORE calling us, so the
+      // incoming object is the one on the sphere. (With `pending` now covering
+      // loadTexture as well as prefetchFrame there is at most one in-flight
+      // load per URL, so this should be unreachable — it is two lines of
+      // insurance on a rule the accounting silently depends on.)
+      if (held !== tex) { held.dispose(); }
       return;
     }
     resident.set(url, tex);
     residentBytes += bytes;
-    // Never evict the map currently on the sphere, whatever the budget says:
-    // dropping it would blank the Sun to satisfy an accounting rule.
+    // Never evict a map that is being LOOKED AT, whatever the budget says:
+    // dropping it would blank the Sun to satisfy an accounting rule. Two URLs
+    // are protected, and it used to be one — the url being inserted. That
+    // missed the case that actually happens: the newest map is 33.5 MB of a
+    // 40 MB budget, so a single 8.4 MB history PREFETCH pushed past the budget
+    // and evicted + disposed the map on the sphere, which then silently
+    // re-uploaded on the next render. `info.url` is that map (it stays the
+    // logically-active frame even while a hi-res override is painted over it,
+    // and setHighRes(false) repaints from it synchronously).
     while (residentBytes > TEXTURE_BUDGET_BYTES && resident.size > 1) {
-      const oldestUrl = resident.keys().next().value as string | undefined;
-      if (oldestUrl === undefined || oldestUrl === url) { break; }
+      let oldestUrl: string | undefined;
+      for (const candidate of resident.keys()) {
+        // hiresUrl is not supposed to be in this map at all (see hiresTexture's
+        // declaration), but if it ever is, it is on the sphere.
+        if (candidate === url || candidate === info?.url || candidate === hiresUrl) { continue; }
+        oldestUrl = candidate;
+        break;
+      }
+      // Nothing left but protected maps: over budget beats blank.
+      if (oldestUrl === undefined) { break; }
       const oldest = resident.get(oldestUrl);
       resident.delete(oldestUrl);
       if (oldest) {
@@ -1259,7 +1296,21 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     applyHighRes();
   }
 
+  /**
+   * Load one map and put it on the sphere.
+   *
+   * Guarded by `pending`, and that guard is the fix for a real leak: nothing
+   * writes `info.activeFrame` until `adoptTexture` runs at the END of the
+   * async decode, so `setFrameTime`'s "already showing that frame" test stayed
+   * false for the whole decode and every tick re-entered here for the SAME
+   * url. three's loader `Cache` is off, so each of those was a fresh image, a
+   * fresh Texture and a fresh GPU upload, all but the last of them orphaned.
+   */
   function loadTexture(next: SunTextureInfo): void {
+    // Any earlier "adopt it when the prefetch lands" intent is void the moment
+    // we commit to a different frame below.
+    adoptOnArrival = null;
+
     const held = resident.get(next.url);
     if (held) {
       // Already decoded. Adopting it synchronously is what makes scrubbing back
@@ -1267,11 +1318,24 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       adoptTexture(held, next);
       return;
     }
+    if (pending.has(next.url)) {
+      // A PREFETCH of this exact map is already in flight (the playhead just
+      // stepped onto a neighbor we were fetching ahead). Loading it a second
+      // time would decode and upload the same megabytes twice, so hand the
+      // adopt to whichever load is already running.
+      adoptOnArrival = { url: next.url, meta: next };
+      return;
+    }
+    pending.add(next.url);
     loader.load(
       next.url,
-      (loaded) => adoptTexture(loaded, next),
+      (loaded) => {
+        pending.delete(next.url);
+        adoptTexture(loaded, next);
+      },
       undefined,
       () => {
+        pending.delete(next.url);
         // The manifest promised an image that isn't there. Nothing to say to
         // the guest — the synthetic surface, or the frame already up, stays.
         console.warn(`[sunSurface] texture image unavailable: ${next.url}`);
@@ -1303,9 +1367,21 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
         loaded.anisotropy = 4;
         touchResident(frame.url, loaded,
           textureBytes(frame.width, frame.height));
+        // The playhead landed on this frame while we were fetching it, so this
+        // prefetch IS the load the sphere is waiting on (see loadTexture).
+        // adoptTexture re-touches the same url with the same object, which the
+        // hit branch of touchResident handles as a plain reorder.
+        if (adoptOnArrival && adoptOnArrival.url === frame.url) {
+          const meta = adoptOnArrival.meta;
+          adoptOnArrival = null;
+          adoptTexture(loaded, meta);
+        }
       },
       undefined,
-      () => { pending.delete(frame.url); },
+      () => {
+        pending.delete(frame.url);
+        if (adoptOnArrival?.url === frame.url) { adoptOnArrival = null; }
+      },
     );
   }
 
@@ -1577,6 +1653,7 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       resident.clear();
       residentBytes = 0;
       pending.clear();
+      adoptOnArrival = null;
       texture?.dispose();
       texture = null;
       // Not part of `resident` (see its declaration above), so it needs its

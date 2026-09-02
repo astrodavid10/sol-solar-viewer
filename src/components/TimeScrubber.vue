@@ -63,7 +63,9 @@
 
         <p class="ts-label">
           <template v-if="loadingText">{{ loadingText }}</template>
-          <template v-else><strong>{{ stampText }}</strong> · {{ ageText }}</template>
+          <template v-else>
+            <strong>{{ stampText }}</strong> · {{ ageText }}<template v-if="gapText"> · {{ gapText }}</template>
+          </template>
         </p>
       </div>
     </div>
@@ -123,9 +125,24 @@ export default defineComponent({
       type: Number,
       default: 0,
     },
+    /**
+     * Newest index of that run — the right-hand end of the track, and NOT
+     * always `frameCount - 1`: if the newest frame 404s during a publish the
+     * animation ends four hours short of "now". -1 while nothing has loaded.
+     */
+    loadedTo: {
+      type: Number,
+      default: -1,
+    },
     loadedCount: {
       type: Number,
       default: 0,
+    },
+    /** True once the loader has stopped trying, so any frame still missing is
+     *  missing for good and the label must give up saying "Loading…". */
+    loadDone: {
+      type: Boolean,
+      default: false,
     },
     /** Magnetogram time per frame index, unix seconds. */
     times: {
@@ -197,13 +214,34 @@ export default defineComponent({
       return `Play the last ${this.windowHours} hours`;
     },
 
-    /** Two frames make a cross-fade; three make something worth watching. */
+    /** Two frames make a cross-fade; three make something worth watching —
+     *  counted along the run the renderer can actually animate, not the total
+     *  decoded. Three frames with a hole between them play nothing. */
     canPlay(): boolean {
-      return this.loadedCount >= 3;
+      return this.loadedTo - this.loadedFrom >= 2;
     },
 
+    /**
+     * The newest frame the guest can reach.
+     *
+     * Not `frameCount - 1`: the renderer clamps the playhead to the loaded run,
+     * and a range input whose bound value does not change is NOT re-patched by
+     * Vue — so a thumb dragged into a missing frame stayed there, pointing at a
+     * time the view was not showing. Ending the axis at the last loaded frame
+     * is the only clamp the guest's finger can feel.
+     *
+     * The tick and event marks keep the full-window axis below, so in the
+     * missing-newest case the two axes differ by one frame in nineteen (5.6% of
+     * the track). That is the trade: a mark a few pixels off in a rare failure,
+     * against a thumb that lies about what is on screen every time.
+     *
+     * `min` deliberately does NOT get the same treatment. This end only moves
+     * when the newest frame is missing, which is permanent; `loadedFrom` walks
+     * 18 → 0 through every normal load (newest-first), so pinning min to it
+     * would rescale the whole track under the guest several times a second.
+     */
     sliderMax(): number {
-      return Math.max(this.frameCount - 1, 0.01);
+      return Math.max(this.loadedTo, 0.01);
     },
 
     atNewest(): boolean {
@@ -214,16 +252,37 @@ export default defineComponent({
       return this.canPlay && !this.playing && this.atNewest;
     },
 
+    /** `loadDone` is what ends this. Counting to `frameCount` alone pinned the
+     *  label on "Loading… 18 of 19" forever when one frame was never coming,
+     *  and the UT stamp — the thing a guest actually reads — never appeared. */
     loadingText(): string {
       if (this.loadedCount >= this.frameCount || this.frameCount === 0) { return ""; }
+      if (this.loadDone) { return ""; }
       return `Loading the last ${this.windowHours} hours… ${this.loadedCount} of ${this.frameCount}`;
+    },
+
+    /** Said only once the load has finished with a hole in it, and said in one
+     *  clause after the stamp rather than instead of it: the ticks already show
+     *  WHERE the gap is, so this only has to explain why the track is short. */
+    gapText(): string {
+      if (!this.loadDone || this.frameCount === 0) { return ""; }
+      const missing = this.frameCount - this.loadedCount;
+      if (missing < 1) { return ""; }
+      return `${missing} frame${missing === 1 ? "" : "s"} missing`;
     },
 
     ticks(): Tick[] {
       const span = Math.max(this.frameCount - 1, 1);
       const out: Tick[] = [];
       for (let i = 0; i < this.frameCount; i++) {
-        out.push({ index: i, left: (i / span) * 100, loaded: i >= this.loadedFrom });
+        // Lit = reachable: the run the playhead can actually visit. Frames on
+        // the far side of an interior hole are decoded but unreachable, and
+        // frames past `loadedTo` never arrived — both read as unlit.
+        out.push({
+          index: i,
+          left: (i / span) * 100,
+          loaded: i >= this.loadedFrom && i <= this.loadedTo,
+        });
       }
       return out;
     },

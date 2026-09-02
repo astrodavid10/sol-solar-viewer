@@ -262,7 +262,15 @@ def _write_index(dest_dir: Path, canonical_dir_url: str) -> int:
     lines.extend('<a href="{0}">{0}</a>'.format(name) for name in names)
     lines.append("</body></html>")
     tmp = dest_dir / ".index.html.{0}.part".format(uuid.uuid4().hex)
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # write_BYTES, not write_text: `Path.write_text` goes through text mode,
+    # which on Windows translates every "\n" to "\r\n", so this file's line
+    # endings depended on which OS ran the mirror. `_scrape_gong` parses it
+    # with html.parser and does not care either way (there is a test that
+    # feeds it CRLF), but the bytes we publish should not, and the file's
+    # 3-line "would commit" diff should not flip wholesale on a platform
+    # change. `newline=` is not a `write_text` parameter until 3.10 and this
+    # script targets 3.8 (see gong-mirror-task.ps1's interpreter fallback).
+    tmp.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
     os.replace(tmp, dest_dir / "index.html")
     return len(names)
 
@@ -363,14 +371,66 @@ def _write_status(state_dir: Path, retain_days: int, added: int, pruned: int,
 
 # ── git ──────────────────────────────────────────────────────────────────────
 
+# THE PUSH CREDENTIAL MUST NEVER REACH A LOG. `_push` hands git
+# `-c http.extraheader=AUTHORIZATION: basic <base64 of x-access-token:TOKEN>`
+# as ONE argv element, and base64 is not encryption -- so `_git`'s error
+# message, which used to be built from a bare `" ".join(args)`, wrote a
+# working GitHub token straight into the Scheduled Task log on any failed
+# push. That directly contradicted `_push`'s own "Never prints the token"
+# docstring, and a Scheduled Task log is a plain file in %LOCALAPPDATA% that
+# gets attached to bug reports.
+#
+# Two redactions, because there are two shapes to catch:
+#   * `_redact_args` scrubs ARGV, so the message still says WHICH git
+#     invocation failed without saying with what.
+#   * `_redact_text` scrubs git's own stderr/stdout. git never echoes a `-c`
+#     value on its own -- but `GIT_TRACE=1` in the environment prints the
+#     whole argv, including that header, into stderr. The mirror does not set
+#     GIT_TRACE; an operator debugging a push might.
+_SECRET_CONFIG_PREFIX = "http.extraheader="
+_SECRET_HEADER_TOKEN = "authorization:"
+_SECRET_TEXT_RE = re.compile(
+    r"(?i)(authorization\s*:\s*basic\s+)\S+")
+_SECRET_CONFIG_TEXT_RE = re.compile(
+    r"(?i)(http\.extraheader\s*=\s*)[^\s'\"]*")
+
+
+def _redact_args(args) -> List[str]:
+    """argv with anything that could carry the push credential removed."""
+    out: List[str] = []
+    for raw in args:
+        a = str(raw)
+        low = a.lower()
+        if low.startswith(_SECRET_CONFIG_PREFIX):
+            out.append(_SECRET_CONFIG_PREFIX + "<redacted>")
+        elif _SECRET_HEADER_TOKEN in low:
+            out.append("<redacted>")
+        else:
+            out.append(a)
+    return out
+
+
+def _redact_text(text: str) -> str:
+    """Scrub a credential out of captured command output (GIT_TRACE et al)."""
+    text = _SECRET_TEXT_RE.sub(r"\1<redacted>", text)
+    return _SECRET_CONFIG_TEXT_RE.sub(r"\1<redacted>", text)
+
+
 def _git(state_dir: Path, *args: str, env: Optional[dict] = None,
         check: bool = True) -> subprocess.CompletedProcess:
     cmd = ["git", "-C", str(state_dir)] + list(args)
-    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+    except OSError as exc:
+        # e.g. git not on PATH. Raise the same redacted RuntimeError shape as a
+        # non-zero exit rather than letting an OSError whose message platforms
+        # render differently escape with the raw argv attached.
+        raise RuntimeError("git {0} could not be run: {1}: {2}".format(
+            " ".join(_redact_args(args)), type(exc).__name__, exc))
     if check and result.returncode != 0:
         raise RuntimeError("git {0} failed (exit {1}): {2}".format(
-            " ".join(args), result.returncode,
-            (result.stderr or result.stdout).strip()))
+            " ".join(_redact_args(args)), result.returncode,
+            _redact_text((result.stderr or result.stdout).strip())))
     return result
 
 
@@ -380,6 +440,13 @@ def _git_env() -> dict:
     env.setdefault("GIT_AUTHOR_EMAIL", "sol-bot@users.noreply.github.com")
     env["GIT_COMMITTER_NAME"] = env["GIT_AUTHOR_NAME"]
     env["GIT_COMMITTER_EMAIL"] = env["GIT_AUTHOR_EMAIL"]
+    # A Scheduled Task has no console. Without this, an expired or revoked
+    # token makes git ASK for a username on a terminal that will never answer,
+    # and the run hangs until Task Scheduler's own limit kills it -- leaving
+    # the lock file behind (the `finally` never runs) and no SUMMARY line.
+    # Fail in a second instead. This does NOT disable the Windows Credential
+    # Manager helper, which is the `gh auth token`-unavailable fallback path.
+    env["GIT_TERMINAL_PROMPT"] = "0"
     return env
 
 
@@ -397,6 +464,22 @@ def _ensure_local_repo(state_dir: Path, remote_url: str) -> None:
         # `.mirror.lock` (caught by inspecting a real dry-run diff) and any
         # `*.part` left behind by a killed run.
         gitignore.write_text(".mirror.lock\n*.part\n", encoding="utf-8")
+    gitattributes = state_dir / ".gitattributes"
+    if not gitattributes.exists():
+        # `git init` on this workstation inherits core.autocrlf=true from Git
+        # for Windows' SYSTEM config (measured: a fresh `git init` reports
+        # true), which means git normalizes line endings in any file it
+        # decides is TEXT. A magnetogram must cross byte-for-byte -- the whole
+        # point of this mirror -- and git's text/binary verdict is a heuristic
+        # (a NUL in the first 8000 bytes). It happens to call a real .fits.gz
+        # binary (verified: sha256 of the blob equals sha256 of the file), but
+        # "happens to" is not a guarantee for a silent corruption that would
+        # surface hours later in CI as a gunzip failure. `* -text` turns the
+        # heuristic off for the whole mirror tree.
+        gitattributes.write_text(
+            "# Publish every byte verbatim: a magnetogram must not be\n"
+            "# line-ending-normalized by core.autocrlf. See gong_mirror.py.\n"
+            "* -text\n", encoding="utf-8")
     existing = _git(state_dir, "remote", "get-url", "origin", check=False)
     if existing.returncode != 0:
         _git(state_dir, "remote", "add", "origin", remote_url)
@@ -460,15 +543,21 @@ def _push(state_dir: Path, branch: str) -> None:
         # -c http.extraheader is scoped to THIS invocation only, never written
         # to .git/config or the reflog -- the same approach GitHub Actions'
         # own checkout uses.
+        # The remote URL stays PLAIN (`origin`, no embedded token): git echoes
+        # the remote URL verbatim in its failure messages, and `_git` cannot
+        # redact what it does not know is secret. `-c` values git never
+        # echoes, and `_git` redacts them anyway.
         _git(state_dir, "-c", "http.extraheader={0}".format(header),
-            "push", "-q", "--force", "origin", "HEAD:{0}".format(branch))
+            "push", "-q", "--force", "origin", "HEAD:{0}".format(branch),
+            env=_git_env())
         print("pushed to origin/{0} (authenticated via `gh auth token`)".format(
             branch))
     else:
         print("`gh auth token` unavailable -- falling back to a plain "
               "`git push` (Windows Credential Manager / "
               "credential.helper=manager will be asked to authenticate)")
-        _git(state_dir, "push", "-q", "--force", "origin", "HEAD:{0}".format(branch))
+        _git(state_dir, "push", "-q", "--force", "origin",
+            "HEAD:{0}".format(branch), env=_git_env())
         print("pushed to origin/{0}".format(branch))
 
 
@@ -541,19 +630,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         status = _write_status(state_dir, args.retain_days, total_added,
                                files_pruned, total_rejected, now)
 
-        _ensure_local_repo(state_dir, args.remote)
-        message = "gong-cache mirror @ {0} -- {1} file(s) across {2} day(s)".format(
-            status["generated_iso"], status["total_files"], len(status["days"]))
-        has_changes = _stage_and_commit(state_dir, message, args.dry_run)
-
-        if not has_changes:
-            print("no change, not pushing")
-        elif args.dry_run:
-            print("dry-run: would force-push HEAD to {0} ({1}:{2})".format(
-                args.remote, "HEAD", args.branch))
-        else:
-            _push(state_dir, args.branch)
-
         # Reachability: today's and yesterday's directories almost always
         # carry at least one file when GONG is up (GONG publishes several
         # times a day); today+1 being empty is NORMAL (it hasn't happened
@@ -569,23 +645,70 @@ def main(argv: Optional[List[str]] = None) -> int:
                 status["newest_file_iso"], "%Y-%m-%dT%H:%M:%SZ"
             ).replace(tzinfo=timezone.utc)
             newest_age_h = (now - newest_dt).total_seconds() / 3600.0
+        # `total_files` counts every *.fits.gz; `newest_file_iso` needs the
+        # name to parse as one. A stray file makes them disagree, and a bare
+        # "{:.1f}".format(None) would then crash the run at its final line.
+        newest_desc = ("{0:.1f} h old".format(newest_age_h)
+                       if newest_age_h is not None else "age unknown")
 
+        # DECIDED BEFORE THE PUSH, on purpose. The push is `--force` and it
+        # publishes whatever this state dir happens to hold; nothing fetches
+        # origin/<branch> first, so the remote's contents are never consulted.
+        # So on a machine whose state dir is empty -- a new workstation, a
+        # cleaned %LOCALAPPDATA%, a `--state-dir` typo, a first run during a
+        # GONG outage -- the old ordering pushed an EMPTY tree over a good
+        # published mirror and only THEN printed FAILURE, leaving CI with a
+        # relay that 404s every file. Same principle as footgun 31: never let
+        # a failed fetch delete the live product.
+        if status["total_files"] == 0:
+            print("SUMMARY: FAILURE -- mirror holds zero files after this "
+                  "run; NOT pushing, because a --force push of an empty tree "
+                  "would delete whatever origin/{0} is serving. state={1}"
+                  .format(args.branch, state_dir))
+            return 1
+
+        _ensure_local_repo(state_dir, args.remote)
+        message = "gong-cache mirror @ {0} -- {1} file(s) across {2} day(s)".format(
+            status["generated_iso"], status["total_files"], len(status["days"]))
+        has_changes = _stage_and_commit(state_dir, message, args.dry_run)
+
+        if not has_changes:
+            print("no change, not pushing")
+        elif args.dry_run:
+            print("dry-run: would force-push HEAD to {0} ({1}:{2})".format(
+                args.remote, "HEAD", args.branch))
+        else:
+            try:
+                _push(state_dir, args.branch)
+            except Exception as exc:                            # noqa: BLE001
+                # EVERY exit path has to end in a grep-able SUMMARY line. A
+                # rejected push -- revoked token, protected branch, no network
+                # -- used to leave only a bare traceback in the Scheduled Task
+                # log, so `Get-Content ... | Select-String SUMMARY` (the way
+                # gong-mirror-task.ps1's log is meant to be read) came back
+                # empty on exactly the runs worth reading. `_git` has already
+                # redacted the credential out of the message; re-raise so the
+                # traceback still follows, on stderr.
+                print("SUMMARY: FAILURE -- push to origin/{0} was rejected: "
+                      "{1}".format(args.branch, exc))
+                raise
+
+        # A GONG outage with a populated state dir is NOT the empty-tree case
+        # above: every file already mirrored is still on disk and still in the
+        # tree that was just pushed (nothing but `_prune`'s retention window
+        # ever deletes one), so CI keeps seeing the last good window. Report
+        # it as a failure anyway -- footgun 32: degrade quietly for the guest,
+        # never quietly for the operator.
         if not reachable:
             print("SUMMARY: FAILURE -- GONG appears unreachable from this "
                   "machine (0 files listed for today/yesterday); mirror "
                   "still holds {0} file(s) from earlier runs, newest "
-                  "{1}".format(
-                      status["total_files"],
-                      "{0:.1f} h old".format(newest_age_h)
-                      if newest_age_h is not None else "unknown"))
-            return 1
-        if status["total_files"] == 0:
-            print("SUMMARY: FAILURE -- mirror holds zero files after this run")
+                  "{1}".format(status["total_files"], newest_desc))
             return 1
 
-        print("SUMMARY: OK -- {0} file(s) present, newest {1:.1f} h old, "
+        print("SUMMARY: OK -- {0} file(s) present, newest {1}, "
               "+{2}/-{3} added/pruned this run ({4} rejected)".format(
-                  status["total_files"], newest_age_h, total_added,
+                  status["total_files"], newest_desc, total_added,
                   files_pruned, total_rejected))
         return 0
     finally:

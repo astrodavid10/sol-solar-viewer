@@ -71,12 +71,33 @@ def unix_s(dt: datetime) -> int:
 
 
 def parse_iso_z(s: str) -> Optional[datetime]:
+    """Parse an ISO timestamp; a MISSING offset is read as UTC, never local.
+
+    Every upstream this pipeline reads publishes UTC, and several of them omit
+    the zone: NOAA's ``rtsw_wind_1m.json`` says ``"2026-09-02T15:23:00"`` and
+    ``10cm-flux.json`` says ``"2026-09-01T20:00:00"``.  A naive datetime then
+    reaches ``unix_s``, whose ``.astimezone()`` interprets it in the SYSTEM
+    zone -- so on the Central-time workstation that publishes by hand every
+    wind sample landed +5 h in the future.  Measured 2026-09-02: the served
+    ``stats/summary.json`` was generated at 15:23:30Z and carried hourly wind
+    bins out to 20:00Z, five points ahead of the clock, with a matching 5 h
+    hole behind them; the poison was persistent, because
+    ``_merge_wind_series`` writes the shifted keys into ``.cache/wind.json``
+    and later runs merge on top of them.
+
+    Fixing it HERE rather than at each call site is deliberate: this is the one
+    function every product's timestamps pass through, and a naive datetime that
+    escapes it silently corrupts ``unix_s``, ``age_hours`` and every ``>=``
+    comparison downstream (Python raises on aware-vs-naive subtraction, so the
+    failure mode is either a wrong number or a TypeError, never a warning).
+    """
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
     except ValueError:
         return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def age_hours(dt: datetime, now: Optional[datetime] = None) -> float:

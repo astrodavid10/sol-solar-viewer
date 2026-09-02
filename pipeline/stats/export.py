@@ -230,8 +230,14 @@ def build_stats(now: datetime, cache_dir: Path, active_region_count: int,
         rows = http_get_json(F107_URL)
         rec = rows[0] if isinstance(rows, list) and rows else rows
         if isinstance(rec, dict) and rec.get("flux") is not None:
+            # 10cm-flux.json's time_tag carries NO zone ("2026-09-01T20:00:00")
+            # and SWPC means UTC by it.  Republishing it verbatim shipped a
+            # bare local-looking timestamp the app had to guess at; round-trip
+            # it so the wire always says Z.  parse_iso_z now pins a missing
+            # offset to UTC, so this is a normalization, not a shift.
+            when = parse_iso_z(str(rec.get("time_tag") or ""))
             f107 = {"value": float(rec["flux"]),
-                    "time_iso": rec.get("time_tag")}
+                    "time_iso": iso_z(when) if when else rec.get("time_tag")}
     except Exception as exc:
         print("  WARN 10cm-flux.json: {0}".format(exc))
 

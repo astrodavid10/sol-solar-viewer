@@ -53,7 +53,7 @@ from .config import (CME_MIN_SPEED_KMS, EVENTS_MAX_BYTES,
                      TEX_MAX_OBS_AGE_HOURS, TEX_OFFLIMB_MAX_BYTES,
                      TEX_OUT_H, TEX_OUT_W, TEX_HIST_H, TEX_HIST_W,
                      TEX_HIST_MAX_BYTES, TEX_HIST_TOLERANCE_HOURS,
-                     WINDOW_HOURS)
+                     WIND_BIN_MINUTES, WINDOW_HOURS)
 from .io_utils import age_hours, http_get, parse_iso_z
 from .pfss.export import (MAX_DEQUANT_ERR, dequantize, frame_bytes_expected,
                           topology_bytes_expected, unpack_frame,
@@ -534,7 +534,78 @@ def _check_side_products(rep: Report, get, idx: Optional[dict]
     else:
         rep.check(stats.get("schema") == SCHEMA_STATS, "summary.json schema")
         rep.check("carrington" in stats, "summary.json carrington block")
+        _check_wind_window(rep, stats)
     return n_regions
+
+
+def _check_wind_window(rep: Report, stats: dict) -> None:
+    """The rolling solar-wind series.
+
+    Two invariants, and both exist because a timezone bug in this series is
+    INVISIBLE: the chip draws whatever points it is handed, so a shifted
+    timestamp just moves the trace under the playhead.  Measured 2026-09-02,
+    the served digest was generated at 15:23:30Z and carried hourly bins out
+    to 20:00Z -- five samples of solar wind that had not been measured yet --
+    because ``parse_iso_z`` returned a naive datetime for NOAA's zone-less
+    ``time_tag`` and ``unix_s`` read it as Central time.  Nothing raised: the
+    cache merged the shifted keys, the counts matched, the bytes were fine.
+
+    ORDER, because the app interpolates between neighbours and a series that
+    steps backwards makes it read across the wrong pair.  ``_merge_wind_series``
+    builds the array from ``sorted(dict.items())``, so this is a guard on the
+    merge, not on the source.
+
+    FUTURE, with one bin of slack.  A bin is labelled by its START, so a
+    legitimately-stamped sample can never begin after the run's own clock --
+    except by the run's own duration: ``generated_iso`` is stamped at process
+    start and the stats stage can fetch an hour later on a slow PFSS run, which
+    can legitimately roll one further bin into the series.  Anything beyond
+    that is a zone error, not a race.  One bin (60 min) would still have caught
+    four of the five poisoned points above.
+    """
+    win = stats.get("windWindow")
+    if win is None:
+        # A dead RTSW fetch costs the chip its history and nothing else; the
+        # app falls back to the live reading it already polls.
+        rep.info("summary.json has no windWindow (RTSW unavailable)")
+        return
+    if not rep.check(isinstance(win, dict), "summary.json windWindow is an "
+                     "object", "got {0}".format(type(win).__name__)):
+        return
+    points = win.get("points")
+    if not rep.check(isinstance(points, list), "windWindow.points is a list",
+                     "got {0}".format(type(points).__name__)):
+        return
+    if not points:
+        rep.info("windWindow.points is empty (cold wind cache)")
+        return
+
+    times = [p.get("t") for p in points if isinstance(p, dict)]
+    rep.check(len(times) == len(points),
+              "every windWindow point is an object",
+              "{0} of {1}".format(len(times), len(points)))
+    numeric = all(isinstance(t, (int, float)) for t in times)
+    if not rep.check(numeric, "windWindow point timestamps are numeric"):
+        return
+    rep.check(all(times[i] < times[i + 1] for i in range(len(times) - 1)),
+              "windWindow.points timestamps strictly increasing",
+              "{0} point(s)".format(len(times)))
+
+    gen = stats.get("generated_unix")
+    if gen is None:
+        g = parse_iso_z(stats.get("generated_iso") or "")
+        gen = None if g is None else g.timestamp()
+    if not rep.check(isinstance(gen, (int, float)),
+                     "summary.json generated_unix is numeric",
+                     "got {0!r}".format(stats.get("generated_unix"))):
+        return
+    slack = (float(win.get("bin_minutes") or WIND_BIN_MINUTES)) * 60.0
+    newest = float(max(times))
+    ahead_h = (newest - float(gen)) / 3600.0
+    rep.check(newest <= float(gen) + slack,
+              "windWindow newest point is not in the future "
+              "(<= generated + {0:.0f} min)".format(slack / 60.0),
+              "{0:.2f} h ahead of generated_iso".format(ahead_h))
 
 
 _TEXTURE_KEYS = ("schema", "generated_iso", "generated_unix", "url", "width",

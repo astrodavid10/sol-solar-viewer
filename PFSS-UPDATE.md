@@ -112,8 +112,12 @@ this runbook is the fix.
 It has now happened **three times** — 2026-08-28 11:12Z, 2026-08-28 22:12Z and 2026-08-30
 05:12Z, all with the identical `range [-1,5] vs 5 regions` — and each time a republish cleared
 it. So it is the normal *end state* of stale PFSS (footgun 50), not a novelty: expect it a day
-or two after the last republish, and remember it discards the five products CI *can* build,
-because `Validate` runs before `Publish`.
+or two after the last republish. **Until 2026-09-02** it also discarded the five products CI
+*can* build, because `Validate` ran before `Publish`; since T20 the pipeline validates each
+product itself before promoting and rolls back only the failing one, `data.yml` publishes
+first and validates after as a tripwire, and the manifest carries `seed_regions` so a shrunken
+SRS list is a WARN rather than a FAIL. A `data` run that goes red now still publishes what it
+could — read the `Verdict` step's table to see which product degraded.
 
 ---
 
@@ -351,7 +355,7 @@ fail to reach GONG (expected), keep your frames, and pass `Validate` again.
 |---|---|---|
 | `pfss stale`, `0 freshly traced frame(s) of 19 slot(s)` | GONG blocked from CI — the normal case | this runbook |
 | index hours old but the last `data` run says `success` | GitHub skipped a cron slot — ~4 runs/day, not 6 | nothing; not a failure |
-| CI `data` run failed at `Validate` on `ar_index … bounds` | region list shrank under a frozen seed set | this runbook |
+| CI `data` run red with `pfss` `degraded` in the `Verdict` table (or, before 2026-09-02, failed at `Validate` on `ar_index … bounds`) | region list shrank under a frozen seed set; the other five products still published | this runbook |
 | pipeline log empty or missing a minute in | the run never started — trap (c), or (a)/(b) | fix the invocation, re-run |
 | `0/19 slots have a magnetogram` **from this workstation** | a real GONG outage, not the CI block | wait; published frames keep serving |
 | live tree still old > 5 min after a `built` Pages build | Pages wedged on a vanished commit | `gh api -X POST "repos/$REPO/pages/builds"` |

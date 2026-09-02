@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-09-02 (fifteenth session)
+**Last updated:** 2026-09-02 (sixteenth session)
 
 ---
 
@@ -47,7 +47,8 @@ the plan says outrank documentation work.
 | T10 | Dead-code cleanup in `sdoCatalog.ts` | TODO | — | monolith splits deferred, see below |
 | T17 | Zoom out to the heliosphere, with the Voyagers | TODO | — | **AF** — largest new feature; needs scoping |
 | T18 | A vertical reel of the 72 h field | DONE | — | `scripts/render_reel.py`; asked for outside the plan |
-| T19 | Near-side detail maps at full SDO resolution | IN PROGRESS | `8650fee`+ | pipeline DONE; app LOD + cold fill next |
+| T19 | Near-side detail maps at full SDO resolution | PARKED | `8650fee`+ | pipeline DONE; app LOD + cold fill next; parked while T20 lands |
+| T20 | Review fixes, 2026-09-02 (eight items from the full code review) | IN PROGRESS | — | wind-tz bug, per-product validate, `seed_regions`, notify + freshness, field-line hole, texture GPU leak |
 
 **AF** = from Alex's review, 2026-08-24 (see "Alex's review" at the foot of this file for the
 raw items and how each was mapped).
@@ -939,6 +940,98 @@ steady state. Off-limb went to a **1024/2048/4096 ladder** rather than a single 
 browser, because `SolarView3D.vue` asked `hasHighRes()` synchronously before the manifest fetch
 could resolve. The preference now goes in as a construction option. Needs T8's browser to
 confirm, and the extension is still not connected.
+
+---
+
+### T20 — Review fixes, 2026-09-02  *(IN PROGRESS)*
+
+**Why.** A full read-only review on 2026-09-02 (four passes: the publish run, the app, the
+pipeline, CI/ops; report at
+<https://claude.ai/code/artifact/2d47d6e5-c7e8-4efc-8bb4-795f91f32908>) ranked thirteen fixes
+by guest-and-operator pain over effort. The first eight are this task. They outrank the rest of
+the ledger because two are live data-correctness defects and two are why the site went 16.8 h
+stale on every product this morning.
+
+**The eight items, in the order they are being worked** (pipeline items are sequential in one
+stream because they all touch `validate.py` and `cli.py`; app and workflow items run beside them
+on disjoint files):
+
+| item | what | where |
+|---|---|---|
+| 1 | Zone-less SWPC time tags parsed as LOCAL time — every hand-publish from this Central-time workstation shipped the wind series +5 h (live today: five points in the future, a 5 h hole) | `pipeline/io_utils.py` `parse_iso_z`, validator stats checks, `stats/export.py` f107 |
+| 8 | `index.json` reports a stage that FAILED this run as `ok` (only `last_attempt_status` knew); the stale pfss path had no `data_age_hours` at all | `cli.py` `_existing_product` / `failed()`, `pfss/export.py` `newest_mag_unix` |
+| 7 | The validator decodes 60 of 115 referenced texture files and cannot see a manifest naming a missing one (footgun 35's production failure, still uncaught); the orphan pruner's keep-set is hand-maintained | new `pipeline/manifest_urls.py`, `validate.py`, `cli.py` |
+| 2 | Validate-before-Publish discards all six products on one failed check (6 of 44 runs; footguns 50/51) — validation moves INTO the pipeline, per product, before promote, with per-product rollback; exit code 0 = "a tree was promoted" | `validate.py` `validate_products`, `cli.py` `cmd_all` |
+| 3 | `ar_index` is a POSITION into a `regions.json` CI regenerates every 4 h (5 of the 6 failures) — the manifest now carries `seed_regions` (NOAA numbers); an unlisted region is a WARN | `pfss/seeds.py`, `pfss/export.py`, `validate.py` |
+| 4 | Nothing notified anyone and nothing checked the live site — failure → one deduped issue; a 2-hourly `freshness.yml` watches the live index; `data.yml` reordered Build → Publish → Validate (tripwire) → Verdict | `.github/workflows/data.yml`, `freshness.yml`, README badge |
+| 5 | One dropped PFSS frame blanked the whole field-line layer and pinned "Loading… 18 of 19" forever (`recomputeLoadedFrom` anchored on the newest INDEX, not the newest LOADED frame) | `src/three/fieldLines.ts`, `TimeScrubber.vue` |
+| 6 | Duplicate sphere-texture loads leaked ~8 MB of GPU memory per slot crossing (no `pending` guard on `loadTexture`; displaced textures never disposed) and the LRU could evict the map on the sphere | `src/three/sunSurface.ts` |
+
+**Not in this task (items 9-13 of the review):** dropping Vuetify from the entry chunk, moving
+`setFrameTime` off the ephemeris gate, T5's CI wiring, the two token leaks (must land before
+T2's Option D goes live), the destructive `max_frames` input.
+
+**Definition of done:** each item committed with its own regression test where one is
+practical (pipeline: pytest under `pipeline/tests/`), `yarn lint` / `typecheck` / `build`
+green, `validate --root public/data --strict` still 0/0 on the published tree, a `dry_run`
+`data.yml` dispatch passing under the new step order, and `CLAUDE.md` carrying the zone bug as
+a footgun.
+
+**Progress** — filled in as items land:
+
+- **Item 1 DONE** `dc6aa22` — `parse_iso_z` stamps UTC on a naive parse; validator requires
+  `windWindow.points` strictly increasing and never later than `generated_iso`; `f107.time_iso`
+  normalized; the poisoned local `pipeline/.cache/wind.json` deleted; `pipeline/tests/` created
+  with the tz table test. **Footgun 52.** The live wind series stays shifted until the next
+  scheduled run rebuilds `stats/summary.json` on a UTC runner (or a hand-republish from this
+  tree, which now produces correct times).
+- **Item 8 DONE** `e92eaeb` — a stage that raised is published `status: degraded` with the
+  exception text in `note` and a new `last_error`; a deliberately skipped stage stays `ok` /
+  "not regenerated this run"; the stale pfss path carries `data_age_hours`; the pfss manifest
+  gains `newest_mag_unix` (additive).
+- **Items 5 + 6 DONE** `3ee22b2` — `fieldLines` animates `[from, to]` with `to` the newest
+  LOADED frame; `TimeScrubber` gets `loadedTo`/`loadDone`, its max follows the newest loaded
+  frame (Vue does not re-patch a range input whose bound value is unchanged, so a thumb dragged
+  into the hole used to stay there), the loading label gives up once the load resolved, and a
+  "N frame(s) missing" clause follows the stamp. `sunSurface`: `pending` guard on
+  `loadTexture`, displaced textures disposed, eviction protects the active and hi-res maps.
+  Verified by a Node harness on the compiled module (9 scenarios, 48 assertions) plus
+  lint/typecheck/build. **NOT yet seen in a browser** (T8 still blocked).
+- **Item 7 DONE** `2bde6b8` — `pipeline/manifest_urls.py` (`iter_manifest_urls`,
+  `manifest_url_set`); per-product existence pass in the validator (stat / HEAD→ranged GET) before
+  the decode sampling; orphan check behind `check_orphans` (root mode, `cmd_validate` only —
+  orphans legitimately exist before pruning); `_prune_orphan_textures` derives its keep-set from
+  the walker. Measured 20/20 pfss + 110/110 texture referenced files on disk, 0 orphans. The two
+  dead imports at `texture/export.py:77` removed.
+- **Item 2 DONE** `d1c5a43` — `validate_products()` → `{product: Report}`; `Tree` /
+  `overlay_tree` (staging resolved before published, exactly what `promote()` produces);
+  `cli._validate_before_promote` rolls back only the failing product with a `degraded` entry
+  and `last_error: "validation failed: …"`; `plan_rollbacks` is pure and iterates consumers of
+  a rolled-back producer to a fixed point. **Exit-code contract:** `pipeline all` returns 0
+  whenever it promoted and wrote `index.json`; non-zero only when nothing was promoted. 13
+  tests including footgun 51's exact record and footgun 50's shape.
+- **Item 3 DONE** `1d33584` — `SeedSet.region_numbers` (SRS `rnumber`, persisted in the seed
+  npz; an older npz derives it from the `regions_json` it already carries); manifest
+  `seed_regions` + `SCHEMA_PFSS = "sol.pfss/2"`, with the validator accepting `{/1, /2}` because
+  CI cannot retrace (footgun 33). Hard bound `max(ar_index) < len(seed_regions)`; the
+  regions.json comparison is an ADVISORY warn (`Report.warn(strict_fatal=False)`) so `--strict`
+  no longer turns a shrunken SRS into a discarded publish. **The live manifest stays `/1` until
+  a rebuild from a GONG-reachable machine** — done this session, see below.
+- **Item 4 DONE** `0751dfd` — `data.yml`: Build → Publish → Validate (tripwire) → Verdict →
+  Notify → Artifact, `issues: write`; `freshness.yml` every 2 h against the live index
+  (`pfss.data_age_hours`, thresholds 10 h index / 12 h pfss), issue titles
+  `data pipeline: scheduled run failing` and `live data is stale`; README badge. Verified
+  locally against the live site and with doctored inputs; **first real run pending the push.**
+- **Republished with the new code** (the tenth T1, and the first that was not about
+  staleness): `public/data` seeded from `gh-pages` (137 = 137, 0 each way), `pipeline all`
+  without texture flags (texture was 1.55 h old and complete) — 19/19 slots, all 19 frames from
+  the traced-frame cache in **11.8 s**, the new pre-promote validation printed `OK` for all five
+  staged products, exit 0, `validate --root` 0/0. What this run fixed on the live site: the wind
+  series' newest point is now **16:00Z against a 16:56Z run** (was 4.61 h ahead), and the pfss
+  manifest is `sol.pfss/2` with `seed_regions [4520, 4521, 4522, 4523]`, so footgun 50's fuse
+  is out for the served product too. Cost of purging the poisoned cache: the wind series
+  restarts at **25 hourly points** (~1 day) and refills over the next runs. Published as
+  `gh-pages` **`85230e5`** at 16:58Z, 137 data files, CI idle at push time.
 
 ---
 

@@ -59,10 +59,10 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 | `pipeline validate --root public/data --strict` | **0 failed, 0 warnings** |
 | Data products building | 6 of 6 (pfss, ar, ephem, stats, texture, events) |
 | PFSS window | 72 h, 4 h spacing, **19 frames** (`config.WINDOW_HOURS`) |
-| Sphere textures | **5 channels** at 4096x2048, one frame each (per-frame is workstream 1) |
-| Git commits | 22 on `feature/unified-sphere-view` |
-| Automated tests | none (the pipeline validator is the de-facto test suite; the app has none) |
-| CI workflows | `data.yml` and `app-deploy.yml` both green end-to-end; `build.yml` and `keepalive.yml` still unexercised |
+| Sphere textures | **5 channels**: newest map 4096x2048 plus an 8192x4096 hi-res map (all five, 0304 included), and 19 time-keyed 2048x1024 history frames each |
+| Git | `main` is the integration branch (`feature/unified-sphere-view` merged in `eeccf06`); `gh-pages` is one forced orphan commit |
+| Automated tests | pipeline: **pytest, 53 tests** under `pipeline/tests/` (`"$PY" -m pytest pipeline/tests -q`, ~1 min); app: none (T6) |
+| CI workflows | `data.yml` (Build → Publish → Validate tripwire → Verdict → Notify), `app-deploy.yml`, `freshness.yml` (2-hourly live check), `keepalive.yml` (ran once, 2026-09-01); `build.yml` has never run (T5) |
 
 ### Top risks, highest first
 
@@ -72,13 +72,12 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
    internal cross-checks because every one of them was internal. **The only independent
    reference in the 3D scene is WWT's own `solarSystemOrbits` / `solarSystemPlanets`
    rendering** — check new geometry against it (footgun 47), not against our own layers.
-2. **GitHub Pages is not enabled**, so nothing is served yet. On a private repo it needs
-   GitHub Pro; **making the repo public is the agreed route** (it is also what removes the
-   Actions-minutes quota). `gh-pages` already exists and carries both the app and `data/`, at
-   exactly one commit. Remaining steps: merge this branch to `main`, flip visibility, then
-   `gh api -X POST repos/astrodavid10/sol-solar-viewer/pages -f source[branch]=gh-pages -f source[path]=/`.
-   The `data.yml` (4-hourly) and `keepalive.yml` (monthly) schedules are armed.
-   **One open question blocks the flip** — see §3, Highway Gothic Narrow.
+2. ~~**GitHub Pages is not enabled**, so nothing is served yet.~~ **RESOLVED** — the repo is
+   public and the site is LIVE from `gh-pages` (see the top of this file). What replaced this
+   risk: **nothing watched the live site.** Two scheduled runs failed on 2026-09-02, eight
+   hours apart, and the only reason it was noticed was a review happening to look. The
+   sixteenth session added a failure-notification step and a 2-hourly `freshness.yml`
+   monitor (T20 item 4).
 3. **No app-side tests.** Regressions in the app are caught only by eye.
 4. **Field lines are hand-fed.** GONG is unreachable from CI (see below), so the published
    frames come from a workstation run. They age out of the 8 h staleness threshold and the
@@ -91,9 +90,12 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
    tilt and the backwards rotation) are gone and were verified against WWT's own orbit
    rendering. CLAUDE.md footgun 47. **Do not re-open this by "fixing" the mirror into a
    rotation** — measured, both proper 90° rotations leave the Sun spinning backwards.
-6. **GONG relay fallback ("Option D", a static mirror branch + Windows Scheduled Task) is
-   implemented but sitting UNCOMMITTED in the working tree.** Needs to be committed (and
-   either deployed or explicitly shelved) soon — see §3zzz and `docs/GONG-RELAY.md`.
+6. **GONG relay: written twice, deployed zero times.** Option D (mirror branch + Scheduled
+   Task) and Option A (Cloudflare Worker) are both committed (`8650fee`, inert) — but as of
+   2026-09-02 no repository secret is set, no `gong-cache` branch exists, no `SolGongMirror`
+   task is installed, and no self-hosted runner is registered. The daily hand-republish (T1,
+   nine times so far) continues until T2's six go-live steps are done. The review's
+   recommendation and step list are in the report linked from §3zzzzzzzzzzzzz.
 
 ---
 
@@ -162,7 +164,84 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzzzzzz. What changed on 2026-09-02 (FIFTEENTH session — most recent)
+## 3zzzzzzzzzzzzz. What changed on 2026-09-02 (SIXTEENTH session — most recent)
+
+**Asked for:** a full code review, then fix what it found. The review ran as four read-only
+passes (the publish run itself, the app, the pipeline, CI/ops) and is published as a report at
+<https://claude.ai/code/artifact/2d47d6e5-c7e8-4efc-8bb4-795f91f32908>. It found ~60 items; the
+thirteen worth doing first are ranked there, and the first eight are being fixed this session
+as **T20** (see `TASKS.md` for the item table). Work is split by file ownership — one agent per
+disjoint set of files, pipeline items sequential because they share `validate.py`/`cli.py` —
+and the results are recorded below as they land.
+
+### The one finding that changed the picture
+
+**Every hand-publish from this workstation has shipped the solar-wind series five hours
+wrong.** NOAA's `rtsw_wind_1m.json` publishes `"time_tag": "2026-09-02T15:23:00"` — no `Z`, no
+offset — and `io_utils.parse_iso_z` returned it as a NAIVE datetime, which `unix_s` then ran
+through `.astimezone()`, i.e. "assume the SYSTEM zone". On a UTC runner that is a no-op; on this
+Central-time workstation it is +5 h. The merge in `stats/export.py` writes the shifted points
+into the persistent cache, so they survive runs. Verified against the live tree right after the
+ninth republish: `windWindow.points` ended at **20:00Z with the clock at 15:40Z**, five points in
+the future and a 5 h hole where CI's UTC points met the workstation's shifted ones. It
+self-heals at the next successful CI run (runners are UTC and the merge reads only the runner's
+own cache) and recurred on every hand-publish. Nothing caught it: the validator checked
+`stats/summary.json` for `schema` and `carrington` only. Fix and footgun below.
+
+### Progress — filled in as each item lands
+
+- **Item 1, the wind zone bug** — `dc6aa22`. Fixed at the source (`io_utils.parse_iso_z`
+  stamps UTC when the parse comes back naive) so every sibling path (`age_hours`, the flare
+  comparisons, `_existing_product`) is covered at once; the validator now checks the wind
+  series is strictly increasing and never later than `generated_iso`; `f107.time_iso` is
+  normalized through `iso_z`. The poisoned local cache was deleted. First pytest module,
+  `pipeline/tests/test_io_utils.py`, runs the bare / `Z` / `+00:00` table on this
+  workstation, where local != UTC, so it exercises the bug for real.
+- **Item 8, honest index entries** — `e92eaeb`. `status: degraded` + `last_error` for a
+  stage that raised; `data_age_hours` on the stale pfss path; `newest_mag_unix` in the manifest.
+- **Items 5 and 6, the app** — `3ee22b2`. Field lines animate over the newest LOADED run
+  instead of assuming the newest index arrived; the scrubber follows; textures stop leaking
+  and the LRU can no longer evict the map on the sphere. The subtle one: Vue does not
+  re-patch a `<input type=range>` whose bound value did not change, which is why the slider's
+  `max` has to follow `loadedTo` rather than relying on the parent's clamp. Verified with a
+  Node harness against the compiled module (48 assertions) and lint/typecheck/build — not in a
+  browser.
+- **Item 7, every referenced file exists** — `2bde6b8`. One walker
+  (`pipeline/manifest_urls.py`) now serves both the validator's existence pass and the orphan
+  pruner's keep-set, so the next nested URL someone adds cannot be forgotten by one and not
+  the other. The deleted-frame case that used to pass `--strict` is a test now.
+- **Item 2, per-product validation before promote** — `d1c5a43`. The structural fix for
+  footguns 50 and 51: `validate_products()` per product, run inside `cmd_all` against a
+  staging-over-published overlay, rollback of only the failing product, consumers re-checked.
+  `pipeline all` exits 0 whenever it promoted a tree — the workflow's `Verdict` step is what
+  turns a degraded publish red. Footgun 51's exact record (`lat_deg: 98`) is a test: only
+  `active_regions` fails.
+- **Item 3, `seed_regions`** — `1d33584`. The manifest carries the NOAA numbers the seeds were
+  frozen against (`sol.pfss/2`), the hard bound is self-consistent, and a region that has left
+  the SRS is an advisory warning. The validator accepts `/1` and `/2` because CI cannot retrace
+  the field; the live manifest only gains `seed_regions` when a GONG-reachable machine rebuilds
+  it — which is why this session ends with a republish.
+- **Item 4, CI** — `0751dfd`. Publish now precedes the validate tripwire; a `Verdict` step
+  makes a degraded publish red without discarding it; failures open or comment on one issue;
+  `freshness.yml` watches the live site every 2 h. The workflow agent measured the cadence
+  independently: 4.2 runs/day fired, ~3.3 published, median cron delay 74 min.
+
+### Then a republish, so the fixes reach the live site today
+
+Two of the items only take effect on the served tree when a GONG-reachable machine rebuilds
+it: the pfss manifest gains `seed_regions` only on a retrace, and the wind series is only
+corrected by a `stats` run whose cache is clean. So the session ended with the runbook: seed
+from `gh-pages` (137 files both sides, 0 each way), `pipeline all` without texture flags, 19/19
+slots all served from the traced-frame cache in 11.8 s, the new `[validate]` block reporting
+`OK` for all five staged products (208 / 9 / 13 / 504 / 11 checks), exit 0, `validate --root`
+0/0, CI idle, `gh-pages` **`85230e5`** at 16:58Z. Live afterwards: wind newest **16:00Z** with
+the run at 16:56Z (it had been 4.61 h in the future), pfss `sol.pfss/2` with
+`seed_regions [4520, 4521, 4522, 4523]`, `data_age_hours 0.71`. The wind series restarts at 25
+points because the poisoned cache was deleted rather than repaired; it refills one bin per run.
+
+---
+
+## 3zzzzzzzzzzzz. What changed on 2026-09-02 (FIFTEENTH session)
 
 **Asked for:** refresh the PFSS field lines and republish the data products to the live site,
 following `PFSS-UPDATE.md` top to bottom. Done — the **ninth** hand-republish (T1). No code

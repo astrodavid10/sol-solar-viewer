@@ -36,6 +36,8 @@ Pipeline (Python, conda env `sdo`):
 conda run -n sdo python -m pipeline all --out public\data -v    # dev data for yarn serve
 conda run -n sdo python -m pipeline pfss --from-cache --out public\data  # fast re-export (~2 s)
 conda run -n sdo python -m pipeline validate --root public\data --strict
+conda run -n sdo python -m pytest pipeline/tests -q   # 53 tests, ~1 min; the tz table runs
+                                                       # on THIS workstation on purpose (footgun 52)
 python scripts/check_pipeline_names.py          # undefined globals; run BEFORE a long build
 node scripts/check_label_layout.mjs             # label de-collision invariants
 # fallback if conda run misbehaves:
@@ -49,6 +51,13 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
   frames + JSON products to the `data/` subtree of `gh-pages`. The app fetches them same-origin.
   The contract (binary formats, manifest fields) is specified in the plan file — change it in
   BOTH places or not at all.
+- **Validation is per product and happens INSIDE the pipeline, before promote** (since
+  2026-09-02, T20). `cmd_all` runs `validate.validate_products()` against a
+  staging-over-published overlay, rolls back only a product that fails its own checks (marking
+  it `status: degraded` with `last_error`), and exits **0 whenever it promoted a tree**. The CI
+  `Validate` step therefore runs AFTER `Publish` as a tripwire, and a `Verdict` step turns a
+  degraded publish red without discarding it. Cross-product checks live with the CONSUMER
+  (pfss and events check their `ar_index` against regions, not the other way round).
 - **Entry chunk must stay engine-free.** `src/main.ts` must NOT import `@wwtelescope/engine-pinia`
   (or `three`); `SolarView3D.vue` is an async component whose loader installs `wwtPinia`
   post-mount. The disk view + stats work with no WWT at all.
@@ -602,8 +611,9 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     33) cannot retrace the field, so on the day NOAA's SRS lists fewer regions than it did when
     the seeds were frozen, the topology's max `ar_index` runs off the end of the current list.
     Measured 2026-08-30: seeds frozen against six regions, SRS down to five, and the run died at
-    `FAIL ar_index within regions.json bounds -- range [-1,5] vs 5 regions`. `Validate` runs
-    BEFORE `Publish` in `data.yml`, so **the five products CI *can* build were discarded too** —
+    `FAIL ar_index within regions.json bounds -- range [-1,5] vs 5 regions`. `Validate` ran
+    BEFORE `Publish` in `data.yml` (until 2026-09-02, T20), so **the five products CI *can*
+    build were discarded too** —
     the site fell 13 h behind on everything, not just on field lines. For eleven sessions the
     working assumption had been that stale PFSS degrades exactly one product; it does not, it
     just takes a day or two to bite. The fix is a rebuild from a GONG-reachable machine
@@ -619,10 +629,17 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     `validate` range-checks every history region (`|lat| <= 60`; anything beyond the activity
     belts is a parse error, not a sunspot), so the `data` run at 13:26Z died on
     `FAIL history 2026-09-01 AR4521: lat_deg within +/-60 -- got 98.0`. **This is footgun 50's
-    coupling from a completely different cause:** `Validate` runs before `Publish`, so one bad
+    coupling from a completely different cause:** `Validate` ran before `Publish`, so one bad
     record 30 days deep in someone else's feed discarded the five products CI had just built
     correctly and left the site 11.5 h stale on everything. Expect this class of thing again —
     the SRS is hand-keyed.
+    **The coupling itself was removed on 2026-09-02 (T20):** the pipeline now validates each
+    product against a staging-over-published overlay BEFORE promoting and rolls back only the
+    product that fails (`cli.py` `cmd_all`, `validate.validate_products`), `pipeline all` exits 0
+    whenever it promoted a tree, and `data.yml` publishes first and validates after as a
+    tripwire, with a `Verdict` step that turns a degraded publish red instead of discarding it.
+    Footguns 50 and 51 remain the record of WHY that structure exists; do not put the validate
+    step back in front of publish.
     **The fix is at the source, and it DROPS the record rather than repairing it.**
     `fetch_regions_json` is the only place that JSON is parsed, so it is the only place that
     has to reject it; the bounds there deliberately mirror `validate.py`'s region checks, so
@@ -636,6 +653,28 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     for the guest, never quietly for the operator.
     Do NOT instead widen the validator's bound. It is the only thing standing between a
     hand-keyed feed and a sunspot marker at latitude 98.
+
+52. **Zone-less SWPC time tags are UTC, and `parse_iso_z` used to hand them back NAIVE — which
+    is a +5 h shift on this workstation and a no-op in CI.** NOAA's `rtsw_wind_1m.json`
+    publishes `"time_tag": "2026-09-02T15:23:00"` (no `Z`, no offset) while the GOES flare
+    product carries a `Z`. `datetime.fromisoformat` returns a naive value for the former, and
+    `io_utils.unix_s`'s `.astimezone()` on a naive datetime means "assume the SYSTEM zone":
+    UTC on a GitHub runner, **Central time here**. So every hand-publish (T1, nine of them)
+    shipped a wind series five hours in the future. Measured 2026-09-02 minutes after the ninth:
+    live `windWindow.points` ended at **20:00Z with the clock at 15:40Z**, five future points
+    and a 5 h hole where CI's UTC points met the workstation's shifted ones.
+    `_merge_wind_series` writes into a persistent cache (`pipeline/.cache/wind.json`), so the
+    poison survived runs; it self-healed at each successful CI run and recurred at each
+    hand-publish, and nothing caught it because the validator checked `stats/summary.json` for
+    `schema` and `carrington` only. Fixed at the source — `parse_iso_z` stamps UTC on a naive
+    parse — plus validator checks that wind points are strictly increasing and never later
+    than `generated_iso`. The general rule: **a timestamp parsed from any upstream feed must be
+    tz-aware before it reaches `unix_s`, `age_hours`, or a comparison.** A naive one either
+    shifts silently (`astimezone`) or raises `TypeError: can't compare offset-naive and
+    offset-aware` — and that `TypeError` inside `_existing_product`, which runs inside the
+    failure handler, escapes `cmd_all` and leaves the run with NO `index.json`. Test the parser
+    on the workstation, not only in CI: the bug is invisible in every UTC environment, which is
+    exactly why four sessions of green CI runs never saw it.
 
 ## Data sources (verified live 2026-08)
 

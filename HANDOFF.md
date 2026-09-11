@@ -8,7 +8,11 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-09-09 (eighteenth session — the eleventh data republish, `ac6b53d`,
+- **Last updated:** 2026-09-11 (nineteenth session — three asks, §3zzzzzzzzzzzzzzzz: the
+  seventeenth session's planet labels found UNCOMMITTED in the working tree, re-verified and
+  committed as `c7b3438`; the desktop scrubber lined up with the stats panel on the rail gutter,
+  `e741321`; the "What am I looking at?" copy rewritten in plain sentences, `bcd35c9`. The
+  eighteenth session was the eleventh data republish, `ac6b53d`,
   19/19 slots and all six products `ok`; the cause was NOT the mirror but a frozen CI read of
   the relay, now `TASKS.md` T22, §3zzzzzzzzzzzzzzz. The seventeenth session was a health check
   of the live site and the GONG automation, then planet labels for the "Planet orbits" toggle, T15(c),
@@ -169,7 +173,71 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzzzzzzzzz. What changed on 2026-09-09 (EIGHTEENTH session — most recent)
+## 3zzzzzzzzzzzzzzzz. What changed on 2026-09-11 (NINETEENTH session — most recent)
+
+Three asks from the user, all guest-facing, all verified in a 1920x911 window on the dev
+server; nothing was published.
+
+### Planet labels — found in the tree, not written again
+
+The first ask was planet labels for the "Planet orbits" toggle, in the spacecraft-chip style.
+**They already existed.** The seventeenth session's T15(c) work (the presentation table in
+`planets.ts`, `buildPlanetChips` / `updatePlanets` in `SolarView3D.vue`, the row hint in
+`LayerPanel.vue`) was sitting in the working tree alongside the seventeenth and eighteenth
+sessions' HANDOFF/TASKS records: 532 lines across five files, **never committed**. `git log`
+still ended at `f5e8e47` (2026-09-02). Whatever ended those two sessions ended them before
+`git commit`, twice.
+
+Re-verified rather than trusted: lint, typecheck, `check:labels` and a production build all
+pass on that tree, and with both layers on at `distanceAu: 1.11` the Mercury, Venus and Earth
+chips sit on WWT's own rings (the one frame-independent reference in the scene, footgun 47)
+reading `91 R☉ · 0.42 AU`, `157 R☉ · 0.73 AU`, `217 R☉ · 1.01 AU`, with exactly one Earth
+label: the planet chip yields to the ephemeris chip while the spacecraft layer is on, as
+designed. Committed as **`c7b3438`**, carrying the two sessions' doc records with it because
+their hunks were interleaved in the same files. The SolarView3D diff was split by hunk so
+today's layout change did not ride along.
+
+### The desktop seam: scrubber against stats panel
+
+> "on desktop the timeline bottom is below the sun stats and these should line up better. the
+> padding between them also doesn't match other padding between sections"
+
+Both true, one cause. Measured before: scrubber bottom **904.6** against stats bottom **899**
+(5.6px low), and **26.4px** between the scrubber's right edge and the stats panel's left edge
+against **12px** between any two rail panels. Three insets stacked on that one seam:
+`.sv-bottom-stack`'s 0.4rem phone inset, the grid's 0.5rem `column-gap`, and the rail items'
+0.75rem `margin-left`. Each was reasonable alone; nothing owned their sum.
+
+Fix (`e741321`): the grid's `column-gap` is 0 (the rail's `margin-left` IS the stage-to-rail
+gutter, so a gap on top of it double-counted), and `SolarView3D`'s root now carries `is-wide`
+so `.sv-bottom-stack` takes `--sol-rail-gutter` on its left and bottom and runs to the grid
+line on the right. Measured after: both bottoms **899**; scrubber-to-stats, info-to-layers
+and layers-to-stats all **12px**; scrubber left inset 12px, matching the rail's 12px right
+inset. One token, every seam. The phone values are untouched by construction (the new rule is
+scoped to `.is-wide`), but the narrow layout was NOT looked at this session (T8).
+
+### "What am I looking at?" in plain sentences
+
+> "It reads very AI speak"
+
+It did: an em-dash aside in nearly every line, "switching surfaces is really switching
+altitude", "solid research data, but not an official forecast". Rewritten (`bcd35c9`) the way
+a docent standing next to the screen would say it: short sentences, one idea each, what a
+thing is before what it means. Not only tone. **The globe's picture is hours old, not "a few
+minutes"** (the texture product rebuilds every 4 h and CI delivers ~4 of 6 runs a day,
+§3zzzzzzzzzzzzzz), so that claim is gone; the how-to now names the Spacecraft and Planet
+orbits labels and the numbered AR chips, since all three are tappable; the credits read as
+sentences. Kept, in the same voice: the far-side caveat and DONKI's research-not-forecast
+caveat, which CLAUDE.md says must reach the guest-facing copy.
+
+**Noticed, not fixed, for T4/T12:** two error strings still promise that "Sun Now" keeps
+working when the 3D chunk fails (`sol.vue` `chunkFailed`, `SolarView3D.vue` `.sv-error-body`),
+but the disk view was deleted (`useDeepLink.ts`: "the deleted disk view"). A guest who reaches
+that card is pointed at something that is not there.
+
+---
+
+## 3zzzzzzzzzzzzzzz. What changed on 2026-09-09 (EIGHTEENTH session)
 
 **An eleventh hand-publish — but for a new reason, and the reason is the story.**
 

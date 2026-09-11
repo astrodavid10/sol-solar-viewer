@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-09-09 (eighteenth session)
+**Last updated:** 2026-09-11 (nineteenth session)
 
 ---
 
@@ -33,12 +33,12 @@ the plan says outrank documentation work.
 | T2 | Land the GONG relay (Option D, workstation mirror) | DONE | `8650fee`+`85e626c` | LIVE 2026-09-02: `gong-cache` fed hourly by `SolGongMirror`; CI traced 19/19 in run 33663715169 (dry) and **published** in 33664961891 (`gh-pages` `ca5426f`, Verdict ok, issue #1 closed). Formal "scheduled" confirmation = the next cron tick |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
-| T12 | Explainer copy pass | TODO | — | **AF** — aurora copy is wrong, not just unclear |
+| T12 | Explainer copy pass | TODO | — | **AF** — aurora copy is wrong, not just unclear. The info panel's copy was rewritten separately 2026-09-11 (T23); the four explainer items here remain |
 | T4 | Reconcile CLAUDE.md / HANDOFF.md with the shipped tree | TODO | — | footgun 40 is wrong |
 | T6 | First real app tests | TODO | — | tripwire for footguns 19/47 |
 | T13 | Tap a live value to open its explainer | TODO | — | **AF** |
 | T16 | Earth on the textured side (verify, then frame) | TODO | — | **AF** — data proven correct, app path unverified |
-| T15 | Zoom out to Earth's orbit; our own planet orbits, bold + labelled | PARTIAL — **(c) DONE** | — | **AF** + HANDOFF §8.4(f). Planet **labels** landed and browser-verified 2026-09-03 against WWT's own rings. (a) `MAX_ZOOM` and (b) our own orbit lines still TODO |
+| T15 | Zoom out to Earth's orbit; our own planet orbits, bold + labelled | PARTIAL — **(c) DONE** | `c7b3438` (c) | **AF** + HANDOFF §8.4(f). Planet **labels** landed and browser-verified 2026-09-03 against WWT's own rings, then sat UNCOMMITTED until 2026-09-11, when they were re-verified and committed. (a) `MAX_ZOOM` and (b) our own orbit lines still TODO |
 | T14 | Press-and-hold fine scrub on the timeline | TODO | — | **AF** — new gesture |
 | T7 | Accessibility pass (`prefers-reduced-motion`, zoom, focus) | TODO | — | |
 | T8 | Phone verification | BLOCKED | — | needs the Chrome extension connected + a handset |
@@ -51,6 +51,7 @@ the plan says outrank documentation work.
 | T5 | Wire existing checks into CI | DONE | `095122f` | folded into T21 item 11: `build.yml` runs on push (lint, typecheck, build, label check, names check, pyflakes, pytest); `app-deploy` typechecks + `--immutable` |
 | T20 | Review fixes, 2026-09-02 (eight items from the full code review) | DONE | `dc6aa22`..`68bb960` | wind-tz bug, per-product validate, `seed_regions`, notify + freshness, field-line hole, texture GPU leak; republished `85230e5`; dry-run + freshness verified. **Every scheduled `data` run is now RED while pfss is stale** — by design, until T2 |
 | T22 | The relay's CI read path serves a FROZEN view of `gong-cache` | TODO | — | mirror + branch are fine; runners get a truncated snapshot. Cause of the 2026-09-09 republish |
+| T23 | Desktop seam + info copy (asked for 2026-09-11, outside the plan) | DONE | `e741321` + `bcd35c9` | scrubber on the rail gutter with its bottom on the stats panel's; "What am I looking at?" in plain sentences |
 
 **AF** = from Alex's review, 2026-08-24 (see "Alex's review" at the foot of this file for the
 raw items and how each was mapped).
@@ -1273,6 +1274,28 @@ why, measured rather than assumed.
 `PFSS-UPDATE.md` is the fallback. Do NOT read a red `data` run as a mirror outage without first
 checking the workstation, the branch, *and* what CI's log says the listing counts were — the
 counts are the tell.
+
+---
+
+### T23 — Desktop seam + info copy (asked for 2026-09-11)
+
+Two guest-facing asks made in passing while the planet labels were being landed, both DONE
+the same day; the measurements and the reasoning are in HANDOFF §3zzzzzzzzzzzzzzzz.
+
+- **`e741321` — the desktop scrubber lines up with the stats panel.** Before: scrubber bottom
+  5.6px below the stats panel's, and 26.4px between them against 12px between rail panels
+  (0.4rem phone inset + 0.5rem grid column-gap + 0.75rem rail margin, stacked on one seam).
+  After: bottoms equal, every seam in the wide layout 12px from the one `--sol-rail-gutter`
+  token. `SolarView3D`'s root carries `is-wide`; the phone values are unchanged.
+- **`bcd35c9` — "What am I looking at?" rewritten in plain sentences**, as a docent would say
+  it. Also corrects "usually only a few minutes old" (the globe's texture is hours old), names
+  the Spacecraft / Planet orbits labels and the AR chips as tappable, and keeps the far-side
+  and DONKI caveats in the same voice.
+
+**Left for T4/T12:** the two "Sun Now still works" error strings (`sol.vue`, `SolarView3D.vue`)
+name a view that was deleted.
+
+**Definition of done:** met. Verified in a 1920x911 window; not seen on a phone (T8).
 
 ---
 

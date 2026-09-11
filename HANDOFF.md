@@ -8,7 +8,12 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-08-31 (thirteenth session — the seventh data republish, and a review
+- **Last updated:** 2026-09-09 (eighteenth session — the eleventh data republish, `ac6b53d`,
+  19/19 slots and all six products `ok`; the cause was NOT the mirror but a frozen CI read of
+  the relay, now `TASKS.md` T22, §3zzzzzzzzzzzzzzz. The seventeenth session was a health check
+  of the live site and the GONG automation, then planet labels for the "Planet orbits" toggle, T15(c),
+  §3zzzzzzzzzzzzzz. Text below is older and left as written, because T4 owns reconciling it:
+  2026-08-31 thirteenth session — the seventh data republish, and a review
   of the runbook that drives it, §3zzzzzzzzzz: PFSS was stale at **17.6 h**, and the index was
   10.8 h old *without anything having failed* — GitHub had skipped two cron slots, which is
   normal and which the runbook mis-taught. 19/19 slots traced, textures deliberately left alone
@@ -164,7 +169,132 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzzzzzzz. What changed on 2026-09-02 (SIXTEENTH session — most recent)
+## 3zzzzzzzzzzzzzzz. What changed on 2026-09-09 (EIGHTEENTH session — most recent)
+
+**An eleventh hand-publish — but for a new reason, and the reason is the story.**
+
+Live `index.json` reported `last_attempt_status: degraded` with `pfss` at `data_age 36.7 h`,
+12 frames, and every scheduled `data` run red since at least 2026-09-08T19:23Z. The other five
+products were `ok` at age 0.0 the whole time — T20's per-product rollback working exactly as
+designed, so this was never the whole-publish outage that footguns 50 and 51 describe.
+
+**The runbook's three suspects were all innocent.** Upstream `gong2.nso.edu` answered this
+workstation in 0.18 s; `SolGongMirror` was `Ready` / `LastTaskResult 0`, mirroring hourly with
+`+1 new` and a newest file of 09-09T14:04Z; and the `gong-cache` branch was current at commit
+`18e9ecf` (14:55:53Z, 133 files, 6 days) with every day index serving 200 from here. Every
+check in `docs/GONG-RELAY.md`'s "Check it" row passed while CI starved.
+
+**What was actually wrong: CI's *read* of the relay is frozen.** Its listing counts were
+byte-identical across four runs spanning 17 hours — 09-05: 71, 09-06: 70, 09-07: 48, 09-08: 24,
+09-09: 404 then 1 — against a live local scrape of 09-07: 71, 09-08: 63, 09-09: 40. The slot
+count decayed **15 → 14 → 12 → 10** across successive runs as the 72 h window slid past a fixed
+cutoff, dropping `f12`..`f18`. `raw.githubusercontent.com` serves through Fastly with
+`max-age=300` and a per-edge `X-Served-By`, so runners and this workstation do not share an
+edge; the exact mechanism behind a 17-hour freeze is **not** established and is deliberately
+not guessed at. Written up as **`TASKS.md` T22** with three candidate fixes, none yet measured
+from a runner.
+
+**The republish itself** followed `PFSS-UPDATE.md` unchanged: seeded `public/data` from
+`origin/gh-pages` (135 files; 90 published-only / 92 local-only — footgun 31 again, and again
+the totals nearly matched while the contents did not), skipped the texture flags because the
+seeded copy was 3.0 h old and complete at 5 layers × 19 frames × `high_res 8192`, traced
+**19/19 slots** in 298 s, and published 26 files. `validate --root … --strict` and
+`validate --url … --strict` both came back **0 failed, 0 warnings**; live `index.json` now reads
+`last_attempt_status: ok` with all six products `ok` and `pfss data_age 3.74 h`. Published as
+`ac6b53d`; the Pages build was left to trigger itself and built in 26 s (footgun 49 respected).
+
+**Expect it back.** Until T22 lands, `pfss` drifts to `degraded` within about a day of each
+hand-publish. The tell that distinguishes T22 from a genuine mirror outage is in the CI log:
+compare its `GONG listing` counts against a local scrape — a truncated, unchanging tail means
+the mirror is fine and the read path is not.
+
+---
+
+## 3zzzzzzzzzzzzzz. What changed on 2026-09-03 (SEVENTEENTH session)
+
+Two things, in this order: a health check of everything the sixteenth session stood up, then
+the planet labels from T15(c).
+
+### The relay has aged well — the check, and the one thing that has not
+
+Asked to confirm the GONG automation still works and to say when this workstation needs to be
+on. It does work, and the answer is **hourly at :55 past the hour, local time**.
+
+- `SolGongMirror`: 15 consecutive hourly runs at the time of checking, every one exit 0,
+  every one `+1/-0` with the newest magnetogram 0.7-0.9 h old. `gong-cache` held 132 files /
+  32 MB / 6 days.
+- CI is consuming it: run 33757148727 traced `slots: 19/19` and published with all six products
+  `ok`. Issue #1 closed, nothing open.
+- The footgun-52 wind fix is holding on the LIVE product: 74 points, strictly increasing, and
+  **zero** later than `generated_iso`. Worth re-checking this way after any hand-publish.
+- `SOL_GONG_PROXY_TOKEN` is unset and that is correct — the branch is public, and an anonymous
+  `raw.githubusercontent.com` fetch of the newest `.fits.gz` answered 200 / 243 KB / 0.21 s.
+
+**Two conditions stricter than "the computer is on", both worth writing down.** The task is
+registered `InteractiveToken` with no stored password, so it runs only while this user is
+**logged on** — a locked screen is fine, signed out is not. And it inherits Task Scheduler's
+`DisallowStartIfOnBatteries` + `StopIfGoingOnBatteries`, which on this machine matters because
+it is an **ASUS laptop**: unplug it and the mirror stops. Idle sleep and hibernate are both set
+to never, on AC and battery, so the absent `WakeToRun` is not a risk unless the lid closes.
+Tolerance: `GONG_TOLERANCE_HOURS = 3.0`, so under ~3 h off is invisible; past that the newest
+slots fall back to previously traced frames, `pfss` goes `stale` at 8 h and `freshness.yml`
+opens an issue past 12 h. The mirror retains 5 days against a 72 h window, so there is roughly
+a two-day cushion before frames actually fall out.
+
+**What has NOT aged well, and it is not ours.** GitHub is delivering only ~4 of 6 scheduled
+`data` runs a day — 4.15/day measured over 10.8 days — and the **00:07 and 08:07 UTC slots did
+not fire once in three consecutive days**, while delivered runs ran 0-194 min late. Not our
+config: `cancel-in-progress: false` and zero cancelled runs across 51. Consequence: 8 of 38
+gaps between successful publishes exceeded `stale_after_hours = 8`, most recently 8.59 h. Note
+the thirteenth session already called skipped cron slots "normal"; this quantifies it. A one-line
+mitigation exists and is NOT applied — `cron: "23 */2 * * *"` doubles the attempts and moves off
+the contended :07 minute, so a dropped slot costs 2 h instead of 8.
+
+Also worth knowing: the app reads the **baked** `stale` flag out of `index.json` rather than
+recomputing age at load time (`src/data/pfss.ts` `loadPfss`), so during one of those gaps the
+page keeps saying the data is fresh. `freshness.yml` does recompute against the live site, so
+the operator is still told — but it is being load-shed too. That is T3's territory.
+
+### T15(c) — planet labels
+
+The "Planet orbits" toggle now names the planets as well as drawing their rings. Detail and
+the two bugs it turned up are in TASKS.md T15; the short version:
+
+- Eight chips from `SOLAR_SYSTEM_BODIES` (its first real consumer), gated on `layers.orbits`,
+  reusing `SpacecraftLabel.vue` rather than copying its styles, and fed into the SAME
+  `deCollideLabels` pass as the spacecraft and region chips.
+- Positions from our own Kepler elements, so the anchors are in the scene's right-handed
+  ecliptic frame (footgun 47), solved only when the PLAYHEAD moves — a camera drag allocates
+  nothing, which is the point of `PLANET_SOLVE_MIN_S`.
+- Earth was already labelled by the ephemeris; the planet chip suppresses itself while the
+  spacecraft layer is on, so there is never a second Earth and never no Earth.
+- The `layers.spacecraft` watcher would have closed a planet's card, because it dismissed
+  anything that was not a SURFACE id. Fixed, and both directions verified.
+
+**Verified in a browser**, which for this scene means something specific: Mercury, Venus and
+Earth chips each sit **on the ring WWT itself draws**, and WWT's own orbit rendering is the only
+reference in the scene independent of the app's frame (this is what let the 90-degree world-frame
+bug survive four sessions). Distances cross-check three ways: the planet Earth chip and the
+Horizons-baked ephemeris chip both read `217 R☉ · 1.01 AU`, and an independent Kepler solve run
+in the page gave 1.0086 AU.
+
+One measurement trap, since it cost time: the card lives inside `<transition name="fade">`, and
+in a **throttled background tab** the leave transition lingers in the DOM long after the state
+has changed. Reading `.sv-card-title` said the card was still open when `selectedId` was already
+`""`. Read the component's own state through `__vueParentComponent`, not the DOM, when testing
+watcher behavior in a hidden tab. (Related to the known rAF trap: a hidden tab renders only when
+a screenshot forces a frame, so the 20 Hz label pass does not run on its own.)
+
+### Still open after this session
+
+`MAX_ZOOM` is untouched at 2.5 (camera 1.11 AU), so T15(a) and (b) — framing Earth's whole orbit
+and drawing our OWN bolder rings — remain. From Mars outward a planet chip is off-frustum at
+every zoom a guest can reach; those chips exist and stay invisible, which is (a)'s problem
+rather than a label bug. Nothing here has been seen on a phone (T8 still blocked on a handset).
+
+---
+
+## 3zzzzzzzzzzzzz. What changed on 2026-09-02 (SIXTEENTH session)
 
 **Asked for:** a full code review, then fix what it found. The review ran as four read-only
 passes (the publish run itself, the app, the pipeline, CI/ops) and is published as a report at

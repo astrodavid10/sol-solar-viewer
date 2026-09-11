@@ -111,3 +111,88 @@ export const EARTH: OrbitBody = SOLAR_SYSTEM_BODIES[2];
 export function maxOrbitRadiusAU(bodies: OrbitBody[]): number {
   return bodies.reduce((m, b) => Math.max(m, b.a * (1 + b.e)), 0);
 }
+
+// ---------------------------------------------------------------------
+// Guest-facing presentation
+// ---------------------------------------------------------------------
+// Colour and one line of copy per planet, kept here beside the orbital
+// elements for the same reason spacecraft.ts keeps bodyBlurb() beside the
+// ephemeris: this module IS the planet data, and a component should not have
+// to carry a table of facts about Neptune to draw a label.
+//
+// Earth's colour is deliberately the same #7de08a the pipeline publishes for
+// Earth in `ephem/spacecraft.json`. The two labels are never shown at once
+// (SolarView3D suppresses this one while the spacecraft layer is providing its
+// own), but a guest who toggles between the layers should not watch Earth
+// change colour.
+//
+// The dot colours are muted on purpose: they sit on SpacecraftLabel's
+// near-black plate, often over the bright limb, and a saturated dot there
+// competes with the Sun instead of naming a planet.
+interface PlanetPresentation {
+  color: string;
+  blurb: string;
+}
+
+// Keyed lowercase, like spacecraft.ts's BLURBS: SOLAR_SYSTEM_BODIES carries
+// display names ("Mercury"), but a capitalised object key trips the repo's
+// naming-convention rule, and its `requiresQuotes` exemption does not apply to
+// a name that is already a valid identifier. The accessors below fold the case.
+const PRESENTATION: Record<string, PlanetPresentation> = {
+  mercury: {
+    color: "#b8b0a6",
+    blurb: "The smallest planet, and the fastest — it laps the Sun four times a year.",
+  },
+  venus: {
+    color: "#e6d3a3",
+    blurb: "Earth's twin in size, wrapped in cloud that traps enough heat to melt lead.",
+  },
+  earth: {
+    color: "#7de08a",
+    blurb: "Home. Everything the Sun does here, it does to us about eight minutes later.",
+  },
+  mars: {
+    color: "#d98b62",
+    blurb: "The rusty desert world, with no magnetic field to shelter it from the solar wind.",
+  },
+  jupiter: {
+    color: "#d9b48a",
+    blurb: "The giant — its magnetic field is the largest structure in the solar system.",
+  },
+  saturn: {
+    color: "#e3cf9a",
+    blurb: "The ringed one. Light from the Sun takes almost an hour and a half to reach it.",
+  },
+  uranus: {
+    color: "#a8d8dd",
+    blurb: "An ice giant tipped on its side, orbiting the Sun almost like a rolling ball.",
+  },
+  neptune: {
+    color: "#7c96e0",
+    blurb: "The farthest planet, where sunlight is nine hundred times fainter than here.",
+  },
+};
+
+/** Chip dot colour for a body from SOLAR_SYSTEM_BODIES. */
+export function planetColor(name: string): string {
+  return PRESENTATION[name.toLowerCase()]?.color ?? "#ffffff";
+}
+
+/** One line of guest-facing copy, or "" for a body we have nothing to say about. */
+export function planetBlurb(name: string): string {
+  return PRESENTATION[name.toLowerCase()]?.blurb ?? "";
+}
+
+/**
+ * "One year here lasts 88 Earth days." — the comparison a guest actually has.
+ *
+ * Switches to years past a couple of Earth years, because "4333 Earth days"
+ * is a number nobody can hold. Mars stays in days (687) on purpose: it is
+ * still close enough to a year to be worth feeling as days.
+ */
+export function describeOrbitPeriod(b: OrbitBody): string {
+  if (b.periodDays < 700) {
+    return `One year here lasts ${Math.round(b.periodDays)} Earth days.`;
+  }
+  return `One year here lasts ${(b.periodDays / 365.25).toFixed(1)} Earth years.`;
+}

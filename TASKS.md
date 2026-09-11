@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-09-02 (sixteenth session)
+**Last updated:** 2026-09-09 (eighteenth session)
 
 ---
 
@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage |
+| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22** |
 | T2 | Land the GONG relay (Option D, workstation mirror) | DONE | `8650fee`+`85e626c` | LIVE 2026-09-02: `gong-cache` fed hourly by `SolGongMirror`; CI traced 19/19 in run 33663715169 (dry) and **published** in 33664961891 (`gh-pages` `ca5426f`, Verdict ok, issue #1 closed). Formal "scheduled" confirmation = the next cron tick |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -38,7 +38,7 @@ the plan says outrank documentation work.
 | T6 | First real app tests | TODO | — | tripwire for footguns 19/47 |
 | T13 | Tap a live value to open its explainer | TODO | — | **AF** |
 | T16 | Earth on the textured side (verify, then frame) | TODO | — | **AF** — data proven correct, app path unverified |
-| T15 | Zoom out to Earth's orbit; our own planet orbits, bold + labelled | TODO | — | **AF** + HANDOFF §8.4(f) |
+| T15 | Zoom out to Earth's orbit; our own planet orbits, bold + labelled | PARTIAL — **(c) DONE** | — | **AF** + HANDOFF §8.4(f). Planet **labels** landed and browser-verified 2026-09-03 against WWT's own rings. (a) `MAX_ZOOM` and (b) our own orbit lines still TODO |
 | T14 | Press-and-hold fine scrub on the timeline | TODO | — | **AF** — new gesture |
 | T7 | Accessibility pass (`prefers-reduced-motion`, zoom, focus) | TODO | — | |
 | T8 | Phone verification | BLOCKED | — | needs the Chrome extension connected + a handset |
@@ -50,6 +50,7 @@ the plan says outrank documentation work.
 | T21 | Review fixes, second batch (items 9-13: Vuetify out, texture gate, T5 wiring, token leaks, `max_frames`) | DONE | `30d7ec1`..`5c0d334` | all five landed; `build.yml` green on `main` for the first time (run 33664390163, app + pipeline jobs) after one deflake; T5 closed by it |
 | T5 | Wire existing checks into CI | DONE | `095122f` | folded into T21 item 11: `build.yml` runs on push (lint, typecheck, build, label check, names check, pyflakes, pytest); `app-deploy` typechecks + `--immutable` |
 | T20 | Review fixes, 2026-09-02 (eight items from the full code review) | DONE | `dc6aa22`..`68bb960` | wind-tz bug, per-product validate, `seed_regions`, notify + freshness, field-line hole, texture GPU leak; republished `85230e5`; dry-run + freshness verified. **Every scheduled `data` run is now RED while pfss is stale** — by design, until T2 |
+| T22 | The relay's CI read path serves a FROZEN view of `gong-cache` | TODO | — | mirror + branch are fine; runners get a truncated snapshot. Cause of the 2026-09-09 republish |
 
 **AF** = from Alex's review, 2026-08-24 (see "Alex's review" at the foot of this file for the
 raw items and how each was mapped).
@@ -835,6 +836,45 @@ on screen at once. Check the stride budget before assuming it scales.
 are ours and readably thick on a DPR-3 phone, planets are labelled, and the labels still
 de-collide with everything else at that zoom.
 
+**(c) landed 2026-09-03** — labels only; (a) and (b) are untouched, so this row stays open.
+
+What shipped: `SOLAR_SYSTEM_BODIES` got its first real consumer. Eight chips, gated on
+`layers.orbits`, built once in `buildPlanetChips()` and projected by `updatePlanets()` on the
+same `moved || PROJECT_MS` cadence as the spacecraft — reusing `SpacecraftLabel.vue` outright
+rather than copying its styles, so there is one chip plate to keep legible over the limb
+instead of two that drift apart. Positions come from our own Kepler elements, not the engine's
+ephemeris, so the anchors sit in the same right-handed ecliptic frame as everything else
+(footgun 47). Clicking one opens the shared card slot; `describeOrbitPeriod` writes its compare
+line, deliberately NOT `describeDistance`, which from a planet's point of view would tell
+Mercury it is "closer to the Sun than Mercury".
+
+Two things worth knowing, both found by building it:
+
+- **Earth was already labelled.** `ephem/spacecraft.json` carries Earth, so with both layers on
+  there were two Earth chips on one point. `updatePlanets` suppresses the planet one while the
+  spacecraft layer is providing its own, rather than dropping Earth from the planet list, so
+  turning the spacecraft layer off still leaves Earth named on its ring. Verified both ways.
+- **The `layers.spacecraft` watcher would have closed a planet's card.** It dismissed any
+  selection that was not a SURFACE id, which was right while spacecraft were the only bodies
+  with chips. A planet is a body and not a surface, so it needed the second test.
+
+On this row's own stride-budget caution: five chips stacked on one point separate to exactly
+the 46 px stride, planets interleaving with a spacecraft in one combined pass, `x` untouched
+and leaders drawn. Seven chips were on screen at once during verification with no crowding.
+That is not a proof that it scales — the worst case is many chips inside one 96 px x-group,
+where the spread is `(n-1) * 46` px and would run off a phone — but the geometry works against
+it: planets bunch up in x only when the ecliptic is near edge-on, and edge-on is exactly when
+they spread out horizontally into SEPARATE groups. Re-check it if (a) raises `MAX_ZOOM`, which
+is what would put more planets on screen together.
+
+Verified in a browser at `distanceAu: 1.11` (the current `MAX_ZOOM`): Mercury, Venus and Earth
+chips each sit **on** the ring WWT itself draws for them, which per the memory note is the only
+check in this scene independent of the app's own frame. Distances cross-check too — the planet
+Earth chip reads `217 R☉ · 1.01 AU`, the same as the Horizons-baked ephemeris chip, and an
+independent Kepler solve in the page gave 1.0086 AU. From Mars outward a planet is off-frustum
+at every zoom a guest can reach, so those chips are built and stay invisible; that is `MAX_ZOOM`
+doing what its comment says, i.e. part (a)'s problem, not a label bug.
+
 ---
 
 ### T16 — Earth on the textured side (verify first, then frame)
@@ -1181,6 +1221,58 @@ empty, and the token redaction covered by a test.
   `utcnow()`, and the 4 µs between them was 1.1e-9 h against a 1e-9 tolerance. Deflaked in
   `5c0d334` (explicit shared `now`); **run 2 (33664390163) green on both jobs.** T5 is closed
   by this.
+
+---
+
+### T22 — The relay's CI read path serves a FROZEN view of `gong-cache`
+
+**Why.** Measured 2026-09-09. `pfss` had been `degraded` on every scheduled run for at least
+17 h, and **none of the three things the runbook tells you to suspect was at fault**:
+
+- upstream `gong2.nso.edu` answered this workstation HTTP 200 in 0.18 s, with 24 files on
+  09-06/09-08 and 15 on 09-09;
+- `SolGongMirror` was `Ready`, `LastTaskResult 0`, running hourly, `+1 new` each run, newest
+  mirrored file 09-09T14:04Z;
+- the `gong-cache` branch itself was current — commit `18e9ecf` at 14:55:53Z, 133 files across
+  6 days, and all four day indexes served **HTTP 200 with the right counts from here**.
+
+What is broken is the **read** side. CI's listing counts were *byte-identical across four runs
+spanning 17 hours* (09-05: 71, 09-06: 70, 09-07: 48, 09-08: 24, 09-09: 404 then 1), while a
+direct scrape from this workstation at the same moment saw 09-07: 71, 09-08: 63, 09-09: 40.
+A frozen, progressively truncated tail — not an outage. The signature is the slot count
+decaying as the 72 h window slides past a fixed data cutoff: **15/19 → 14/19 → 12/19 → 10/19**
+across successive runs, with `f12`..`f18` dropped as `no GONG within 3.0 h`.
+
+`raw.githubusercontent.com` serves these with `Cache-Control: max-age=300` through Fastly
+(`Via: 1.1 varnish`, `X-Served-By: cache-pdk-…`), so the edge a runner hits is not the edge a
+workstation hits. A 5-minute TTL does not explain a 17-hour freeze; the exact CDN mechanism is
+NOT yet established and should not be guessed at in a fix.
+
+**This is why footgun 33's "resolved by routing around it" is only half true.** The block is
+routed around; the mirror is not the single point of failure any more — *the CDN in front of it
+is*. And the failure is quiet in the worst way: the mirror's own log says `SUMMARY: OK`, the
+branch is verifiably correct, and every diagnostic in `docs/GONG-RELAY.md`'s "Check it" row
+passes while CI still starves.
+
+**Options, none yet measured from a runner:**
+
+1. **Cache-bust the request.** Append a throwaway query parameter in `sources/gong.py:_relay`.
+   Cheapest, and structurally consistent with footgun 37 (request time only, never stored) —
+   but it depends on Fastly keying on the query string, which is unverified here.
+2. **Read through the GitHub API** (`/repos/.../contents/...?ref=gong-cache`) with the
+   workflow's own token. Not the same CDN path; costs an auth header and a different parser.
+3. **Deploy Option A**, the Cloudflare Worker already written in `scripts/gong-proxy-worker.js`.
+   Takes both the workstation and `raw.githubusercontent.com` out of the critical path, which
+   is what `docs/GONG-RELAY.md` always said the upgrade was for.
+
+**Definition of done:** a *scheduled* `data` run reports `slots: 19/19` and `pfss ok` without a
+hand-publish, and the mechanism is written down — including whichever option was rejected and
+why, measured rather than assumed.
+
+**Until then** `pfss` will drift back to `degraded` within about a day of each hand-publish, and
+`PFSS-UPDATE.md` is the fallback. Do NOT read a red `data` run as a mirror outage without first
+checking the workstation, the branch, *and* what CI's log says the listing counts were — the
+counts are the tell.
 
 ---
 

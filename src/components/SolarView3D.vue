@@ -39,6 +39,29 @@
           @select="select(chip.id)"
         />
 
+        <!-- Planets, from our own Kepler elements (data/planets.ts) and NOT
+             from the engine's ephemeris, so the anchors sit in the same
+             right-handed ecliptic frame everything else here is projected
+             from (footgun 47 -- the Y/Z swap lives on the camera alone).
+             Gated on `layers.orbits`, because a ring and the name of the
+             planet that travels it are one idea; an unnamed ring is the
+             weaker half of it. Reuses <spacecraft-label> outright rather than
+             copying its styles: these chips are the same object as far as a
+             guest is concerned, and one plate to keep legible over the limb
+             beats two that drift apart. -->
+        <spacecraft-label
+          v-for="chip in planetChips"
+          v-show="layers.orbits && chip.visible"
+          :key="chip.id"
+          :name="chip.name"
+          :detail="chip.detail"
+          :color="chip.color"
+          :x="chip.x"
+          :y="chip.y"
+          :selected="selectedId === chip.id"
+          @select="select(chip.id)"
+        />
+
         <!-- Places ON the Sun. Deliberately NOT gated on layers.fieldLines:
              the regions belong to the surface, not to the field. They have
              their own switch, because on a small phone four numbered pills on
@@ -282,6 +305,13 @@ import {
   loadEvents,
   thinEvents,
 } from "../data/events";
+import {
+  SOLAR_SYSTEM_BODIES,
+  describeOrbitPeriod,
+  eclipticPositionAU,
+  planetBlurb,
+  planetColor,
+} from "../data/planets";
 import { AU_KM, R_SUN_AU, R_SUN_KM, Vec3, b0DegApprox, julianDate } from "../data/solarFrames";
 import {
   LivePosition,
@@ -438,9 +468,34 @@ const LABEL_SPREAD_PX = 96;
 /** Below this the chip is close enough to its marker to need no leader. */
 const LABEL_LEADER_MIN_PX = 6;
 
+/**
+ * Don't re-solve the planets for a scene-time move smaller than this (seconds).
+ *
+ * A tolerance rather than `!==` for one specific reason: with no PFSS product
+ * `sceneUnix` falls back to `Date.now() / 1000`, which is a DIFFERENT value on
+ * every read — so exact comparison would re-solve all eight orbits on every
+ * pass on exactly the trees that have no field lines, which is the allocation
+ * updatePlanets() exists to avoid.
+ *
+ * A minute is far below anything visible. Mercury is the fastest mover at
+ * 4.09 deg/day, i.e. 1.9e-5 AU per minute at its 0.387 AU orbit; at MAX_ZOOM
+ * the view spans ~0.92 AU over the height of the canvas, so that is ~0.015 px.
+ * It is also far below the scrubber's own resolution: 19 frames over 72 h puts
+ * roughly 14 minutes of scene time under one pixel of the track.
+ */
+const PLANET_SOLVE_MIN_S = 60;
+
 
 /** Active-region ids carry this so they can't collide with an ephemeris body. */
 const AR_PREFIX = "ar:";
+
+/**
+ * Planet ids carry this for the same reason, and for one more: `selectedCard`
+ * falls through to `selectedBody` for a BARE id, which looks the id up in the
+ * ephemeris. A planet is not in the ephemeris, so an unprefixed "Earth" would
+ * resolve to nothing and open an empty card.
+ */
+const PLANET_PREFIX = "planet:";
 
 /** Card-slot prefix for a DONKI flare or CME. */
 const EVENT_PREFIX = "evt:";
@@ -553,6 +608,14 @@ interface Runtime {
   positions: Map<string, Vector3>;
   targets: ProjectTarget[];
   projected: Projected[];
+  /** Planet label anchors and projections, index-parallel to `planetChips`. */
+  planetTargets: ProjectTarget[];
+  planetProjected: Projected[];
+  /** Scene time the planet positions were solved for; NaN forces a solve. */
+  planetUnix: number;
+  /** The ephemeris product carries Earth, so the planet layer must not draw a
+   *  second Earth label while the spacecraft layer is drawing its own. */
+  ephemerisHasEarth: boolean;
   /** Active regions from `ar/regions.json`; empty when the product is absent. */
   regions: SolarRegion[];
   /** Each region's marker point in the CARRINGTON LOCAL frame, parallel to
@@ -611,6 +674,10 @@ function makeRuntime(): Runtime {
     positions: new Map(),
     targets: [],
     projected: [],
+    planetTargets: [],
+    planetProjected: [],
+    planetUnix: NaN,
+    ephemerisHasEarth: false,
     regions: [],
     regionLocal: [],
     markerTargets: [] as ProjectTarget[],
@@ -683,6 +750,7 @@ export default defineComponent({
       dataStaleHours: 0,
 
       chips: [] as Chip[],
+      planetChips: [] as Chip[],
       regionChips: [] as RegionChip[],
       selectedId: "",
       /** 0..1 — how much of the hemisphere in view was never observed. */
@@ -758,6 +826,7 @@ export default defineComponent({
       const id = this.selectedId;
       if (!id) { return null; }
       if (id.indexOf(AR_PREFIX) === 0) { return this.regionCard(id.slice(AR_PREFIX.length)); }
+      if (this.isPlanetId(id)) { return this.planetCard(id.slice(PLANET_PREFIX.length)); }
       if (id.indexOf(EVENT_PREFIX) === 0) { return this.eventCard(); }
       return this.selectedBody;
     },
@@ -957,14 +1026,23 @@ export default defineComponent({
       // ephemeris is accurate to well under a pixel without it.
       if (value && !this.rt.liveRequested) { void this.refreshLivePositions(); }
       // Only a SPACECRAFT card is dismissed with the spacecraft layer — the
-      // surface markers share this slot and are not part of that layer.
-      if (!value && this.selectedId && !this.isSurfaceId(this.selectedId)) {
+      // surface markers and now the planets share this slot and are not part
+      // of that layer. `isSurfaceId` alone was sufficient while the spacecraft
+      // were the only BODIES with chips; a planet id is neither a surface id
+      // nor a spacecraft's, so without the second test turning this layer off
+      // would close a planet's card.
+      if (!value && this.selectedId
+        && !this.isSurfaceId(this.selectedId)
+        && !this.isPlanetId(this.selectedId)) {
         this.selectedId = "";
       }
     },
 
     "layers.orbits"(value: boolean) {
       this.host().applySetting(["solarSystemOrbits", value] as EngineSetting);
+      // Mirror of the spacecraft layer above: a planet's card goes away with
+      // the label that opened it.
+      if (!value && this.isPlanetId(this.selectedId)) { this.selectedId = ""; }
     },
 
     "layers.glow"(value: boolean) {
@@ -988,6 +1066,9 @@ export default defineComponent({
     installHiDpiCanvas(2);
     initSunStage(host);
     host.applySetting(["solarSystemOrbits", this.layers.orbits] as EngineSetting);
+    // Pure maths, no fetch — so unlike every other layer this one is ready
+    // before the first frame and needs no loading state.
+    this.buildPlanetChips();
 
     // Non-freestanding requirement (CLAUDE.md footgun 5): 3D mode needs
     // worldwidetelescope.org for its imageset catalog. If the mode never
@@ -1214,6 +1295,7 @@ export default defineComponent({
       if (moved || now - rt.lastProjectMs > PROJECT_MS) {
         rt.lastProjectMs = now;
         this.updateSpacecraft();
+        this.updatePlanets();
         // Sphere frame + far-side note + off-limb billboard. Separate from
         // updateSpacecraft() because it must NOT be gated on the optional
         // ephemeris product; see updateSurfaceFrame()'s own comment.
@@ -1421,6 +1503,9 @@ export default defineComponent({
       }
       if (!ephemeris || rt.destroyed || !rt.stage) { return; }
       rt.ephemeris = markRaw(ephemeris);
+      // Read once, here: `updatePlanets` needs it every pass and the answer
+      // cannot change without a reload.
+      rt.ephemerisHasEarth = ephemeris.bodies.some((body) => body.id === "earth");
 
       const inputs: TrailInput[] = ephemeris.bodies.map((body) => ({
         id: body.id,
@@ -1647,11 +1732,139 @@ export default defineComponent({
       this.selectedId = this.selectedId === id ? "" : id;
     },
 
+    // --- planets -----------------------------------------------------------
+
+    /**
+     * One chip per planet, built once.
+     *
+     * Unlike the spacecraft layer there is nothing to fetch: the elements are a
+     * module constant, so there is no product to wait for and no absent-data
+     * path to handle. Earth IS included here rather than being filtered out --
+     * it is suppressed at projection time, and only while the spacecraft layer
+     * is drawing its own Earth label, so that turning the spacecraft layer off
+     * still leaves Earth named on its own ring.
+     */
+    buildPlanetChips(): void {
+      const rt = this.rt;
+      rt.planetTargets = SOLAR_SYSTEM_BODIES.map((body) => ({
+        id: `${PLANET_PREFIX}${body.name}`,
+        position: new Vector3(),
+      }));
+      this.planetChips = SOLAR_SYSTEM_BODIES.map((body) => ({
+        id: `${PLANET_PREFIX}${body.name}`,
+        name: body.name,
+        detail: "",
+        color: planetColor(body.name),
+        x: 0,
+        y: 0,
+        visible: false,
+      }));
+    },
+
+    /**
+     * Project the planet chips, on the same cadence as the spacecraft ones.
+     *
+     * Positions are solved only when the PLAYHEAD moves, never when the camera
+     * does: a planet's place is a function of scene time alone, and
+     * `eclipticPositionAU` returns a fresh tuple per call. Re-solving every
+     * pass would allocate eight short-lived arrays per frame during a drag --
+     * the exact garbage project.ts was rewritten to stop producing, at the
+     * exact moment a guest notices it. So a camera drag allocates nothing here,
+     * and `detail` is rebuilt in the same branch because it only changes when
+     * the position does.
+     *
+     * Most of these chips are invisible most of the time, and that is correct
+     * rather than wasteful. MAX_ZOOM puts the camera 1.11 AU out -- sunStage's
+     * own comment is "far enough to see Earth's orbit, not the outer system" --
+     * so from Mars outward a planet is outside the frustum at every zoom a
+     * guest can reach. projectTargets' on-screen test hides them and
+     * layoutLabels skips anything invisible, so the outer planets cost eight
+     * Kepler solves per playhead move and nothing else. They are kept because
+     * that cost is nil and because MAX_ZOOM is a tuning constant, not a law.
+     */
+    updatePlanets(): void {
+      const rt = this.rt;
+      const stage = rt.stage;
+      if (!stage || !this.planetChips.length) { return; }
+
+      const unix = this.sceneUnix();
+      if (!(Math.abs(unix - rt.planetUnix) < PLANET_SOLVE_MIN_S)) {
+        // Negated `<` so the first pass, where planetUnix is NaN, always solves.
+        rt.planetUnix = unix;
+        const jd = julianDate(new Date(unix * 1000));
+        SOLAR_SYSTEM_BODIES.forEach((body, i) => {
+          const target = rt.planetTargets[i];
+          const chip = this.planetChips[i];
+          if (!target || !chip) { return; }
+          const point = eclipticPositionAU(body, jd);
+          target.position.set(point[0], point[1], point[2]);
+          chip.detail = this.formatDistance(this.planetRSun(i));
+        });
+      }
+
+      projectTargets(
+        stage.camera,
+        rt.widthCss,
+        rt.heightCss,
+        rt.planetTargets,
+        R_SUN_AU,
+        rt.planetProjected,
+      );
+
+      // The ephemeris names Earth too, and the two anchors coincide to well
+      // under a pixel. Whichever layers are on, the guest sees exactly one.
+      const earthNamedBySpacecraft = this.layers.spacecraft && rt.ephemerisHasEarth;
+
+      rt.planetProjected.forEach((point, i) => {
+        const chip = this.planetChips[i];
+        const body = SOLAR_SYSTEM_BODIES[i];
+        if (!chip || !body) { return; }
+        chip.x = point.xCss;
+        chip.y = point.yCss;
+        chip.visible = point.visible
+          && !(earthNamedBySpacecraft && body.name === "Earth");
+      });
+    },
+
+    /** A planet's current distance from the Sun, in solar radii. */
+    planetRSun(index: number): number {
+      const target = this.rt.planetTargets[index];
+      if (!target) { return 0; }
+      return (target.position.length() * AU_KM) / R_SUN_KM;
+    },
+
+    /**
+     * The card for a planet — same shape as the spacecraft card, one line
+     * deliberately different.
+     *
+     * `describeDistance` is NOT reused for the compare line. It is written from
+     * a spacecraft's point of view and answers "how close to the Sun is this,
+     * next to the planets", which applied to a planet reads absurdly: Mercury
+     * would be told it is "closer to the Sun than Mercury". A planet's own year
+     * is the comparison that means something standing at its label.
+     */
+    planetCard(name: string): CardInfo | null {
+      const index = SOLAR_SYSTEM_BODIES.findIndex((body) => body.name === name);
+      const body = SOLAR_SYSTEM_BODIES[index];
+      if (!body) { return null; }
+      return {
+        name: body.name,
+        detail: this.formatDistance(this.planetRSun(index)),
+        compare: describeOrbitPeriod(body),
+        blurb: planetBlurb(body.name),
+      };
+    },
+
     // --- surface markers (active regions) ----------------------------------
 
     /** True for the ids that belong to the Sun's surface, not to a body. */
     isSurfaceId(id: string): boolean {
       return id.indexOf(AR_PREFIX) === 0 || id.indexOf(EVENT_PREFIX) === 0;
+    },
+
+    /** True for a planet chip's id — see PLANET_PREFIX. */
+    isPlanetId(id: string): boolean {
+      return id.indexOf(PLANET_PREFIX) === 0;
     },
 
     /**
@@ -1799,6 +2012,9 @@ export default defineComponent({
       };
       if (this.layers.spacecraft) {
         this.chips.forEach((chip) => collect(chip, chip.visible));
+      }
+      if (this.layers.orbits) {
+        this.planetChips.forEach((chip) => collect(chip, chip.visible));
       }
       // A hidden layer must not reserve vertical space: including a chip the
       // guest cannot see would push the visible ones apart for no reason.

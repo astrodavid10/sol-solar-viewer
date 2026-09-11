@@ -27,28 +27,33 @@
 
       <h2 class="im-title">What am I looking at?</h2>
 
+      <!-- Guest copy. Plain sentences, one idea each, in the voice of a
+           docent standing next to the screen. Say what a thing IS before
+           saying what it means, and name a caveat (the far side, the DONKI
+           catalog) in the same tone as everything else rather than in a
+           footnote. -->
       <p class="im-body">
-        This is the Sun as it is right now: real pictures from NASA's Solar
-        Dynamics Observatory, wrapped around a 3D globe you can spin with a
-        finger. SDO watches the Sun around the clock from orbit, so the picture
-        on the globe is usually only a few minutes old.
+        The Sun, as it looks today. The pictures come from NASA's Solar
+        Dynamics Observatory, a satellite that has photographed the Sun every
+        few seconds since 2010. We wrap its newest images around a globe you
+        can spin, and the timeline lets you roll the last three days back and
+        forth.
       </p>
 
       <p class="im-body">
-        Each surface below is a different color of light, and each color
-        comes from gas at a different temperature — so switching surfaces is
-        really switching altitude, from the visible photosphere all the way
-        out into the million-degree corona.
+        Each surface is the Sun in a different color of light. Each color comes
+        from gas at a different temperature, so picking a surface picks how deep
+        into the Sun's atmosphere you are looking.
       </p>
 
       <h3 class="im-subtitle">Six ways to see the Sun</h3>
       <ul class="im-list">
-        <li><strong>Visible Sun</strong> — what your eyes would see (never look directly!). The dark freckles are sunspots.</li>
-        <li><strong>Chromosphere</strong> — the thin layer just above the surface. Watch the edge for prominences, arcs of glowing gas bigger than Earth.</li>
-        <li><strong>Coronal Loops</strong> — ultraviolet light tracing the Sun's own magnetic field.</li>
-        <li><strong>Hot Corona</strong> — the outer atmosphere, millions of degrees, with dark coronal holes where the solar wind escapes.</li>
-        <li><strong>Magnetic Map</strong> — light and dark show which way the magnetic field points. These are the roots of the field lines you can turn on below.</li>
-        <li><strong>Artist</strong> — a stylized, illustrated Sun. Not a photograph of anything — just a clean way to see the model's shape.</li>
+        <li><strong>Visible Sun</strong> is the Sun in ordinary light. The dark specks are sunspots. Some are bigger than Earth.</li>
+        <li><strong>Chromosphere</strong> is the thin layer just above the surface. Look along the edge for prominences, arcs of gas held up by magnetism.</li>
+        <li><strong>Coronal Loops</strong> shows ultraviolet light from gas caught along the Sun's magnetic field. The loops trace the field itself.</li>
+        <li><strong>Hot Corona</strong> is the outer atmosphere, at over a million degrees. The dark patches are coronal holes, where the solar wind escapes.</li>
+        <li><strong>Magnetic Map</strong> shows the magnetic field at the surface. Light patches point one way and dark patches the other. The field lines you can turn on grow out of these.</li>
+        <li><strong>Artist</strong> is a drawing, not a photograph. It makes the shape of the magnetic model easier to see.</li>
       </ul>
 
       <!-- Say this plainly rather than let a photorealistic globe imply more
@@ -56,29 +61,27 @@
            caveats in guest copy rather than let a confident-looking picture
            speak for itself. -->
       <p class="im-body">
-        SDO only ever sees the side of the Sun facing Earth. Spin the globe
-        around and the far side is never a photograph: for Chromosphere,
-        Coronal Loops and Hot Corona it's a stylized, quiet-looking fill; for
-        Visible Sun and Magnetic Map it's just flat gray, with nothing invented.
+        SDO can only photograph the side of the Sun that faces Earth. Spin the
+        globe around and the far side is filled in, not photographed: a quiet
+        invented texture for the three ultraviolet views, and plain gray for
+        Visible Sun and Magnetic Map.
       </p>
 
       <h3 class="im-subtitle">How to use it</h3>
       <ul class="im-list">
-        <li><strong>Drag</strong> to spin the Sun, <strong>pinch</strong> to zoom in on a sunspot or a loop.</li>
-        <li><strong>Surface</strong> switches which picture is painted on the globe — the six above.</li>
-        <li>
-          <strong>Magnetic field</strong> draws our own model of the Sun's field lines (a "PFSS" model,
-          rebuilt from the last 72 hours of magnetic maps). <strong>Polarity</strong> colors them by
-          which way the field points; switched off, they're all one electric blue.
-        </li>
-        <li>The <strong>timeline</strong> scrubs back through those same 72 hours. The marks on it are flares and CMEs — tap one to jump straight to it.</li>
-        <li>The <strong>numbers at the bottom</strong> are live space weather from NOAA. Tap one for a plain-English explanation.</li>
+        <li><strong>Drag</strong> to spin the Sun. <strong>Pinch</strong> to zoom in on a sunspot, or out until the inner planets come into view.</li>
+        <li><strong>Surface</strong> picks which picture is painted on the globe.</li>
+        <li><strong>Magnetic field</strong> draws the Sun's field lines from a model we run on the last three days of magnetic maps. <strong>Polarity</strong> colors them by direction. Off, they are all one blue.</li>
+        <li><strong>Spacecraft</strong> and <strong>Planet orbits</strong> show where Parker Solar Probe, Solar Orbiter and the planets are right now. Tap a label to read about it.</li>
+        <li>The <strong>numbered labels</strong> on the disk are active regions, the sunspot groups NOAA is tracking. Tap one for details.</li>
+        <li>The <strong>timeline</strong> runs back three days. The marks on it are flares and coronal mass ejections. Tap one to jump to it.</li>
+        <li>The <strong>numbers</strong> are live space weather from NOAA. Tap one to see what it means.</li>
       </ul>
 
       <p class="im-fine">
-        The flare and CME marks come from NASA's DONKI catalog — solid research
-        data, but not an official forecast. NOAA's Space Weather Prediction
-        Center (below) is the official source.
+        The flare and CME marks come from NASA's DONKI catalog, which is a
+        research database and not an official forecast. For the forecast, see
+        NOAA's Space Weather Prediction Center below.
       </p>
 
       <!-- Real links: on a phone they go to the source, and on the lobby
@@ -88,19 +91,20 @@
       <ul class="im-list im-credits">
         <li>
           <a href="https://sdo.gsfc.nasa.gov/" target="_blank" rel="noopener"><strong>NASA SDO</strong></a>
-          — AIA (ultraviolet) and HMI (visible light and magnetism) imagery.
+          took every picture on the globe: ultraviolet from its AIA telescopes,
+          visible light and magnetism from HMI.
         </li>
         <li>
           <a href="https://ccmc.gsfc.nasa.gov/tools/DONKI/" target="_blank" rel="noopener"><strong>NASA CCMC DONKI</strong></a>
-          — the flare and CME catalog behind the timeline marks.
+          is the catalog of flares and CMEs behind the timeline marks.
         </li>
         <li>
           <a href="https://www.swpc.noaa.gov/" target="_blank" rel="noopener"><strong>NOAA Space Weather Prediction Center</strong></a>
-          — the official space-weather forecast, and the live numbers at the bottom of the screen.
+          issues the official space-weather forecast and supplies the live numbers.
         </li>
         <li>
           <a href="https://gong.nso.edu/" target="_blank" rel="noopener"><strong>GONG / NSO</strong></a>
-          — the surface magnetic maps behind our field-line model.
+          measures the surface magnetic field our field-line model starts from.
         </li>
       </ul>
 

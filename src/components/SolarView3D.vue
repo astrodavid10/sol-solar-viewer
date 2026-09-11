@@ -2,6 +2,7 @@
   <div
     ref="root"
     class="solar-view-3d"
+    :class="{ 'is-wide': wide }"
     :style="{
       '--sv-layers-index': layersButtonIndex,
       '--sv-btn-count': visibleButtonCount,
@@ -2875,6 +2876,28 @@ export default defineComponent({
   flex-direction: column;
   gap: 0.5rem;
   pointer-events: none; // children opt back in, same contract as .sv-overlay
+}
+
+// In the desktop grid the scrubber is one more section in the same rhythm as
+// the rail's three panels, so it takes the same gutter (`--sol-rail-gutter`)
+// on the two edges that show: the window's bottom, where its bottom edge now
+// lines up with the stats panel's, and the window's left. Measured 2026-09-11
+// in a 1920x911 window before this rule existed: scrubber bottom 904.6 against
+// stats bottom 899 (the 0.4rem phone inset against the rail's 0.75rem), and a
+// 26.4px gap between the scrubber and the stats panel against 12px between
+// any two rail panels.
+//
+// `right: 0`, deliberately. The gutter between the stage and the rail is the
+// rail items' own `margin-left` (sol.vue, `.sol-root.is-wide`), so the stack
+// runs to the grid line and any inset here would be ADDED to that gutter --
+// which is exactly how the 26.4px happened (0.4rem here + the grid's old
+// 0.5rem column-gap + the 0.75rem margin). The 0.4rem values above stay for
+// the narrow layout, where the scrubber is the only panel on screen and has
+// nothing to line up with.
+.solar-view-3d.is-wide .sv-bottom-stack {
+  left: var(--sol-rail-gutter);
+  right: 0;
+  bottom: var(--sol-rail-gutter);
 }
 
 .sv-bottom {

@@ -510,7 +510,15 @@ export default defineComponent({
     "stage  info"
     "stage  layers"
     "stage  stats";
-  column-gap: 0.5rem;
+  // NO column gap. The rail items carry `margin-left: var(--sol-rail-gutter)`
+  // below, and that margin IS the gutter between the stage and the rail. A
+  // 0.5rem gap on top of it put the rail 1.25rem from the stage before the
+  // stage's own overlay insets were even counted, so the scrubber sat 26px
+  // from the stats panel while the rail's panels sit 12px apart (measured
+  // 2026-09-11, 1920px window). With the gap gone, SolarView3D's `.is-wide`
+  // rule runs the scrubber to the grid line and the margin alone separates
+  // the two -- one gutter, from one token, on every seam in the layout.
+  column-gap: 0;
   // Spacing between the rail's panels comes from the grid, so all three gaps
   // are the same by construction rather than by three components agreeing.
   row-gap: var(--sol-rail-gutter);

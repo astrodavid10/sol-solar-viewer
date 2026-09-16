@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-09-11 (nineteenth session)
+**Last updated:** 2026-09-15 (twentieth session — twelfth T1 hand-publish, mirror was down)
 
 ---
 
@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22** |
+| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22**. **12th on 2026-09-15** (`8d7f91d`, 19/19 slots, all six products `ok`) — the mirror itself was down: see note below |
 | T2 | Land the GONG relay (Option D, workstation mirror) | DONE | `8650fee`+`85e626c` | LIVE 2026-09-02: `gong-cache` fed hourly by `SolGongMirror`; CI traced 19/19 in run 33663715169 (dry) and **published** in 33664961891 (`gh-pages` `ca5426f`, Verdict ok, issue #1 closed). Formal "scheduled" confirmation = the next cron tick |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -1274,6 +1274,30 @@ why, measured rather than assumed.
 `PFSS-UPDATE.md` is the fallback. Do NOT read a red `data` run as a mirror outage without first
 checking the workstation, the branch, *and* what CI's log says the listing counts were — the
 counts are the tell.
+
+**Twelfth T1, 2026-09-15 — this one WAS a plain mirror outage, not T22's frozen read.**
+`pfss` had been `degraded` for 5 straight scheduled runs (2026-09-14T20:16Z .. 09-15T22:51Z),
+`data_age_hours` climbing 23.05 -> 49.63. `Get-ScheduledTaskInfo SolGongMirror` showed
+`LastRunTime` stuck at 2026-09-13T16:55:52 with `NumberOfMissedRuns 51` — the task's trigger is
+`LogonType Interactive` (`scripts/gong-mirror-task.ps1` via Task Scheduler), so it simply cannot
+fire while the workstation is off or nobody is logged in, exactly the scenario footgun 55 and
+`PFSS-UPDATE.md`'s preflight check ("LastRunTime within the hour") anticipate. The mirror's own
+last log (`gong-mirror-20260913-165553.log`) ended clean, `SUMMARY: OK`, so this was not T22's
+CDN-freeze signature — the branch just stopped being updated at all.
+Ran `PFSS-UPDATE.md` end to end from this workstation (which reaches GONG directly, mirror or
+not): seeded `public/data` from `gh-pages` (132 published / 142 local, 90/100 differing each
+way), texture was 2.4 h old and complete so option (a) (no `--with-texture`), `pipeline all`
+traced `19/19` slots fresh, pre-promote validate `OK` on all 5 staged products, `validate
+--root --strict` 0 failed / 0 warnings, published as `gh-pages` **`8d7f91d`**, Pages built in
+27 s, live `index.json` confirmed `last_attempt_status: ok` / all six products `ok` / `pfss` age
+0.0 h, `validate --url --strict` 0/0.
+Also `Start-ScheduledTask SolGongMirror` to resume the hourly mirror now that the workstation is
+active — the manual kick's own run exited `0xC000013A` (STATUS_CONTROL_C_EXIT) with no new log,
+apparently interrupted by the automation session rather than a real script fault (no orphaned
+process afterward); left it alone rather than re-kick a second time; `NextRunTime` is back on
+its normal hourly slot (20:55) and unaffected by the failed manual run. Not investigated further
+since it's a one-off side effect, not a regression in `gong-mirror-task.ps1` itself — worth
+confirming next session that the mirror's hourly log resumed on its own.
 
 ---
 

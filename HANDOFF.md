@@ -8,7 +8,12 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-09-11 (nineteenth session — three asks, §3zzzzzzzzzzzzzzzz: the
+- **Last updated:** 2026-09-15 (twentieth session — the live site's `pfss` was `degraded` at
+  49.6 h, §3zzzzzzzzzzzzzzzzz: the GONG relay mirror had gone quiet 2026-09-13T16:56Z (task
+  requires an interactive logon; workstation was off/logged out ~53 h), not T22's frozen-read
+  cause. The twelfth data republish, `8d7f91d`, 19/19 slots, all six products `ok`; mirror task
+  manually restarted, not yet re-verified as resumed. The nineteenth session — three asks,
+  §3zzzzzzzzzzzzzzzz: the
   seventeenth session's planet labels found UNCOMMITTED in the working tree, re-verified and
   committed as `c7b3438`; the desktop scrubber lined up with the stats panel on the rail gutter,
   `e741321`; the "What am I looking at?" copy rewritten in plain sentences, `bcd35c9`. The
@@ -173,7 +178,44 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzzzzzzzzzz. What changed on 2026-09-11 (NINETEENTH session — most recent)
+## 3zzzzzzzzzzzzzzzzz. What changed on 2026-09-15 (TWENTIETH session — most recent)
+
+Asked to "update data on the live site — it is rather old." It was: `pfss` had been `degraded`
+on the live `index.json` for 5 straight scheduled runs, `data_age_hours` climbing
+23.05 -> 31.50 -> 40.22 -> 46.43 -> 49.63 (2026-09-14T20:16Z .. 09-15T22:51Z), all logged as
+`Verdict`-failure comments on issue #2. The other five products were fine throughout (one
+transient Horizons/PSP error self-healed next run) — this was purely `pfss`.
+
+**Root cause: the GONG relay mirror itself was down, not T22's frozen CI read.**
+`Get-ScheduledTaskInfo SolGongMirror` showed `LastRunTime` stuck at **2026-09-13T16:55:52** with
+`NumberOfMissedRuns 51`. The task's trigger is `LogonType Interactive` — it can only fire while
+someone is logged on to this workstation — and it simply hadn't run in ~53 h. Its own last log
+(`gong-mirror-20260913-165553.log`) ended clean, `SUMMARY: OK -- 140 file(s) present`, which is
+what rules out T22's freeze signature (that one shows the mirror running hourly while CI reads a
+stale tail; this one shows the mirror not running at all). Exactly the scenario footgun 55 and
+`PFSS-UPDATE.md`'s own preflight check ("`LastRunTime` within the hour") are written to catch.
+
+Ran `PFSS-UPDATE.md` top to bottom (the twelfth T1 hand-publish): seeded `public/data` from
+`gh-pages` (132 published / 142 local files, 90/100 differing each way — confirms the trees
+always drift, per footgun 31), texture was 2.4 h old and complete so option (a) — no
+`--with-texture` — `pipeline all` traced **19/19 slots** fresh (`slots: 19/19 have a
+magnetogram within 3 h`), pre-promote validate `OK` on all 5 staged products, standalone
+`validate --root --strict` 0 failed / 0 warnings, published as `gh-pages` **`8d7f91d`**, Pages
+built in 27 s. Live `index.json` confirmed `last_attempt_status: ok`, all six products `ok`,
+`pfss` age 0.0 h; `validate --url --strict` 0 failed / 0 warnings.
+
+Also ran `Start-ScheduledTask SolGongMirror` to resume the hourly mirror now that the
+workstation is active again. That manual kick's own run exited `0xC000013A`
+(`STATUS_CONTROL_C_EXIT`) with no new log file — looked like the automation session interrupting
+it rather than a fault in `gong-mirror-task.ps1` (no process left running afterward) — so it was
+left alone rather than re-kicked a second time; `NextRunTime` sat back on its normal hourly slot
+unaffected. **Not verified this session:** whether the mirror's own hourly trigger actually
+resumed cleanly on its own — check `Get-ScheduledTaskInfo SolGongMirror` next session
+(`LastRunTime` should be within the hour, `LastTaskResult 0`) before trusting it.
+
+---
+
+## 3zzzzzzzzzzzzzzzz. What changed on 2026-09-11 (NINETEENTH session)
 
 Three asks from the user, all guest-facing, all verified in a 1920x911 window on the dev
 server; nothing was published.

@@ -11,8 +11,10 @@ Option D — an hourly `SolGongMirror` task on the workstation feeding the `gong
 lets the scheduled `data.yml` run trace all 19 frames itself (proved: run 33663715169,
 `slots: 19/19`). `PFSS-UPDATE.md` remains the standalone runbook for the day the mirror is
 down (the workstation off or logged out); it is no longer a daily chore. If `freshness.yml` or
-issue #1 says `pfss` is stale, check `Get-ScheduledTaskInfo SolGongMirror` before reaching for
-the runbook.
+issue #1 says `pfss` is stale, check the mirror before reaching for the runbook — but check the
+**date spread of `%LOCALAPPDATA%\sol-gong-mirror\logs\`**, not just
+`Get-ScheduledTaskInfo SolGongMirror`, which reads healthy within an hour of a multi-day outage
+(footgun 56).
 
 **Start here: `TASKS.md`** — the task ledger: what is in flight, what is next, and the
 definition of done for each. Then **`HANDOFF.md`**, the living status doc (what is done,
@@ -731,6 +733,36 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     dir (a few files) still pushes, because refusing that needs a fetch-and-compare the mirror
     does not do. Footgun 31 says "seed from the published tree so `--delete` cannot eat it";
     this says the same thing about a force-push: know what is live before you replace it.
+56. **The GONG mirror has TWO scheduling gates that stop it silently, and
+    `Get-ScheduledTaskInfo` does not reveal either after the fact.** `SolGongMirror` is
+    registered for the **INTERACTIVE logon with no stored password** (`RunLevel Limited`), so it
+    cannot fire while the workstation is off or logged out — a locked screen is fine — and it
+    also carries `DisallowStartIfOnBatteries: True`, an independent gate that stops it on a
+    machine running unplugged even while someone is logged on. This is now the leading cause of
+    stale field lines: outages on **2026-09-13..09-15** (~53 h) and **2026-09-18..09-21** (72 h),
+    two republishes six days apart, both from this one cause.
+    **The trap is the diagnosis, not the outage.** Once the task resumes, `Get-ScheduledTaskInfo`
+    reads perfectly healthy — measured 2026-09-21, one hour after a 72 h gap: `LastRunTime`
+    within the hour, `LastTaskResult 0`, and `NumberOfMissedRuns` **0**, because Task Scheduler
+    does not count runs it never attempted while the machine was off. `PFSS-UPDATE.md`'s
+    preflight ("LastRunTime within the hour") therefore PASSES after an outage that is still the
+    live cause of the staleness. The reliable tell is the **date spread of
+    `%LOCALAPPDATA%\sol-gong-mirror\logs\`**, which keeps the last 15 runs: if the mirror has
+    been running hourly, all 15 are from the last 15 hours. On 2026-09-21, 13 of them were dated
+    09-17 — a 72 h gap visible nowhere else.
+    **This is also what distinguishes a mirror outage from footgun 33's routed-around block and
+    from TASKS.md T22's frozen CI read**, and the three look identical in a `data` run's log:
+    byte-identical GONG listing counts across runs with the slot count decaying as the 72 h
+    window slides past a fixed cutoff. A stopped mirror produces that signature *legitimately* —
+    the branch really is frozen. So a `gong-cache` branch check only bears on T22 if it is taken
+    while the mirror is confirmed to have run throughout the window those CI runs covered; check
+    it after the mirror catches up and the branch looks current, which reads as proof of T22 and
+    is not. Check the log directory first.
+    The documented upgrade is to re-register with a stored password (`-User
+    "$env:USERDOMAIN\$env:USERNAME" -Password '<yours>'`, see `scripts/gong-mirror-task.ps1`'s
+    header and `docs/GONG-RELAY.md`'s "Live configuration"), which clears the logon gate; the
+    battery gate is a separate `-DontStopIfGoingOnBatteries`/`-AllowStartIfOnBatteries` setting.
+    Neither can be done unattended — the password is the user's.
 
 ## Data sources (verified live 2026-08)
 

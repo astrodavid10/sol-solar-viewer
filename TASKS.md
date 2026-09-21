@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-09-15 (twentieth session — twelfth T1 hand-publish, mirror was down)
+**Last updated:** 2026-09-21 (twenty-first session — thirteenth T1 hand-publish, mirror was down again)
 
 ---
 
@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22**. **12th on 2026-09-15** (`8d7f91d`, 19/19 slots, all six products `ok`) — the mirror itself was down: see note below |
+| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22**. **12th on 2026-09-15** (`8d7f91d`, 19/19 slots, all six products `ok`) — the mirror itself was down: see note below. **13th on 2026-09-21** (`77f5e24`, 19/19 slots, all six products `ok`) — the mirror was down again, same interactive-logon cause, now footgun 56 |
 | T2 | Land the GONG relay (Option D, workstation mirror) | DONE | `8650fee`+`85e626c` | LIVE 2026-09-02: `gong-cache` fed hourly by `SolGongMirror`; CI traced 19/19 in run 33663715169 (dry) and **published** in 33664961891 (`gh-pages` `ca5426f`, Verdict ok, issue #1 closed). Formal "scheduled" confirmation = the next cron tick |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -1298,6 +1298,50 @@ process afterward); left it alone rather than re-kick a second time; `NextRunTim
 its normal hourly slot (20:55) and unaffected by the failed manual run. Not investigated further
 since it's a one-off side effect, not a regression in `gong-mirror-task.ps1` itself — worth
 confirming next session that the mirror's hourly log resumed on its own.
+
+**Thirteenth T1, 2026-09-21 — the same plain mirror outage, and the answer to the question the
+twelfth left open.** It did NOT resume on its own for long. The mirror's log directory jumped
+straight from `gong-mirror-20260917-195553.log` to `gong-mirror-20260920-195553.log` — a 72 h
+gap, and decisive because the directory keeps the **last 15 runs**: had the mirror been running
+hourly through 09-18..09-20, all 15 would be dated 09-20, and instead 13 of them are 09-17.
+So the hourly trigger stopped again roughly two days after the twelfth republish.
+
+**Read the CI counts carefully — this looked exactly like T22 and was not.** Four scheduled runs
+(04:44Z, 13:00Z, 18:41Z, 22:22Z on 09-20) reported byte-identical listings of 49/25/1/0 files
+while the slot count decayed **6/19 → 4/19 → 3/19 → 2/19**, which is T22's published signature.
+The distinguishing evidence is the mirror, not the branch: with the mirror stopped the branch was
+*genuinely* frozen, so identical counts are the expected reading, not a CDN artifact. A check of
+the `gong-cache` branch at 02:00Z on 09-21 showed 25 files for every day including 09-20 and
+looked like proof of T22 — but the mirror had already caught up at 00:55Z and 01:55Z, **after**
+the last of those CI runs. **A branch check only bears on T22 if it is taken while the mirror is
+confirmed to have been running throughout the window the CI runs covered.** Check
+`Get-ScheduledTaskInfo` and the log directory's date spread first; they are what separate the
+two causes.
+
+`Get-ScheduledTaskInfo SolGongMirror` is NOT sufficient on its own here: it read `LastRunTime
+2026-09-20 20:55:52`, `LastTaskResult 0`, `NumberOfMissedRuns 0` — all healthy-looking — because
+the task had resumed an hour earlier and Task Scheduler does not count runs it never attempted
+while the machine was off. The **log directory's date spread** is the reliable tell.
+
+Ran `PFSS-UPDATE.md` end to end: seeded `public/data` from `gh-pages` (129 published / 142 local,
+90 published-only and 103 local-only — five days of drift, footgun 31), texture 3.7 h old and
+complete on all five layers (19 frames, `high_res 8192`) so option (a), no `--with-texture`.
+`pipeline all` traced **19/19 slots within 3 h**, 19 frames / 1,261 lines / 17,234 verts /
+1.93 MB, dequant err 3.97e-05 R_sun, 263.9 s. Pre-promote validate `OK` on all five staged
+products (pfss 504 checks), `validate --root --strict` 0 failed / 0 warnings, 26 files published.
+Live as `gh-pages` **`77f5e24`**, Pages built in 23.5 s; live `index.json` reports
+`last_attempt_status: ok`, all six products `ok`, `pfss` 0.0 h, texture 3.74 h with
+`not regenerated this run` (correct under option (a)); `validate --url --strict` 0 failed /
+0 warnings.
+
+**One self-inflicted error worth copying down:** `publish_gh_pages.sh` printed nothing on its
+first invocation, which was mistaken for a failure, and it was run a **second** time seconds
+later. Both pushes auto-triggered a Pages build; the first (`ebb42a6`) came back `errored --
+Page build failed` because the second push had already replaced the commit it was building.
+This is footgun 49's mechanism reached without any explicit `POST /pages/builds` — two pushes
+race just as a push and a POST do. The second build (`77f5e24`) was the branch head and built
+cleanly, so the live outcome is correct. **The script is silent on success; check
+`git log origin/gh-pages` before re-running it.**
 
 ---
 

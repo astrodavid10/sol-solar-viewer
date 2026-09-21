@@ -8,7 +8,12 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-09-15 (twentieth session — the live site's `pfss` was `degraded` at
+- **Last updated:** 2026-09-21 (twenty-first session — the thirteenth data republish,
+  §3zzzzzzzzzzzzzzzzzz: `pfss` was `stale` at 66.6 h with CI resolving 3/19 slots; the GONG
+  mirror had stopped again for 72 h on the same interactive-logon gate, and the standard
+  `Get-ScheduledTaskInfo` check read HEALTHY an hour after it resumed — now footgun 56. Published
+  `77f5e24`, 19/19 slots, all six products `ok`, validate clean both ways. The twentieth session
+  — the live site's `pfss` was `degraded` at
   49.6 h, §3zzzzzzzzzzzzzzzzz: the GONG relay mirror had gone quiet 2026-09-13T16:56Z (task
   requires an interactive logon; workstation was off/logged out ~53 h), not T22's frozen-read
   cause. The twelfth data republish, `8d7f91d`, 19/19 slots, all six products `ok`; mirror task
@@ -54,7 +59,7 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 
 ### Read these first, in this order
 
-1. `CLAUDE.md` — architecture + **47 numbered footguns**. Dense and authoritative. The
+1. `CLAUDE.md` — architecture + **56 numbered footguns**. Dense and authoritative. The
    footguns are hard-won; several document bugs that took hours to find. Do not "fix" them.
 2. This file — what is done, what is not, what is unverified.
 3. The original implementation plan — a local Claude Code planning document, not in this
@@ -178,7 +183,66 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzzzzzzzzzzz. What changed on 2026-09-15 (TWENTIETH session — most recent)
+## 3zzzzzzzzzzzzzzzzzz. What changed on 2026-09-21 (TWENTY-FIRST session — most recent)
+
+Asked to "update data on the live site". Five of six products were current; `pfss` was `stale`
+with `data_age_hours` **66.6** and CI resolving only 3 of 19 slots. The thirteenth T1
+hand-publish; details and the full measurement trail are in `TASKS.md` T22's closing notes.
+
+**Root cause: the GONG relay mirror was down again — the same interactive-logon gate as the
+twentieth session, six days later.** The twentieth session left one question open ("confirm next
+session that the mirror's hourly log resumed on its own"). The answer is that it did, and then
+stopped again about two days later: the log directory jumps from `gong-mirror-20260917-195553`
+straight to `gong-mirror-20260920-195553`, a 72 h gap, and since the directory keeps only the
+**last 15 runs**, 13 of them being dated 09-17 is decisive — hourly running would have made all
+15 same-day.
+
+**This session's real lesson, now `CLAUDE.md` footgun 56: the standard diagnostic passes after
+the outage.** `Get-ScheduledTaskInfo SolGongMirror` read `LastRunTime` within the hour,
+`LastTaskResult 0` and `NumberOfMissedRuns` **0** — because the mirror had resumed at 00:55Z and
+Task Scheduler never counts runs it could not attempt while the machine was off. So
+`PFSS-UPDATE.md`'s preflight check ("LastRunTime within the hour") *passed* on a machine whose
+mirror outage was the live cause of the staleness. The log directory's date spread is the tell.
+The task also carries a second, previously unrecorded gate: `DisallowStartIfOnBatteries: True`.
+
+**It also read as T22 and was not, which is worth not repeating.** Four scheduled runs on 09-20
+(04:44Z, 13:00Z, 18:41Z, 22:22Z) logged byte-identical GONG listings of 49/25/1/0 while slots
+decayed 6/19 → 4/19 → 3/19 → 2/19 — T22's published signature exactly. A check of the
+`gong-cache` branch showed 25 files for every day including 09-20 and looked like proof that the
+branch was fine and only CI's read was stale. It was not: that check was taken at 02:00Z on
+09-21, *after* the mirror caught up at 00:55Z and 01:55Z, and therefore after every one of those
+CI runs. With the mirror stopped, identical counts are the honest reading. A branch check bears
+on T22 only if taken while the mirror is confirmed to have run across the window the CI runs
+covered.
+
+**The republish.** `PFSS-UPDATE.md` end to end: seeded `public/data` from `gh-pages` (129
+published / 142 local, 90 published-only and 103 local-only — five days of drift, footgun 31);
+texture 3.7 h old and complete on all five layers (19 frames, `high_res 8192`) so option (a), no
+`--with-texture`; `pipeline all` traced **19/19 slots within 3 h** — 19 frames, 1,261 lines,
+17,234 verts, 1.93 MB, dequant err 3.97e-05 R_sun, 263.9 s. Pre-promote validate `OK` on all
+five staged products (pfss 504 checks), `validate --root --strict` 0 failed / 0 warnings, 26
+files published (the option-(a) count the runbook predicts). Live as `gh-pages` **`77f5e24`**,
+Pages built in 23.5 s. Live `index.json`: `last_attempt_status: ok`, all six products `ok`,
+`pfss` 0.0 h, texture 3.74 h with `not regenerated this run`; `validate --url --strict` 0 failed
+/ 0 warnings.
+
+**One self-inflicted error, recorded because it is cheap to repeat.**
+`scripts/publish_gh_pages.sh` prints nothing on success; its silence was misread as a failure and
+it was run a second time seconds later. Both pushes auto-triggered a Pages build and the first
+(`ebb42a6`) came back `errored -- Page build failed`, its commit having been replaced mid-build.
+That is footgun 49's mechanism reached with no explicit `POST /pages/builds` at all — two pushes
+race exactly as a push and a POST do. The second build was the branch head and built cleanly, so
+the published tree is correct. Check `git log origin/gh-pages` before re-running the script.
+
+**Left open.** The mirror will stop again on the next logoff or shutdown. The documented fix —
+re-registering the task with a stored password, plus clearing the battery gate — needs the
+user's Windows password and was flagged rather than attempted. `TASKS.md` T22 remains TODO and
+is still unproven either way: no run in this session isolated the CDN read path, because the
+mirror outage explains everything observed.
+
+---
+
+## 3zzzzzzzzzzzzzzzzz. What changed on 2026-09-15 (TWENTIETH session)
 
 Asked to "update data on the live site — it is rather old." It was: `pfss` had been `degraded`
 on the live `index.json` for 5 straight scheduled runs, `data_age_hours` climbing

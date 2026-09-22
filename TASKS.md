@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-09-21 (twenty-first session — thirteenth T1 hand-publish, mirror was down again)
+**Last updated:** 2026-09-22 (twenty-second session — fourteenth T1 hand-publish, mirror down a third time)
 
 ---
 
@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22**. **12th on 2026-09-15** (`8d7f91d`, 19/19 slots, all six products `ok`) — the mirror itself was down: see note below. **13th on 2026-09-21** (`77f5e24`, 19/19 slots, all six products `ok`) — the mirror was down again, same interactive-logon cause, now footgun 56 |
+| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22**. **12th on 2026-09-15** (`8d7f91d`, 19/19 slots, all six products `ok`) — the mirror itself was down: see note below. **13th on 2026-09-21** (`77f5e24`, 19/19 slots, all six products `ok`) — the mirror was down again, same interactive-logon cause, now footgun 56. **14th on 2026-09-22** (`ef1a1e3`, 19/19 slots, all six products `ok`) — mirror down ~44 h again; 0171 hi-res needed a second texture-only run (footgun 57) |
 | T2 | Land the GONG relay (Option D, workstation mirror) | DONE | `8650fee`+`85e626c` | LIVE 2026-09-02: `gong-cache` fed hourly by `SolGongMirror`; CI traced 19/19 in run 33663715169 (dry) and **published** in 33664961891 (`gh-pages` `ca5426f`, Verdict ok, issue #1 closed). Formal "scheduled" confirmation = the next cron tick |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -1342,6 +1342,20 @@ This is footgun 49's mechanism reached without any explicit `POST /pages/builds`
 race just as a push and a POST do. The second build (`77f5e24`) was the branch head and built
 cleanly, so the live outcome is correct. **The script is silent on success; check
 `git log origin/gh-pages` before re-running it.**
+
+**Fourteenth T1, 2026-09-22 — mirror down a third time, and a silent hi-res drop.** Live `pfss`
+was `degraded`: `data_age_hours` **42.5**, 11 frames, scheduled run 35775476229 red. The mirror's
+last log was `gong-mirror-20260920-205553` (~44 h before; the log directory's spread, footgun 56).
+Seeded from `gh-pages` (130 published / 142 local, 51 published-only, 63 local-only). Texture was
+1.9 h old but HMIIC/HMIB held 17/19 frames, so option (b) per the runbook. `pipeline all
+--with-texture --with-hires` traced **19/19 slots**, 19 frames / 1,326 lines / 18,954 verts /
+2.12 MB, 276.5 s; all six products passed pre-promote validation — **but 0171's hi-res map was
+skipped with `Unable to allocate 768. MiB`**, leaving the default channel with no `high_res`
+block while validate stayed green (new footgun 57). A second run, `pipeline texture --with-hires`
+alone, built all five hi-res maps (0171 1.31 MB, 59.2 s). The 17/19 on HMIIC/HMIB is `4
+unavailable upstream` and was left as is. `validate --root --strict` 0/0; live as `gh-pages`
+**`ef1a1e3`**, Pages built in 28.8 s; live `index.json` `last_attempt_status: ok`, all six `ok`;
+`validate --url --strict` 0 failed / 0 warnings.
 
 ---
 

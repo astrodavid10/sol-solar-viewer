@@ -764,6 +764,18 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     battery gate is a separate `-DontStopIfGoingOnBatteries`/`-AllowStartIfOnBatteries` setting.
     Neither can be done unattended — the password is the user's.
 
+57. **A hi-res texture `MemoryError` drops the DEFAULT channel's 4K map, and nothing turns red.**
+    Measured 2026-09-22: in one `pipeline all --with-texture --with-hires` run, right after the
+    PFSS stage, 0171's hi-res pass died with `Unable to allocate 768. MiB for an array with shape
+    (4096, 8192, 3) and data type float64`. The failure is soft by design (footgun 40), so 0171
+    simply published with no `high_res` block while the other four built. The validator, the exit
+    code and `index.json` were all clean, and the app would have silently downgraded the channel
+    guests see first. 0171 is the FIRST channel, so it is the one that meets the heap the PFSS
+    stage left behind. Before publishing a `--with-hires` run, check that `grep 'hi-res 8192'` in
+    the log shows five lines. If a channel says `hi-res skipped`, re-run `pipeline texture --out
+    public/data -v --with-hires` on its own: history frames are reused, it takes ~5 min, and it
+    built all five cleanly the same day.
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).

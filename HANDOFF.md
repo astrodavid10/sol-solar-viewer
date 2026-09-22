@@ -8,7 +8,9 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-09-21 (twenty-first session — the thirteenth data republish,
+- **Last updated:** 2026-09-22 (twenty-second session — the fourteenth data republish,
+  §3zzzzzzzzzzzzzzzzzzz: mirror down ~44 h again; `ef1a1e3`, 19/19 slots, all six `ok`; 0171
+  hi-res silently dropped by a MemoryError and rebuilt, now footgun 57. The twenty-first session — the thirteenth data republish,
   §3zzzzzzzzzzzzzzzzzz: `pfss` was `stale` at 66.6 h with CI resolving 3/19 slots; the GONG
   mirror had stopped again for 72 h on the same interactive-logon gate, and the standard
   `Get-ScheduledTaskInfo` check read HEALTHY an hour after it resumed — now footgun 56. Published
@@ -59,7 +61,7 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 
 ### Read these first, in this order
 
-1. `CLAUDE.md` — architecture + **56 numbered footguns**. Dense and authoritative. The
+1. `CLAUDE.md` — architecture + **57 numbered footguns**. Dense and authoritative. The
    footguns are hard-won; several document bugs that took hours to find. Do not "fix" them.
 2. This file — what is done, what is not, what is unverified.
 3. The original implementation plan — a local Claude Code planning document, not in this
@@ -183,7 +185,24 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzzzzzzzzzzzz. What changed on 2026-09-21 (TWENTY-FIRST session — most recent)
+## 3zzzzzzzzzzzzzzzzzzz. What changed on 2026-09-22 (TWENTY-SECOND session — most recent)
+
+Asked to "refresh and update data on the live site". Live `pfss` was `degraded` (42.5 h, 11
+frames); the other five were current. Cause: the GONG mirror stopped a third time — last log
+`gong-mirror-20260920-205553`, ~44 h earlier. The fourteenth T1 hand-publish, full numbers in
+`TASKS.md` T1's closing notes: 19/19 slots, published `ef1a1e3`, all six products `ok`, validate
+clean both ways.
+
+**New: footgun 57.** In the combined `pipeline all --with-texture --with-hires` run, 0171's
+8192x4096 map failed with a `MemoryError` (768 MiB float64) and was soft-skipped. The manifest
+simply lost 0171's `high_res` block — the default channel — and every validator check passed.
+It was caught only by reading the `hi-res` lines in the log. A separate `pipeline texture
+--with-hires` run built all five cleanly. The mirror's stored-password re-registration is still
+the open fix (footgun 56) and still needs the user's password.
+
+---
+
+## 3zzzzzzzzzzzzzzzzzz. What changed on 2026-09-21 (TWENTY-FIRST session)
 
 Asked to "update data on the live site". Five of six products were current; `pfss` was `stale`
 with `data_age_hours` **66.6** and CI resolving only 3 of 19 slots. The thirteenth T1

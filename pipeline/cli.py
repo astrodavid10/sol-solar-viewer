@@ -972,7 +972,7 @@ def run_events(ctx: Ctx) -> ProductResult:
         ctx.now, hours, ctx.cache, ctx.verbose, simulate_outage=outage)
     cmes, src_c = donki_src.fetch_cmes(
         ctx.now, hours, ctx.cache, ctx.verbose, simulate_outage=outage)
-    source = "CCMC DONKI (kauai.ccmc.gsfc.nasa.gov)"
+    source = "CCMC DONKI (ccmc.gsfc.nasa.gov)"
     cached = "cached" in (src_f, src_c)
     if cached:
         source += " [cached]"

@@ -186,7 +186,13 @@ F107_URL = "https://services.swpc.noaa.gov/products/summary/10cm-flux.json"
 #
 # Do NOT probe these with a HEAD request -- DONKI answers HEAD with 403 and GET
 # with 200 (measured).  probe-sources therefore does a real GET.
-DONKI_BASE = "https://kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/"
+#
+# CCMC retired kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/ on 2026-09-30: it now
+# 301s to a news page (ccmc.gsfc.nasa.gov/news/major-updates), so the old base
+# failed every fetch with a JSON decode error and events.json served an empty
+# cache.  Same parameters and response format at the new base (measured
+# 2026-10-01).  Note it is /DONKI-API/get/, with no /WS/ segment.
+DONKI_BASE = "https://ccmc.gsfc.nasa.gov/DONKI-API/get/"
 
 # Ask for the display window plus slack, never more.  Measured 2026-08-23: a
 # 3-day CME window answers in 0.74 s / 23 KB, a 235-day window takes 32.4 s.

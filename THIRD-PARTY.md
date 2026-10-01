@@ -56,7 +56,7 @@ public, US-government or publicly-funded scientific products:
 - **NASA SDO** imagery (`sdo.gsfc.nasa.gov`) — hotlinked stills and movies.
 - **NOAA SWPC** (`services.swpc.noaa.gov`) — space-weather products.
 - **NSO GONG** (`gong2.nso.edu`) — magnetograms feeding the PFSS model.
-- **NASA CCMC DONKI** (`kauai.ccmc.gsfc.nasa.gov`) — flare and CME catalog.
+- **NASA CCMC DONKI** (`ccmc.gsfc.nasa.gov/DONKI-API`) — flare and CME catalog.
   CCMC asks that DONKI be described as research-grade rather than an official
   forecast; the app carries that wording on every event card.
 - **JPL Horizons** — spacecraft ephemerides, via `astroquery`.

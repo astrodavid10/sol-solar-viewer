@@ -8,7 +8,9 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 > what is in progress right now, what is next, and the definition of done for each. Start
 > there if you are picking the work up mid-stream.
 
-- **Last updated:** 2026-09-22 (twenty-second session — the fourteenth data republish,
+- **Last updated:** 2026-09-30 (twenty-third session — the fifteenth data republish,
+  §3zzzzzzzzzzzzzzzzzzzz: mirror down ~4.5 days; `ef9d547`, 19/19 slots, all six `ok`; CCMC
+  moved the DONKI API, fixed in `1bc2081`, now footgun 58. The twenty-second session — the fourteenth data republish,
   §3zzzzzzzzzzzzzzzzzzz: mirror down ~44 h again; `ef1a1e3`, 19/19 slots, all six `ok`; 0171
   hi-res silently dropped by a MemoryError and rebuilt, now footgun 57. The twenty-first session — the thirteenth data republish,
   §3zzzzzzzzzzzzzzzzzz: `pfss` was `stale` at 66.6 h with CI resolving 3/19 slots; the GONG
@@ -185,7 +187,28 @@ own checks, not seen running · **PARTIAL** · **NOT STARTED**
 
 ---
 
-## 3zzzzzzzzzzzzzzzzzzz. What changed on 2026-09-22 (TWENTY-SECOND session — most recent)
+## 3zzzzzzzzzzzzzzzzzzzz. What changed on 2026-09-30 (TWENTY-THIRD session — most recent)
+
+Asked to "update data on the live site". Live `pfss` was `stale` (data 102.5 h old, 0/19 slots
+traced by CI) and `events` was `degraded`. The fifteenth T1 hand-publish: 19/19 slots, published
+`ef9d547`, all six products `ok`, validate clean both ways. Full numbers are in `TASKS.md` T1's
+closing notes.
+
+- **The GONG mirror stopped a fourth time,** for about 106 h (logs 09-26 09:55 to 09-30 20:11
+  local). The cause is the same footgun 56 gate. The stored-password re-registration is still
+  open and still needs the user's password.
+- **New: footgun 58.** CCMC retired `kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/` on 2026-09-30. It
+  now 301s to a news page, and the pipeline saw that as a JSON decode error and served an empty
+  cache. `DONKI_BASE` now points at `ccmc.gsfc.nasa.gov/DONKI-API/get/` (`1bc2081`).
+- **Upstream SDO gaps, not ours.** AIA has no browse frames for 09-28 16Z to 09-29 20Z. HMI's
+  browse product has been frozen at 2026-09-21 15:50Z, so the HMI sphere maps show the Sun as
+  of nine days ago. Watch whether HMI resumes. If it stays frozen, the "Visible Sun" and
+  "Magnetic Map" layers need an honest age on screen. `test_walker_finds_every_texture_file_on_disk`
+  fails on the thin tree (55 files against a floor of 100), and that failure is data-driven.
+
+---
+
+## 3zzzzzzzzzzzzzzzzzzz. What changed on 2026-09-22 (TWENTY-SECOND session)
 
 Asked to "refresh and update data on the live site". Live `pfss` was `degraded` (42.5 h, 11
 frames); the other five were current. Cause: the GONG mirror stopped a third time — last log

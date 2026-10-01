@@ -776,6 +776,20 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     public/data -v --with-hires` on its own: history frames are reused, it takes ~5 min, and it
     built all five cleanly the same day.
 
+58. **CCMC moved the DONKI API on 2026-09-30, and the old base answers 301 to an HTML page.**
+    `kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/FLR?...` now redirects to
+    `ccmc.gsfc.nasa.gov/news/major-updates`. urllib follows the redirect, gets 60 KB of HTML,
+    and `json.loads` fails with `Expecting value: line 1 column 1 (char 0)`. That error reads
+    like a transient empty response, not a retired endpoint. The events stage then served its
+    cache, which by then was EMPTY: 0 flares and 0 CMEs went to guests as `degraded` with
+    `DONKI unreachable; served from cache`, while the live API listed a C8.6 flare and 22 CME
+    records. CCMC's notice gives `ccmc.gsfc.nasa.gov/DONKI-API/get/` as the replacement, with
+    unchanged parameters and JSON. Note there is no `/WS/` segment: `/DONKI-API/WS/get/` 404s.
+    `config.DONKI_BASE` now points there (`1bc2081`). The new host also publishes an AAAA
+    record. Nobody has measured whether it black-holes the way kauai's did (footgun 24), so the
+    `prefer_ipv4=True` scoping stays. If `events` degrades with a JSON decode error again,
+    `curl -sI` the URL before you assume an outage: a 301 means the service moved.
+
 ## Data sources (verified live 2026-08)
 
 - SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).
@@ -788,8 +802,10 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
 - PFSS: our pipeline (GONG mrzqs + sunkit-magex, nrho=35, rss=2.5). Fallback (phase 2):
   LMSAL `fieldlines-YYYYMMDD-000400.json` (CORS *, single daily frame).
 - PUNCH & Proba-3 have NO Horizons ids — both orbit Earth; heliocentrically they ARE Earth.
-- **CCMC DONKI** (`kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/`): flare + CME catalog, no API
-  key, `ACAO: *`. The ONLY source that gives a flare/CME a place and a direction — NOAA's
+- **CCMC DONKI** (`ccmc.gsfc.nasa.gov/DONKI-API/get/` since 2026-09-30; the old
+  `kauai.ccmc.gsfc.nasa.gov/DONKI/WS/get/` base now 301s to a news page, footgun 58): flare +
+  CME catalog, no API key. The old base sent `ACAO: *`; the new one sent no ACAO header when
+  checked 2026-10-01, which does not matter while it is digested server-side. The ONLY source that gives a flare/CME a place and a direction — NOAA's
   `xray-flares-latest.json` has class and timing but no source location at all. Digested
   server-side into `data/events/events.json` (~4 KB). Ask for SHORT windows: 3 days is
   0.74 s / 23 KB, a year is 32 s. It 403s on HEAD and 200s on GET, so probe with a GET.

@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-09-22 (twenty-second session — fourteenth T1 hand-publish, mirror down a third time)
+**Last updated:** 2026-09-30 (twenty-third session — fifteenth T1 hand-publish, mirror down a fourth time; DONKI moved, footgun 58)
 
 ---
 
@@ -29,7 +29,7 @@ the plan says outrank documentation work.
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
-| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22**. **12th on 2026-09-15** (`8d7f91d`, 19/19 slots, all six products `ok`) — the mirror itself was down: see note below. **13th on 2026-09-21** (`77f5e24`, 19/19 slots, all six products `ok`) — the mirror was down again, same interactive-logon cause, now footgun 56. **14th on 2026-09-22** (`ef1a1e3`, 19/19 slots, all six products `ok`) — mirror down ~44 h again; 0171 hi-res needed a second texture-only run (footgun 57) |
+| T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22**. **12th on 2026-09-15** (`8d7f91d`, 19/19 slots, all six products `ok`) — the mirror itself was down: see note below. **13th on 2026-09-21** (`77f5e24`, 19/19 slots, all six products `ok`) — the mirror was down again, same interactive-logon cause, now footgun 56. **14th on 2026-09-22** (`ef1a1e3`, 19/19 slots, all six products `ok`) — mirror down ~44 h again; 0171 hi-res needed a second texture-only run (footgun 57). **15th on 2026-09-30** (`ef9d547`, 19/19 slots, all six products `ok`) — mirror down ~4.5 days; DONKI's API moved (footgun 58, `1bc2081`) |
 | T2 | Land the GONG relay (Option D, workstation mirror) | DONE | `8650fee`+`85e626c` | LIVE 2026-09-02: `gong-cache` fed hourly by `SolGongMirror`; CI traced 19/19 in run 33663715169 (dry) and **published** in 33664961891 (`gh-pages` `ca5426f`, Verdict ok, issue #1 closed). Formal "scheduled" confirmation = the next cron tick |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
@@ -1356,6 +1356,28 @@ alone, built all five hi-res maps (0171 1.31 MB, 59.2 s). The 17/19 on HMIIC/HMI
 unavailable upstream` and was left as is. `validate --root --strict` 0/0; live as `gh-pages`
 **`ef1a1e3`**, Pages built in 28.8 s; live `index.json` `last_attempt_status: ok`, all six `ok`;
 `validate --url --strict` 0 failed / 0 warnings.
+
+**Fifteenth T1, 2026-09-30 — mirror down a fourth time, and DONKI moved.** Live `pfss` was `stale`:
+age 52.0 h, `data_age_hours` **102.5**, `0 freshly traced frame(s) of 19 slot(s)`. The two latest
+`data` runs (36732332563, 36774753094) were red. The mirror's log directory jumps from
+`gong-mirror-20260926-095553` to `gong-mirror-20260930-201131` (local time), a ~106 h gap. It had
+resumed about an hour before this check, after CI's 20:44Z run (footgun 56). Seeded from
+`gh-pages`: 71 published / 138 local, 30 published-only, 97 local-only. Texture was 5.3 h old,
+but AIA held 11/19 frames and HMI 1/19, so option (b). `pipeline all --with-texture --with-hires`
+traced **19/19 slots**: 19 frames / 1,228 lines / 17,976 verts / 2.01 MB, 247.5 s. **All five
+`hi-res 8192` lines** were present this time (footgun 57 did not recur). Texture history came
+out as 27 reused, 3 built, **60 unavailable upstream**. Two SDO gaps cause that: AIA has no
+browse frames from 2026-09-28T16Z to 09-29T20Z, and the HMI browse product has been stuck at
+**2026-09-21T15:50Z** for nine days (`latest_*_HMIB.jpg` `Last-Modified`), so HMIIC/HMIB carry
+only the newest frame. That data gap also fails
+`test_walker_finds_every_texture_file_on_disk`, which wants more than 100 texture files in
+`public/data` and found 55. The other 74 tests pass.
+`events` came out `degraded` because CCMC retired the `kauai` DONKI base on 2026-09-30
+(footgun 58). Pointed `DONKI_BASE` at `ccmc.gsfc.nasa.gov/DONKI-API/get/` (`1bc2081`) and re-ran
+`pipeline events`: 1 flare, 7 CMEs, 2/2 AR matches. `validate --root --strict` 0/0. Live as
+`gh-pages` **`ef9d547`**, and Pages built in 26.5 s. Live `index.json` reports
+`last_attempt_status: ok` with all six `ok`, and `validate --url --strict` is 0 failed /
+0 warnings. CI picks the DONKI fix up from `main` on its next run.
 
 ---
 

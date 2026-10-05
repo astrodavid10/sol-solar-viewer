@@ -305,7 +305,6 @@ import {
 } from "../data/pfss";
 import {
   SolarRegion,
-  describeRegionArea,
   describeRegionMagnetism,
   loadRegions,
   regionVector,
@@ -313,33 +312,23 @@ import {
 import {
   SolarEvent,
   SolarEvents,
-  describeCmeAim,
-  describeCmeSpeed,
-  describeFlareClass,
-  earthArrivalUnix,
-  eventTitle,
   loadEvents,
-  thinEvents,
 } from "../data/events";
 import {
   SOLAR_SYSTEM_BODIES,
-  describeOrbitPeriod,
   eclipticPositionAU,
-  planetBlurb,
   planetColor,
 } from "../data/planets";
 import { AU_KM, R_SUN_AU, R_SUN_KM, Vec3, b0DegApprox, julianDate } from "../data/solarFrames";
 import {
   LivePosition,
   SpacecraftEphemeris,
-  bodyBlurb,
-  describeDistance,
   fetchLivePosition,
   loadSpacecraft,
   positionAt,
   rSunAt,
 } from "../data/spacecraft";
-import { useSolarStats, thinFlareEvents } from "../data/useSolarStats";
+import { useSolarStats } from "../data/useSolarStats";
 import { CmeLayer, cmeReplayWindow, cmeTransit, createCmeLayer } from "../three/cme";
 import { DebugHelpers, createDebugHelpers } from "../three/debug";
 import { FieldLines, createFieldLines } from "../three/fieldLines";
@@ -392,6 +381,17 @@ import {
 } from "../state/useAppState";
 import { boolParam, stringParam } from "../urlParams";
 import { type DiskStill, diskStillCaption, fetchDiskStill } from "../data/diskStill";
+import {
+  CardInfo,
+  EVENT_PREFIX,
+  FlareMark,
+  bodyCard,
+  eventCard as buildEventCard,
+  flareMarks as buildFlareMarks,
+  formatDistance,
+  planetCard as buildPlanetCard,
+  regionCard as buildRegionCard,
+} from "../data/cards";
 
 // --- engine installation ----------------------------------------------------
 // main.ts must stay engine-free (the whole point of the async chunk), so the
@@ -524,7 +524,7 @@ const AR_PREFIX = "ar:";
 const PLANET_PREFIX = "planet:";
 
 /** Card-slot prefix for a DONKI flare or CME. */
-const EVENT_PREFIX = "evt:";
+// EVENT_PREFIX comes from ../data/cards (timeline marks are built there).
 
 /** Marks a 72 h window can hold before the track reads as texture, not data. */
 const MAX_EVENT_MARKS = 12;
@@ -535,17 +535,8 @@ const MAX_EVENT_MARKS = 12;
  * data actually is rather than let a confident-looking card imply more (the
  * disk view refuses to fake a frame timestamp for the same reason).
  */
-const EVENT_DISCLAIMER = "Research data from NASA CCMC — not an official forecast.";
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "Aug 22, 20:09 UTC" — flares are quoted in UTC everywhere in this app. */
-function flareStamp(unix: number): string {
-  const d = new Date(unix * 1000);
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${hh}:${mm} UTC`;
-}
+// EVENT_DISCLAIMER, flareStamp and the card builders live in ../data/cards
+// (plan 4.1, seam 1).
 
 interface Chip {
   id: string;
@@ -567,14 +558,6 @@ interface RegionChip {
   visible: boolean;
 }
 
-interface CardInfo {
-  name: string;
-  detail: string;
-  compare: string;
-  blurb: string;
-  /** Optional final line, set apart in warning color. */
-  warn?: string;
-}
 
 /**
  * The slice of WWTAwareComponent this file calls. Reached through one cast
@@ -850,13 +833,7 @@ export default defineComponent({
       const eph = this.rt.ephemeris;
       const body = eph?.bodies.find((b) => b.id === this.selectedId);
       if (!eph || !body) { return null; }
-      const rSun = rSunAt(body, eph.epochs, this.sceneUnix());
-      return {
-        name: body.name,
-        detail: this.formatDistance(rSun),
-        compare: describeDistance(rSun),
-        blurb: bodyBlurb(body.id),
-      };
+      return bodyCard(body, rSunAt(body, eph.epochs, this.sceneUnix()));
     },
 
     /**
@@ -880,43 +857,9 @@ export default defineComponent({
      * has to do is thin the noise (29 events today, 25 of them C-class) and
      * write the label a guest reads on tap.
      */
-    flareMarks(): { unix: number; label: string; cls: string; kind?: string; id?: string }[] {
-      const donki = this.solarEvents?.events ?? [];
-
-      // DONKI wins where both feeds have the same flare. It is the richer
-      // record — it knows WHERE the flare was and what CME went with it — and
-      // a mark that opens a card beats one that only scrubs. NOAA's history is
-      // still the fallback: it is near-real-time (median DONKI lag is 1.9 h
-      // for flares, 7.5 h for CMEs), so it covers the newest events DONKI has
-      // not published yet.
-      const claimed = new Set<number>();
-      for (const event of donki) {
-        if (event.kind === "flare") { claimed.add(Math.round(event.unix / 60)); }
-      }
-
-      const marks: { unix: number; label: string; cls: string; kind?: string; id?: string }[] = [];
-      for (const event of thinEvents(donki, MAX_EVENT_MARKS)) {
-        marks.push({
-          unix: event.unix,
-          label: `${eventTitle(event)} · ${flareStamp(event.unix)}`,
-          cls: event.cls ?? "",
-          kind: event.kind,
-          id: `${EVENT_PREFIX}${event.id}`,
-        });
-      }
-
-      const history = this.solarStats.flareHistory.value?.events;
-      if (history && history.length) {
-        for (const event of thinFlareEvents(history, MAX_FLARE_MARKS)) {
-          if (claimed.has(Math.round(event.peakUnix / 60))) { continue; }
-          marks.push({
-            unix: event.peakUnix,
-            label: `${event.cls ? `${event.cls} flare` : "Flare"} · ${flareStamp(event.peakUnix)}`,
-            cls: event.cls,
-          });
-        }
-      }
-      return marks.sort((a, b) => a.unix - b.unix);
+    flareMarks(): FlareMark[] {
+      return buildFlareMarks(this.solarEvents?.events ?? [],
+        this.solarStats.flareHistory.value?.events, MAX_EVENT_MARKS, MAX_FLARE_MARKS);
     },
 
     /**
@@ -1851,8 +1794,7 @@ export default defineComponent({
 
     /** "97 R☉ · 0.45 AU" — solar radii first, because that's the story. */
     formatDistance(rSun: number): string {
-      const au = (rSun * R_SUN_KM) / AU_KM;
-      return `${Math.round(rSun)} R☉ · ${au.toFixed(2)} AU`;
+      return formatDistance(rSun);
     },
 
     select(id: string): void {
@@ -1972,14 +1914,7 @@ export default defineComponent({
      */
     planetCard(name: string): CardInfo | null {
       const index = SOLAR_SYSTEM_BODIES.findIndex((body) => body.name === name);
-      const body = SOLAR_SYSTEM_BODIES[index];
-      if (!body) { return null; }
-      return {
-        name: body.name,
-        detail: this.formatDistance(this.planetRSun(index)),
-        compare: describeOrbitPeriod(body),
-        blurb: planetBlurb(body.name),
-      };
+      return index < 0 ? null : buildPlanetCard(name, this.planetRSun(index));
     },
 
     // --- surface markers (active regions) ----------------------------------
@@ -2188,38 +2123,7 @@ export default defineComponent({
      */
     eventCard(): CardInfo | null {
       const event = this.selectedEvent;
-      if (!event) { return null; }
-
-      const when = flareStamp(event.unix);
-      const region = event.arNumber ? `sunspot region ${event.arNumber}` : "";
-
-      if (event.kind === "flare") {
-        const where = region
-          ? `From ${region}${event.sourceLocation ? ` (${event.sourceLocation})` : ""}.`
-          : "";
-        const linked = event.linked.length
-          ? " It also threw off a cloud of gas — the blue circle on the timeline."
-          : "";
-        return {
-          name: eventTitle(event),
-          detail: when,
-          compare: where,
-          blurb: `${describeFlareClass(event.cls ?? "")}${linked}`.trim(),
-          warn: EVENT_DISCLAIMER,
-        };
-      }
-
-      const arrival = earthArrivalUnix(event);
-      const parts = [describeCmeAim(event)];
-      if (arrival) { parts.push(`Expected at Earth ${flareStamp(arrival)}.`); }
-      if (region) { parts.push(`It came from ${region}.`); }
-      return {
-        name: eventTitle(event),
-        detail: describeCmeSpeed(event.speedKms ?? 0),
-        compare: when,
-        blurb: parts.join(" "),
-        warn: EVENT_DISCLAIMER,
-      };
+      return event ? buildEventCard(event) : null;
     },
 
     /** A timeline mark was tapped. TimeScrubber has already scrubbed there. */
@@ -2295,20 +2199,7 @@ export default defineComponent({
 
     regionCard(numberText: string): CardInfo | null {
       const region = this.rt.regions.find((r) => String(r.number) === numberText);
-      if (!region) { return null; }
-      const spots = region.nSpots === 1 ? "1 sunspot" : `${region.nSpots} sunspots`;
-      const seeds = region.seedCount === 1
-        ? "One of the field lines in this view is rooted here."
-        : `${region.seedCount} of the field lines in this view are rooted here.`;
-      return {
-        name: `Active Region ${region.number}`,
-        detail: `${describeRegionArea(region.areaUh)} · ${spots}`,
-        compare: `This is ${describeRegionMagnetism(region.magType)}.`,
-        blurb: region.seedCount > 0 ? seeds : "",
-        warn: region.isComplex
-          ? "⚠ Watch this one — regions like this produce most big flares."
-          : "",
-      };
+      return region ? buildRegionCard(region) : null;
     },
 
     // --- chrome -----------------------------------------------------------

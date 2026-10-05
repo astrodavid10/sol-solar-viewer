@@ -775,6 +775,22 @@ def _check_regions(rep: Report, get, idx: Optional[dict]) -> Optional[int]:
     n_regions = len(regions.get("regions") or [])
     rep.check(int(regions.get("count", -1)) == n_regions,
               "regions.json count matches array length")
+    # TODAY's regions get the same position bounds as every history day. They
+    # seed the field lines and place today's markers, and used to be checked
+    # for count only -- the footgun-51 bound reached history days alone.
+    for r in regions.get("regions") or []:
+        if not isinstance(r, dict):
+            rep.check(False, "regions.json region is an object")
+            continue
+        tag = "today AR{0}".format(r.get("number"))
+        lat, lon, clon = r.get("lat_deg"), r.get("lon_deg"), r.get("carr_lon_deg")
+        rep.check(isinstance(lat, (int, float)) and abs(float(lat)) <= 60.0,
+                  "{0}: lat_deg within +/-60".format(tag), "got {0!r}".format(lat))
+        rep.check(isinstance(lon, (int, float)) and abs(float(lon)) <= 180.0,
+                  "{0}: lon_deg within +/-180".format(tag), "got {0!r}".format(lon))
+        rep.check(isinstance(clon, (int, float)) and 0.0 <= float(clon) < 360.0,
+                  "{0}: carr_lon_deg in [0, 360)".format(tag),
+                  "got {0!r}".format(clon))
     _check_region_history(rep, regions)
     return n_regions
 
@@ -1180,7 +1196,14 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
                 rep.info("texture layer {0} is {1!r}, {2:.1f} h old".format(
                     code, lay.get("status"), lage))
         entry = ((idx or {}).get("products") or {}).get("texture") or {}
-        if entry.get("status") == "ok":
+        # Only when the index entry describes THIS manifest. Before promote,
+        # cmd_all validates the staged texture.json against the PUBLISHED
+        # index.json (the new one is written after validation), so an entry
+        # counting a different number of layers belongs to the previous run.
+        # Measured in dry run 37247690602: without this guard the check
+        # rolled back a correct 3-layer texture because the old index said
+        # ok for 4 layers.
+        if entry.get("status") == "ok" and entry.get("layers") == len(layers):
             rep.check(len(layers) == len(TEX_CHANNELS),
                       "texture status ok only with every channel published",
                       "{0} of {1} layers".format(len(layers),
@@ -1814,13 +1837,39 @@ def validate_products(target, *, strict: bool = False,
         reports[name] = rep
         return rep
 
+    # A check that RAISES must fail its own product and nothing else. The
+    # checks index into manifests that are, by definition, untrusted at this
+    # point, and one `float(None)` used to escape to cmd_all's outer handler,
+    # which printed NOTHING PROMOTED and left all six products stale -- footgun
+    # 50/51's coupling by another route. A fuzz on 2026-10-04 found 24 such
+    # sites in the pfss checks alone, and io_utils._round_floats turns any
+    # NaN into a JSON null, so one bad number upstream was enough.
+    def guarded(rep: Report, label: str, fn, *args) -> None:
+        try:
+            fn(*args)
+        except Exception as exc:                       # noqa: BLE001
+            rep.check(False, "{0} validator raised".format(label),
+                      "{0}: {1}".format(type(exc).__name__, exc))
+
     if "index" in want:
-        _check_index(report("index"), idx)
+        rep = report("index")
+        guarded(rep, "index", _check_index, rep, idx)
 
     region_numbers: Optional[List[int]] = None
     if want & {"pfss", "events"}:
-        region_numbers = _region_numbers(get)
+        try:
+            region_numbers = _region_numbers(get)
+        except Exception:                              # noqa: BLE001
+            region_numbers = None
 
+    checks = {
+        "active_regions": lambda rep: _check_regions(rep, get, idx),
+        "ephemeris": lambda rep: _check_ephem(rep, get, idx),
+        "stats": lambda rep: _check_stats(rep, get, idx),
+        "texture": lambda rep: _check_texture(rep, get, idx),
+        "events": lambda rep: _check_events(rep, get, idx),
+        "pfss": lambda rep: _check_pfss(rep, get, idx, region_numbers),
+    }
     for name in PRODUCT_ORDER:
         if name == "index" or name not in want:
             continue
@@ -1830,21 +1879,13 @@ def validate_products(target, *, strict: bool = False,
         # tree.  Affordable for all 110 texture files, where the decode
         # sampling further down is not.
         if doc is not None:
-            _check_referenced_files(rep, probe, name, doc)
+            guarded(rep, name + " file-reference", _check_referenced_files,
+                    rep, probe, name, doc)
             if check_orphans:
-                _check_no_orphans(rep, tree.root, name, doc)
-        if name == "active_regions":
-            _check_regions(rep, get, idx)
-        elif name == "ephemeris":
-            _check_ephem(rep, get, idx)
-        elif name == "stats":
-            _check_stats(rep, get, idx)
-        elif name == "texture":
-            _check_texture(rep, get, idx)
-        elif name == "events":
-            _check_events(rep, get, idx)
-        elif name == "pfss":
-            _check_pfss(rep, get, idx, region_numbers)
+                guarded(rep, name + " orphan", _check_no_orphans,
+                        rep, tree.root, name, doc)
+        if name in checks:
+            guarded(rep, name, checks[name], rep)
 
     return reports
 

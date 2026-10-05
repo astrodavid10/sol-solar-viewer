@@ -988,9 +988,9 @@ def run_events(ctx: Ctx) -> ProductResult:
     # the published file.
     hours = WINDOW_HOURS + EVENTS_WINDOW_SLACK_HOURS
     outage = ctx.simulate_donki_outage
-    flares, src_f = donki_src.fetch_flares(
+    flares, src_f, fetched_f = donki_src.fetch_flares(
         ctx.now, hours, ctx.cache, ctx.verbose, simulate_outage=outage)
-    cmes, src_c = donki_src.fetch_cmes(
+    cmes, src_c, fetched_c = donki_src.fetch_cmes(
         ctx.now, hours, ctx.cache, ctx.verbose, simulate_outage=outage)
     source = "CCMC DONKI (ccmc.gsfc.nasa.gov)"
     cached = "cached" in (src_f, src_c)
@@ -1000,6 +1000,9 @@ def run_events(ctx: Ctx) -> ProductResult:
     doc = events_export.build_events(
         ctx.now, flares, cmes, _regions_for_check(ctx), source,
         status="degraded" if cached else "ok")
+    # When the catalog was actually fetched (the OLDER of the two endpoints),
+    # which generated_iso cannot say once the cache is serving. Additive.
+    doc["fetched_iso"] = min(fetched_f, fetched_c)
 
     blob = json_dumps(doc).encode("utf-8")
     if len(blob) > EVENTS_MAX_BYTES:
@@ -1022,7 +1025,8 @@ def run_events(ctx: Ctx) -> ProductResult:
     return ProductResult(
         name="events", url="events/events.json", status=doc["status"],
         generated=ctx.now,
-        note="DONKI unreachable; served from cache" if cached else "",
+        note=("DONKI unreachable; served a cache fetched {0}".format(
+            doc["fetched_iso"]) if cached else ""),
         extra={"flares": c["flares"], "cmes": c["cmes"],
                "x_class": c["x_class"], "fast_cmes": c["fast_cmes"],
                "bytes": len(blob)})
@@ -1507,8 +1511,6 @@ def cmd_all(args: argparse.Namespace) -> int:
         ctx.staging.write_json("index.json",
                                build_index(ctx, results, attempt))
         moved = ctx.staging.promote()
-        _prune_orphan_frames(ctx, results)
-        _prune_orphan_textures(ctx, results)
     except Exception as exc:                                  # noqa: BLE001
         # The ONLY non-zero exit: nothing was promoted and no index was
         # written, so the app has no heartbeat and the workflow must not
@@ -1521,6 +1523,17 @@ def cmd_all(args: argparse.Namespace) -> int:
         return 1
     finally:
         ctx.staging.cleanup()
+
+    # OUTSIDE the try above: by now a tree WAS promoted and an index written,
+    # so a prune error must not print "NOTHING PROMOTED" and exit 1 -- that
+    # would skip the CI publish of a perfectly good tree. A failed prune only
+    # leaves orphan files behind, which the next run's prune removes.
+    try:
+        _prune_orphan_frames(ctx, results)
+        _prune_orphan_textures(ctx, results)
+    except Exception as exc:                                  # noqa: BLE001
+        print("  WARN orphan prune failed after a successful promote: "
+              "{0}: {1}".format(type(exc).__name__, exc))
 
     print("[publish] {0} file(s) into {1}".format(len(moved), ctx.out))
     for r in results:

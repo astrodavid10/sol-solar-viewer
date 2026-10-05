@@ -55,6 +55,31 @@ def srs_epoch_date(text: str) -> Optional[date]:
     return None
 
 
+def region_is_possible(lat: int, lon: int, c_lon: int, spots: int = 0) -> bool:
+    """False for a region position no sunspot can have.
+
+    The bounds mirror validate.py's region checks on purpose: whatever a
+    source keeps, the validator must accept. |lat| <= 60 because nothing
+    outside the activity belts is a sunspot (footgun 51: NOAA once keyed
+    AR4521 at latitude 98 when it meant 9).
+    """
+    return (abs(lat) <= 60 and abs(lon) <= 180 and 0 <= c_lon < 360
+            and spots >= 0)
+
+
+def warn_impossible(source: str, rnumber: int, lat: int, lon: int,
+                    c_lon: int, spots: int) -> None:
+    """Loud, per footgun 32 -- degrade quietly for the guest, never quietly
+    for the operator."""
+    print("  WARN {0} AR{1}: impossible record (lat {2}, lon {3}, carr_lon "
+          "{4}, spots {5}) -- dropped".format(source, rnumber, lat, lon,
+                                             c_lon, spots))
+
+
+class SrsFormatError(ValueError):
+    """srs.txt no longer has the Section I header this parser keys on."""
+
+
 def parse_srs(text: str) -> List[Region]:
     """Parse Section I of an SRS report into region dicts.
 
@@ -65,11 +90,12 @@ def parse_srs(text: str) -> List[Region]:
     """
     regions: List[Region] = []
     in_section = False
+    seen_header = False
     for raw in text.splitlines():
         line = raw.strip()
         if not in_section:
             if line.startswith("Nmbr"):
-                in_section = True
+                in_section = seen_header = True
             continue
         if line.startswith("IA.") or line.startswith("None"):
             break
@@ -99,11 +125,24 @@ def parse_srs(text: str) -> List[Region]:
             lon = lon_sign * int(loc[4:6])
         except ValueError:
             continue
+        # Today's regions seed the field lines and place today's markers, and
+        # used to reach both with no bounds at all -- the footgun-51 guard
+        # existed only for the JSON feed.
+        if not region_is_possible(lat, lon, c_lon, num_spots):
+            warn_impossible("srs.txt", rnumber, lat, lon, c_lon, num_spots)
+            continue
         regions.append({
             "rnumber": rnumber, "numSpots": num_spots, "lat": lat,
             "lon": lon, "cLon": c_lon, "area": area, "ext": ext,
             "zurich": zurich, "magtype": magtype,
         })
+    if not seen_header:
+        # A spotless Sun still prints the header followed by `None`. No header
+        # at all means the format moved, and an empty list here would publish
+        # as a genuinely spotless Sun with status ok.
+        raise SrsFormatError("no Section I 'Nmbr' header in {0} bytes of SRS "
+                             "text -- has NOAA changed the format?".format(
+                                 len(text)))
     return regions
 
 
@@ -188,12 +227,9 @@ def fetch_regions_json(timeout: float = 30.0) -> Dict[date, List[Region]]:
         # Bounds mirror validate.py's region checks on purpose: whatever this
         # keeps, the validator must accept.  Loud, per footgun 32 -- degrade
         # quietly for the guest, never quietly for the operator.
-        if not (abs(lat_i) <= 60 and abs(lon_i) <= 180
-                and 0 <= clon_i < 360 and spots_raw >= 0):
-            print("  WARN solar_regions.json {0} AR{1}: impossible record "
-                  "(lat {2}, lon {3}, carr_lon {4}, spots {5}) -- dropped"
-                  .format(d.isoformat(), rnumber, lat_i, lon_i, clon_i,
-                          spots_raw))
+        if not region_is_possible(lat_i, lon_i, clon_i, spots_raw):
+            warn_impossible("solar_regions.json " + d.isoformat(), rnumber,
+                            lat_i, lon_i, clon_i, spots_raw)
             continue
         out.setdefault(d, []).append({
             "rnumber": rnumber,
@@ -324,13 +360,24 @@ def newest_regions(cache_dir: Path, simulate_outage: bool = False,
     except Exception as exc:
         print("  WARN srs.txt: {0}".format(exc))
 
+    # A cached srs.txt only while it is recent. It used to win at ANY age
+    # over a live solar_regions.json that could be days fresher -- harmless
+    # while CI threw its cache away every red run, and wrong the moment the
+    # cache started surviving (T25).
     cached = sorted(cache_dir.glob("*SRS.txt"))
     if cached:
-        text = cached[-1].read_text(encoding="utf-8", errors="replace")
-        epoch = srs_epoch_date(text)
-        regions = parse_srs(text)
-        if epoch is not None:
+        try:
+            text = cached[-1].read_text(encoding="utf-8", errors="replace")
+            epoch = srs_epoch_date(text)
+            regions = parse_srs(text)
+        except Exception as exc:                       # noqa: BLE001
+            print("  WARN cached {0}: {1}".format(cached[-1].name, exc))
+            epoch = None
+        if epoch is not None and (date.today() - epoch).days <= 2:
             return regions, epoch, "cached {0}".format(cached[-1].name)
+        if epoch is not None:
+            print("  cached {0} is from {1}; too old, trying "
+                  "solar_regions.json".format(cached[-1].name, epoch))
 
     jr = fetch_regions_json(timeout)
     if jr:

@@ -308,8 +308,39 @@ def _ipv4_only():
         socket.getaddrinfo = real
 
 
-def http_get_full(url: str, timeout: float = 30.0, prefer_ipv4: bool = False
-                  ) -> "tuple[bytes, dict]":
+class UpstreamContractError(PipelineError):
+    """An upstream answered, but not with what this pipeline asked for.
+
+    The message always starts ``UPSTREAM MOVED:``. That prefix reaches
+    ``last_error`` in index.json, and data.yml's Verdict keys on it, so a
+    retired endpoint reads as one instead of as a transient. Footgun 58: CCMC
+    retired the kauai DONKI base with a 301 to a 60 KB news page, urllib
+    followed it, and the symptom was ``json.loads`` saying "Expecting value",
+    which looked like an empty response, while the events stage quietly served
+    an empty cache to guests.
+    """
+
+
+def _check_contract(url: str, final: str, body: bytes, headers: dict,
+                    expect: str) -> None:
+    from urllib.parse import urlparse
+    moved = urlparse(final).hostname != urlparse(url).hostname
+    ctype = (headers.get("content-type") or "").lower()
+    looks_html = "text/html" in ctype or body.lstrip()[:1] == b"<"
+    if moved:
+        raise UpstreamContractError(
+            "UPSTREAM MOVED: {0} redirected off-host to {1} ({2}, {3}); the "
+            "endpoint has probably moved".format(url, final, ctype or "no type",
+                                                 human_bytes(len(body))))
+    if looks_html:
+        raise UpstreamContractError(
+            "UPSTREAM MOVED: {0} returned {1} ({2}) where {3} was expected{4}"
+            .format(url, ctype or "HTML", human_bytes(len(body)), expect,
+                    "" if final == url else " after a redirect to " + final))
+
+
+def http_get_full(url: str, timeout: float = 30.0, prefer_ipv4: bool = False,
+                  expect: Optional[str] = None) -> "tuple[bytes, dict]":
     """(body, lowercased response headers).
 
     The headers matter for the SDO ``latest_*.jpg`` fallback: that URL carries
@@ -319,13 +350,22 @@ def http_get_full(url: str, timeout: float = 30.0, prefer_ipv4: bool = False
 
     ``prefer_ipv4`` works around a host whose AAAA record black-holes; see
     _ipv4_only.  Opt-in, because it is a real (if small) loss of function.
+
+    ``expect`` ("json" or "text") turns an off-host redirect or an HTML body
+    into an :class:`UpstreamContractError`. The final URL is returned in the
+    headers as ``x-final-url``.
     """
     req = urllib.request.Request(url, headers=HEADERS)
     with contextlib.ExitStack() as stack:
         if prefer_ipv4:
             stack.enter_context(_ipv4_only())
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read(), {k.lower(): v for k, v in resp.headers.items()}
+            body = resp.read()
+            headers = {k.lower(): v for k, v in resp.headers.items()}
+            headers["x-final-url"] = resp.geturl()
+    if expect:
+        _check_contract(url, headers["x-final-url"], body, headers, expect)
+    return body, headers
 
 
 def http_get(url: str, timeout: float = 30.0) -> bytes:
@@ -379,11 +419,14 @@ def http_size(url: str, timeout: float = 15.0) -> Optional[int]:
 
 
 def http_get_text(url: str, timeout: float = 30.0) -> str:
-    return http_get(url, timeout).decode("utf-8", errors="replace")
+    """A plain-text product (srs.txt). Not for HTML scraping."""
+    return http_get_full(url, timeout, expect="text")[0].decode(
+        "utf-8", errors="replace")
 
 
 def http_get_json(url: str, timeout: float = 30.0) -> Any:
-    return json.loads(http_get_text(url, timeout))
+    return json.loads(http_get_full(url, timeout, expect="json")[0].decode(
+        "utf-8", errors="replace"))
 
 
 def quiet_unlink(*paths: Optional[Path]) -> None:

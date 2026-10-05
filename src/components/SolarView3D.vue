@@ -235,6 +235,8 @@
             :loaded-count="loadedCount"
             :load-done="loadDone"
             :times="frameTimes"
+            :held="frameHeld"
+            :mag-times="frameMagTimes"
             :frame-t="frameT"
             :stale="dataStale"
             :stale-hours="dataStaleHours"
@@ -752,6 +754,10 @@ export default defineComponent({
       failed: false,
       /** Today's flat picture of the Sun for the cover and the failure card. */
       diskStill: null as DiskStill | null,
+      /** Per frame: slot reused an older magnetogram (T40). */
+      frameHeld: [] as boolean[],
+      /** Per frame: the magnetogram's own time, for the held note. */
+      frameMagTimes: [] as number[],
       /** T36: the GPU dropped the WebGL context. */
       contextLost: false,
       /** False once a reload in the last minute already failed to help. */
@@ -1444,7 +1450,16 @@ export default defineComponent({
             rt.manifest = markRaw(manifest);
             this.frameCount = manifest.frames.length;
             this.loadedFrom = manifest.frames.length;
-            frameTimes.value = manifest.frames.map((f) => f.magUnix);
+            // The SLOT time, not the magnetogram time: a slot that reused an
+            // older magnetogram would otherwise sit on top of its neighbour
+            // and shrink the axis (T40). Slots are an even 4 h grid, which is
+            // also what the texture frames are keyed on (footgun 36).
+            frameTimes.value = manifest.frames.map((f) => {
+              const t = Date.parse(f.targetIso) / 1000;
+              return Number.isFinite(t) ? t : f.magUnix;
+            });
+            this.frameHeld = manifest.frames.map((f) => f.reused);
+            this.frameMagTimes = manifest.frames.map((f) => f.magUnix);
             // Surfaced now so the banner (if it appears) already has the right
             // number in it; `dataStale` itself waits for index.json's verdict.
             this.dataStaleHours = manifest.newestMagAgeHours;

@@ -26,7 +26,7 @@
             v-for="tick in ticks"
             :key="tick.index"
             class="ts-tick"
-            :class="{ 'is-loaded': tick.loaded }"
+            :class="{ 'is-loaded': tick.loaded, 'is-held': tick.held }"
             :style="{ left: tick.left + '%' }"
           ></span>
         </div>
@@ -64,7 +64,7 @@
         <p class="ts-label">
           <template v-if="loadingText">{{ loadingText }}</template>
           <template v-else>
-            <strong>{{ stampText }}</strong> · {{ ageText }}<template v-if="gapText"> · {{ gapText }}</template>
+            <strong>{{ stampText }}</strong> · {{ ageText }}<template v-if="heldText"> · {{ heldText }}</template><template v-if="gapText"> · {{ gapText }}</template>
           </template>
         </p>
       </div>
@@ -86,6 +86,7 @@ interface Tick {
   index: number;
   left: number;
   loaded: boolean;
+  held: boolean;
 }
 
 /**
@@ -144,8 +145,24 @@ export default defineComponent({
       type: Boolean,
       default: false,
     },
-    /** Magnetogram time per frame index, unix seconds. */
+    /**
+     * Slot TARGET time per frame index, unix seconds: an even 4 h grid. It used
+     * to be each frame's magnetogram time, so a frame that reused an older
+     * magnetogram (a GONG mirror gap) collapsed onto its neighbour: the window
+     * read "last 20 hours" against a 72 h manifest and the end of the track went
+     * dead (T40).
+     */
     times: {
+      type: Array as () => number[],
+      default: () => [],
+    },
+    /** Per frame: true when the slot had no new magnetogram and repeats an older one. */
+    held: {
+      type: Array as () => boolean[],
+      default: () => [],
+    },
+    /** Per frame: the magnetogram's own time, unix seconds (for the held note). */
+    magTimes: {
       type: Array as () => number[],
       default: () => [],
     },
@@ -264,6 +281,18 @@ export default defineComponent({
     /** Said only once the load has finished with a hole in it, and said in one
      *  clause after the stamp rather than instead of it: the ticks already show
      *  WHERE the gap is, so this only has to explain why the track is short. */
+    /** "no new magnetogram since 14:14 UTC" while the playhead sits on a held slot. */
+    heldText(): string {
+      const i = Math.round(this.frameT);
+      if (!this.held[i]) { return ""; }
+      const mag = this.magTimes[i];
+      if (!Number.isFinite(mag)) { return "no new magnetogram for this hour"; }
+      const d = new Date(mag * 1000);
+      const hh = String(d.getUTCHours()).padStart(2, "0");
+      const mm = String(d.getUTCMinutes()).padStart(2, "0");
+      return `no new magnetogram since ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${hh}:${mm} UTC`;
+    },
+
     gapText(): string {
       if (!this.loadDone || this.frameCount === 0) { return ""; }
       const missing = this.frameCount - this.loadedCount;
@@ -282,6 +311,7 @@ export default defineComponent({
           index: i,
           left: (i / span) * 100,
           loaded: i >= this.loadedFrom && i <= this.loadedTo,
+          held: !!this.held[i],
         });
       }
       return out;
@@ -571,6 +601,15 @@ export default defineComponent({
   border-radius: 1px;
   background: var(--sol-hairline);
   transition: background 200ms ease;
+
+  // A held slot repeats an older magnetogram (T40): drawn hollow, so a guest
+  // can see where the field stops changing.
+  &.is-held {
+    width: 4px;
+    margin-left: -2px;
+    background: transparent !important;
+    box-shadow: inset 0 0 0 1px rgba(var(--sol-select-rgb), 0.6);
+  }
 
   // Which frames have downloaded: UI state, not data. Neutral.
   &.is-loaded {

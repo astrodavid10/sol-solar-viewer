@@ -51,7 +51,7 @@ older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T3
 | T38 | WWT render loop on requestAnimationFrame, measured (plan 2.6) | TODO | — |  |
 | T39 | Split SolarView3D.vue: cards, then time cluster (plan 4.1) | TODO | — | supersedes the deferred note below |
 | T40 | Held PFSS frames on the timeline (plan 4.2) | TODO | — |  |
-| T41 | Hot Corona stops dropping out: fixed-res limb fit + carry-forward (plan 5.1) | DONE (carry-forward); guard decision open | `62a6559` | 0193 limb excess measured +3.49% mean (8/12 over the 3% tol); 0304 +2.22%, 0171 -0.87%. Per-channel re-centering of the guard needs a decision (footgun 40) |
+| T41 | Hot Corona stops dropping out: fixed-res limb fit + carry-forward (plan 5.1) | DONE | `62a6559`+`112bc43` | carry-forward + limb band centred per channel (user-approved 2026-10-05; tol still 3%). Run 37298265012: 0171/0304/0193 all passed, live has 3 layers; issue #2 not re-commented (reasons unchanged) |
 | T42 | Current HMI imagery from JSOC (plan 5.2) | NEXT | — | orientation gate vs SDO 2026-09-24 |
 | T43 | `_single` as filtered `cmd_all`; `pipeline/index.py` (plan 5.3) | TODO | — |  |
 | T44 | Share preview + service worker (plan 7.1) | TODO | — |  |

@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-10-05 (twenty-fourth session — phase 1 done; T41/T42 restore all five channels; phase 2 done except T37's sibling T38, which needs a visible browser tab)
+**Last updated:** 2026-10-05 (twenty-fourth session — phase 1 done; T41/T42 restore all five channels; phase 2 done except T38, which needs a visible browser tab)
 
 ---
 
@@ -47,7 +47,7 @@ older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T3
 | T34 | Texture loads: latest request wins (plan 2.2) | DONE | `582df6f` | src/three/latestRequest.ts; race itself needs vitest (4.0) or a slow network |
 | T35 | Hi-res map only when the disk is big enough (plan 2.3) | DONE | `3987124` | ?hires auto: wide + field lines loaded + disk >= 1600 px (off < 1300). Gate verified 349/1550/1788/1550/544 px. Mipmaps kept (deviation, see commit) |
 | T36 | WebGL context-loss cover (plan 2.4) | DONE | `cb9c790` | cover + one auto-reload per minute; solDebug.loseContext(). Browser-verified both paths |
-| T37 | Kiosk take-home URL (plan 2.5) | TODO | — |  |
+| T37 | Kiosk take-home URL (plan 2.5) | DONE | `0f36049` | kioskHomeUrl set; QR refused for localhost/private hosts |
 | T38 | WWT render loop on requestAnimationFrame, measured (plan 2.6) | TODO — needs a visible Chrome tab | — | fps before/after cannot be measured while the tab is hidden (rAF and frames stop) |
 | T39 | Split SolarView3D.vue: cards, then time cluster (plan 4.1) | TODO | — | supersedes the deferred note below |
 | T40 | Held PFSS frames on the timeline (plan 4.2) | TODO | — |  |

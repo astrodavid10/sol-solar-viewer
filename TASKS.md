@@ -994,8 +994,8 @@ they must be judged at 1080x1920, not on a scaled-down still.
 ### T19 — Near-side detail maps at full SDO resolution  *(IN PROGRESS)*
 
 Asked for directly: the 19 history slots are 2048x1024 while SDO's browse product is 4096x4096,
-so the window carries a quarter of the linear detail it could. Full plan lives outside the repo
-at `~/.claude/plans/i-am-confused-when-eager-thompson.md`.
+so the window carries a quarter of the linear detail it could. (The full plan lived outside
+the repo and no longer exists; this section is the surviving record of it.)
 
 **The shape of the answer, decided with the user:** do NOT publish 8192x4096 full-sphere maps
 for all 19 slots. Publish the existing 2048x1024 full-sphere map as a BASE plus a 4096x4096

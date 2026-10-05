@@ -58,8 +58,8 @@ so a fresh session (human or Claude) can pick the work up without re-deriving co
 - **Current plan:** a six-workstream plan was approved in the third session — the pipeline
   half of time-aligned imagery (**DONE**, §3z), the design system (**partly done**, §3z),
   responsive overlays, label/render performance, gestures (pinch + twist), and the app half of
-  time-aligned imagery. The plan file lives outside the repo at
-  `~/.claude/plans/review-the-claude-md-and-hidden-rabin.md`.
+  time-aligned imagery. (That plan file lived outside the repo and no longer exists; the
+  current plan is `docs/PLAN-2026-10.md`.)
 
 ### Read these first, in this order
 

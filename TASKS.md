@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-09-30 (twenty-third session — fifteenth T1 hand-publish, mirror down a fourth time; DONKI moved, footgun 58)
+**Last updated:** 2026-10-04 (twenty-fourth session — audit; plan `docs/PLAN-2026-10.md` adopted, rows T24-T46 added)
 
 ---
 
@@ -26,8 +26,37 @@ Rows are listed in **execution order**. IDs are stable names, not positions — 
 where they do because they are live guest-facing defects reported by a real reviewer, which
 the plan says outrank documentation work.
 
+**Since 2026-10-04 the execution order is set by [`docs/PLAN-2026-10.md`](docs/PLAN-2026-10.md)**
+(the 2026-10-04 audit, 31 findings, seven phases). Rows T24-T46 are its tasks and come first;
+older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T31, 2 = T32-T38,
+3 = T4, 4 = T6 (vitest) / T39 / T40 / T3 / T12 / T11, 5 = T41-T43, 6 = T6 (Playwright) / T8 / T7,
+7 = T44-T46 / T15 / T13 / T14 / T16 / T17 / T9.
+
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
+| T24 | Per-channel texture age ceiling; drop stale layers; per-layer status (plan 1.1) | IN PROGRESS | — | HMI layers showed 09-21 imagery as `ok` |
+| T25 | Save the CI cache on red runs (plan 1.2) | TODO | — |  |
+| T26 | Validator crash isolation per product (plan 1.3) | TODO | — | 24 crash sites on a null |
+| T27 | Region position bounds for srs.txt (plan 1.4) | TODO | — |  |
+| T28 | Upstream contract errors + DONKI cache age limit (plan 1.5) | TODO | — | footgun 58's mechanism |
+| T29 | Pipeline loose ends (plan 1.6) | TODO | — |  |
+| T30 | Quieter, smarter GitHub signal + mirror heartbeat + freshness backstop dispatch (plan 1.7) | TODO | — | GitHub only, by decision |
+| T31 | Repo-scoped mirror PAT + catch-up dispatch (plan 1.8) | TODO | — | needs the user to mint the PAT |
+| T32 | `docs/CONTRACT.md` (plan 2.0) | TODO | — |  |
+| T33 | No silent hang: overall timeout, disk still, Try again (plan 2.1) | TODO | — | adds `disk_still` to texture.json |
+| T34 | Texture loads: latest request wins (plan 2.2) | TODO | — |  |
+| T35 | Hi-res map only when the disk is big enough (plan 2.3) | TODO | — | rewrites footgun 40 |
+| T36 | WebGL context-loss cover (plan 2.4) | TODO | — |  |
+| T37 | Kiosk take-home URL (plan 2.5) | TODO | — |  |
+| T38 | WWT render loop on requestAnimationFrame, measured (plan 2.6) | TODO | — |  |
+| T39 | Split SolarView3D.vue: cards, then time cluster (plan 4.1) | TODO | — | supersedes the deferred note below |
+| T40 | Held PFSS frames on the timeline (plan 4.2) | TODO | — |  |
+| T41 | Hot Corona stops dropping out: fixed-res limb fit + carry-forward (plan 5.1) | TODO | — |  |
+| T42 | Current HMI imagery from JSOC (plan 5.2) | TODO | — | orientation gate vs SDO 2026-09-24 |
+| T43 | `_single` as filtered `cmd_all`; `pipeline/index.py` (plan 5.3) | TODO | — |  |
+| T44 | Share preview + service worker (plan 7.1) | TODO | — |  |
+| T45 | Build stack bumps + Vite spike (plan 7.2) | TODO | — |  |
+| T46 | CI supply chain: SHA pins, lockfile (plan 7.3) | TODO | — |  |
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
 | T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22**. **12th on 2026-09-15** (`8d7f91d`, 19/19 slots, all six products `ok`) — the mirror itself was down: see note below. **13th on 2026-09-21** (`77f5e24`, 19/19 slots, all six products `ok`) — the mirror was down again, same interactive-logon cause, now footgun 56. **14th on 2026-09-22** (`ef1a1e3`, 19/19 slots, all six products `ok`) — mirror down ~44 h again; 0171 hi-res needed a second texture-only run (footgun 57). **15th on 2026-09-30** (`ef9d547`, 19/19 slots, all six products `ok`) — mirror down ~4.5 days; DONKI's API moved (footgun 58, `1bc2081`) |
 | T2 | Land the GONG relay (Option D, workstation mirror) | DONE | `8650fee`+`85e626c` | LIVE 2026-09-02: `gong-cache` fed hourly by `SolGongMirror`; CI traced 19/19 in run 33663715169 (dry) and **published** in 33664961891 (`gh-pages` `ca5426f`, Verdict ok, issue #1 closed). Formal "scheduled" confirmation = the next cron tick |

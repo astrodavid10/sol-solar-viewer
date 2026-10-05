@@ -20,9 +20,10 @@ issue #1 says `pfss` is stale, check the mirror before reaching for the runbook 
 definition of done for each. Then **`HANDOFF.md`**, the living status doc (what is done,
 partial, unstarted, and what has never been verified in a browser). Update both at the end of
 any session that changes state.
-The original implementation plan lives outside this repo as a local Claude Code planning
-document; the parts that matter (the binary formats and manifest fields that the app and the
-pipeline must agree on) are restated here and in `pipeline/validate.py`, which enforces them.
+The binary formats and manifest fields the app and the pipeline must agree on are written
+down in **`docs/CONTRACT.md`** and enforced by `pipeline/validate.py`. The current work plan
+is `docs/PLAN-2026-10.md`. (Plans kept outside the repo have gone missing before; keep them
+in `docs/`.)
 Skeleton provenance: adapted from `DataStories\exo-sonification` (that repo is READ-ONLY reference).
 
 ## Commands
@@ -61,8 +62,8 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
 - **Two tracks, one contract.** `src/` is the Vue app; `pipeline/` is the Python data pipeline
   that GitHub Actions runs every 4 h (`.github/workflows/data.yml`), publishing binary PFSS
   frames + JSON products to the `data/` subtree of `gh-pages`. The app fetches them same-origin.
-  The contract (binary formats, manifest fields) is specified in the plan file — change it in
-  BOTH places or not at all.
+  The contract (binary formats, manifest fields) is `docs/CONTRACT.md` — change it in the
+  pipeline, the app and that file in one commit, or not at all.
 - **Validation is per product and happens INSIDE the pipeline, before promote** (since
   2026-09-02, T20). `cmd_all` runs `validate.validate_products()` against a
   staging-over-published overlay, rolls back only a product that fails its own checks (marking
@@ -790,10 +791,35 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     record. Nobody has measured whether it black-holes the way kauai's did (footgun 24), so the
     `prefer_ipv4=True` scoping stays. If `events` degrades with a JSON decode error again,
     `curl -sI` the URL before you assume an outage: a 301 means the service moved.
+    Since T28 (2026-10-05) this class of failure names itself: `http_get_full(expect=...)`
+    raises `UpstreamContractError` (`UPSTREAM MOVED: ...`) on an off-host redirect or an HTML
+    body, DONKI never serves its cache on one, and the cache is refused past 24 h.
+
+59. **SDO GSFC stopped publishing HMI browse frames on 2026-09-24 (last frame 15:00Z); HMI now
+    comes from JSOC.** No notice was posted. GSFC's AIA browse frames carry on, but every
+    `latest_*.jpg` (AIA included) froze at 2026-09-21, and the texture stage's `latest_*`
+    fallback had no age bound, so Visible Sun and Magnetic Map shipped 13-day-old maps under
+    `status: ok` until T24 added the ceiling. HMIIC and HMIB are now fetched from JSOC's dated
+    tree, `https://jsoc1.stanford.edu/data/hmi/images/YYYY/MM/DD/YYYYMMDD_HHMMSS_{Ic,M}_4k.jpg`
+    (`TEX_CHANNELS` `source: "jsoc"`, `jsoc_product`). **Do not "correct" its geometry.** At the
+    identical instant (2026-09-24 11:00:00) JSOC's `M_4k`/`Ic_4k` and GSFC's
+    `4096_HMIB`/`4096_HMIIC` have the same disk radius (1897 px), the same center, the same
+    orientation and the same brightness, correlating 0.999 and 1.000: GSFC's frames were
+    rendered from these. `Ic` is already the orange colorized continuum. The limb fit puts it at
+    +0.09% (so HMI's `limb_excess` is 0.0). Two differences matter: JSOC serves full size at
+    4096 ONLY (`_load_rgb` asserts 4096 and downsamples for the 2048 history maps, which is how
+    GSFC made its own 2048 still), and there is no undated `latest` fallback for a JSOC channel
+    -- if the dated tree has nothing within 2 days, the channel fails and T41 carries its last
+    good layer forward. Freshness probe: `jsoc1.stanford.edu/data/hmi/images/image_times.json`.
+    (This entry's 0.9265 disk fill also corrects footgun 21's 0.9184 for the plain HMIB still;
+    footgun 21's 0.8395 diskScale ratio predates this and was not re-derived.)
 
 ## Data sources (verified live 2026-08)
 
-- SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7).
+- SDO GSFC stills/movies: hotlinked, no CORS (see footguns 6-7). AIA browse frames only:
+  GSFC's HMI browse frames stopped 2026-09-24 and every `latest_*.jpg` froze 2026-09-21.
+- JSOC (Stanford) HMI images: the pipeline's source for HMIIC/HMIB since 2026-10-05,
+  `jsoc1.stanford.edu/data/hmi/images/YYYY/MM/DD/`, 15 min cadence, 4096 only (footgun 59).
 - NOAA SWPC (CORS *): tiny endpoints only in the browser (`xray-flares-latest`,
   `products/summary/*`, `noaa-planetary-k-index`, `noaa-scales`); the BIG files
   (`xrays-1-day.json` 654 KB, `rtsw_wind_1m.json` 2.9 MB, `solar-cycle/sunspots.json`) are

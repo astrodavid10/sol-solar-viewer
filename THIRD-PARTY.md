@@ -53,7 +53,10 @@ runtime; `public/hips-surveys.wtml` is an excerpt of that catalog.
 Not redistributed as code, but fetched or digested at build/run time. All are
 public, US-government or publicly-funded scientific products:
 
-- **NASA SDO** imagery (`sdo.gsfc.nasa.gov`) — hotlinked stills and movies.
+- **NASA SDO** imagery (`sdo.gsfc.nasa.gov`) — AIA browse stills.
+- **SDO/HMI via Stanford JSOC** (`jsoc1.stanford.edu/data/hmi/images`) — the HMI
+  continuum and magnetogram images behind the Visible Sun and Magnetic Map layers.
+  Courtesy of NASA/SDO and the HMI science team.
 - **NOAA SWPC** (`services.swpc.noaa.gov`) — space-weather products.
 - **NSO GONG** (`gong2.nso.edu`) — magnetograms feeding the PFSS model.
 - **NASA CCMC DONKI** (`ccmc.gsfc.nasa.gov/DONKI-API`) — flare and CME catalog.

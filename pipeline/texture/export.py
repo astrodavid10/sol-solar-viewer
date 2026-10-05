@@ -74,7 +74,8 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from ..config import (PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
+from ..config import (JSOC_HMI_BASE, JSOC_NATIVE_RES,
+                      PIPELINE_VERSION, SCHEMA_TEXTURE, SDO_BROWSE_BASE,
                       SDO_LATEST_BASE, TEX_AR_MAX_SUBEARTH_DEG,
                       TEX_AR_OFFSET_WARN_DEG, TEX_FARSIDE_NOISE_AMP,
                       TEX_FARSIDE_NOISE_TERMS, TEX_FARSIDE_SEED,
@@ -182,6 +183,7 @@ DEFAULT_CODE = TEX_CHANNELS[0]["code"]
 JPEG_NAME = jpeg_name(DEFAULT_CODE)
 PRODUCT_CODE = DEFAULT_CODE
 _BROWSE_RE_TMPL = r'href="(\d{{8}}_\d{{6}}_{res}_{prod}\.jpg)"'
+_JSOC_RE_TMPL = r'href="(\d{{8}}_\d{{6}}_{prod}_4k\.jpg)"'
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -201,15 +203,20 @@ class SourceImage(object):
         self.nbytes = nbytes
 
 
-def _browse_dir(day: datetime) -> str:
+def _is_jsoc(code: str) -> bool:
+    return channel_for(code).get("source") == "jsoc"
+
+
+def _browse_dir(day: datetime, jsoc: bool = False) -> str:
     return "{0}/{1:04d}/{2:02d}/{3:02d}/".format(
-        SDO_BROWSE_BASE, day.year, day.month, day.day)
+        JSOC_HMI_BASE if jsoc else SDO_BROWSE_BASE, day.year, day.month,
+        day.day)
 
 
 _DAY_LISTING: dict = {}
 
 
-def _day_listing(day: datetime) -> str:
+def _day_listing(day: datetime, jsoc: bool = False) -> str:
     """One browse day-directory listing, fetched at most once per process.
 
     The listing is ~1.6 MB and holds every product at every resolution (11,026
@@ -217,7 +224,7 @@ def _day_listing(day: datetime) -> str:
     the SAME document.  Without this cache a 72 h window would re-download it
     5 x 4 = 20 times, 33 MB, for data already in hand.
     """
-    base = _browse_dir(day)
+    base = _browse_dir(day, jsoc)
     if base not in _DAY_LISTING:
         try:
             body, _ = http_get_full(base, timeout=30.0)
@@ -244,13 +251,21 @@ def browse_candidates(now: datetime, days: int = 2,
     high-res newest map); both live in the same day-directory listing, so
     ``_day_listing``'s one-fetch-per-process cache still covers both.
     """
-    pat = re.compile(_BROWSE_RE_TMPL.format(res=src_res,
-                                           prod=code or DEFAULT_CODE))
+    code = code or DEFAULT_CODE
+    jsoc = _is_jsoc(code)
+    if jsoc:
+        # JSOC publishes full size at 4096 only; _load_rgb downsamples to the
+        # resolution the caller asked for, which reproduces GSFC's 2048 still
+        # (itself the 4096 native downsampled by two).
+        pat = re.compile(_JSOC_RE_TMPL.format(
+            prod=re.escape(channel_for(code)["jsoc_product"])))
+    else:
+        pat = re.compile(_BROWSE_RE_TMPL.format(res=src_res, prod=code))
     out: List[Tuple[datetime, str]] = []
     for d in range(days):
         day = now - timedelta(days=d)
-        base = _browse_dir(day)
-        for name in pat.findall(_day_listing(day)):
+        base = _browse_dir(day, jsoc)
+        for name in pat.findall(_day_listing(day, jsoc)):
             try:
                 t = datetime.strptime(name[:15], "%Y%m%d_%H%M%S").replace(
                     tzinfo=timezone.utc)
@@ -288,7 +303,7 @@ def fetch_source_at(target: datetime, code: str = None,
         name = url.rsplit("/", 1)[-1]
         try:
             raw, _ = http_get_full(url, timeout=60.0)
-            rgb = _decode(raw, src_res=src_res)
+            rgb = _load_rgb(raw, src_res, code)
         except Exception as exc:                          # noqa: BLE001
             skipped.append("{0}: {1}".format(name, exc))
             continue
@@ -300,10 +315,29 @@ def fetch_source_at(target: datetime, code: str = None,
         if skipped and verbose:
             print("      skipped {0}: {1}".format(len(skipped),
                                                   "; ".join(skipped[:2])))
-        return SourceImage(rgb, t, url, "browse", len(raw))
+        return SourceImage(rgb, t, url, "jsoc" if _is_jsoc(code) else "browse",
+                           len(raw))
     raise PipelineError(
         "every candidate near {0} was unusable ({1})".format(
             iso_z(target), "; ".join(skipped[:3]) or "none tried"))
+
+
+def _load_rgb(raw: bytes, src_res: int, code: str) -> np.ndarray:
+    """Decode one fetched still at ``src_res``.
+
+    GSFC publishes every resolution, so its stills are asserted at exactly the
+    size asked for. JSOC has only 4096 at full size: it is asserted at 4096
+    and then downsampled, which is how GSFC made its own 2048 HMI still.
+    """
+    if not _is_jsoc(code):
+        return _decode(raw, src_res=src_res)
+    arr = _decode(raw, src_res=JSOC_NATIVE_RES)
+    if src_res == JSOC_NATIVE_RES:
+        return arr
+    from PIL import Image
+    img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+    return np.asarray(img.resize((src_res, src_res), Image.LANCZOS),
+                      dtype=np.float32)
 
 
 def _decode(raw: bytes, src_res: int = TEX_SRC_RES) -> np.ndarray:
@@ -359,7 +393,7 @@ def fetch_source(now: datetime, verbose: bool = False,
         name = url.rsplit("/", 1)[-1]
         try:
             raw, _ = http_get_full(url, timeout=60.0)
-            rgb = _decode(raw, src_res=src_res)
+            rgb = _load_rgb(raw, src_res, code)
         except Exception as exc:
             skipped.append("{0}: {1}".format(name, exc))
             continue
@@ -371,7 +405,15 @@ def fetch_source(now: datetime, verbose: bool = False,
         if skipped:
             print("  skipped {0} unusable browse frame(s): {1}".format(
                 len(skipped), "; ".join(skipped if verbose else skipped[:2])))
-        return SourceImage(rgb, t, url, "browse", len(raw))
+        return SourceImage(rgb, t, url, "jsoc" if _is_jsoc(code) else "browse",
+                           len(raw))
+
+    if _is_jsoc(code):
+        # GSFC's latest_* fallback is frozen at 2026-09-21 for HMI, and JSOC
+        # has no undated equivalent worth trusting over its own dated tree.
+        raise PipelineError(
+            "no usable JSOC {0} frame in 2 day(s) ({1})".format(
+                code, "; ".join(skipped[:3]) or "empty listing"))
 
     url = "{0}/latest_{1}_{2}.jpg".format(SDO_LATEST_BASE, src_res, code)
     print("  no usable browse frame ({0}); trying latest_*.jpg".format(

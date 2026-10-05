@@ -269,12 +269,14 @@ TEX_CHANNELS = (
     {"code": "0193",  "label": "Hot Corona",    "wavelength": 193,
      "scale": 0.6009, "farside": "quiet", "ar_check": True,
      "limb_excess": 0.035},
+    # HMI comes from JSOC, not SDO GSFC (footgun 59): GSFC stopped publishing
+    # HMI browse frames on 2026-09-24. `jsoc_product` is the JSOC image name.
     {"code": "HMIIC", "label": "Visible Sun",   "wavelength": None,
      "scale": 0.5044, "farside": "flat",  "ar_check": False,
-     "limb_excess": 0.0},
+     "limb_excess": 0.0, "source": "jsoc", "jsoc_product": "Ic"},
     {"code": "HMIB",  "label": "Magnetic Map",  "wavelength": None,
      "scale": 0.5044, "farside": "flat",  "ar_check": False,
-     "limb_excess": 0.0},
+     "limb_excess": 0.0, "source": "jsoc", "jsoc_product": "M"},
 )
 # Plate carree, 0.0879 deg/px. Raised from 2048x1024 when the app became a
 # single sphere view: the Earth-facing hemisphere is half the width, so this is
@@ -331,6 +333,14 @@ TEX_MAX_OBS_AGE_HOURS = 24.0              # older than this -> status degraded
 # limb (see measure_limb): ring radius 788.9 px vs 790.5 px predicted from
 # sunpy's angular_radius, i.e. agreement to 0.2%.
 SDO_BROWSE_BASE = "https://sdo.gsfc.nasa.gov/assets/img/browse"
+# JSOC's dated HMI image tree: YYYY/MM/DD/YYYYMMDD_HHMMSS_<product>_4k.jpg,
+# every 15 min, 4096 px only at full size (no 2048). Measured 2026-10-05
+# against GSFC's last HMI browse frames at the identical instant (2026-09-24
+# 11:00:00): same disk radius (1897 px), same center, same orientation, same
+# brightness, correlation 0.999 (M vs HMIB) and 1.000 (Ic vs HMIIC). It is the
+# product GSFC's frames were rendered from. Footgun 59.
+JSOC_HMI_BASE = "https://jsoc1.stanford.edu/data/hmi/images"
+JSOC_NATIVE_RES = 4096
 SDO_LATEST_BASE = "https://sdo.gsfc.nasa.gov/assets/img/latest"
 # Source still for the HISTORY frames. 2048 is right for them: their output is
 # 2048x1024, so the near side is 1024 px and a 2048 still's 1602 px disk is

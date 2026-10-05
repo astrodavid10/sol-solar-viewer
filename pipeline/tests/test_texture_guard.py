@@ -36,13 +36,13 @@ def test_an_old_latest_still_is_refused(monkeypatch):
     lm = format_datetime(NOW - timedelta(days=13), usegmt=True)
     _no_browse(monkeypatch, {"last-modified": lm})
     with pytest.raises(PipelineError, match="past the 24 h ceiling"):
-        export.fetch_source(NOW, code="HMIB")
+        export.fetch_source(NOW, code="0193")
 
 
 def test_an_undated_latest_still_is_refused(monkeypatch):
     _no_browse(monkeypatch, {})
     with pytest.raises(PipelineError, match="observation time is unknown"):
-        export.fetch_source(NOW, code="HMIIC")
+        export.fetch_source(NOW, code="0304")
 
 
 def test_a_recent_latest_still_reaches_the_decoder(monkeypatch):

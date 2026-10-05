@@ -252,8 +252,9 @@ app yet, and it is not part of this chore.
   AIA channel should pass; `CLAUDE.md` footgun 40 explains the per-channel band. A
   `WARN <code> skipped` line followed by `carried forward` is a channel standing in with its
   last good layer, which is fine; `skipped` with nothing carried means the channel is absent.
-  Since 2026-09-24 HMIIC and HMIB are absent until TASKS.md T42 lands, because SDO stopped
-  publishing HMI browse frames.
+  HMIIC and HMIB print `source: ..._Ic_4k.jpg (jsoc, ...)` / `..._M_4k.jpg (jsoc, ...)`: since
+  2026-10-05 they come from Stanford's JSOC, because SDO stopped publishing HMI browse frames
+  (`CLAUDE.md` footgun 59).
 - The `history:`, `texture ok` and `hi-res` lines appear **only** with `--with-texture`. Under
   option (a) the publish line carries fewer files — **26 rather than 67**, measured 2026-08-31 —
   there is no `texture` line in the per-product summary, and `index.json` reports the texture

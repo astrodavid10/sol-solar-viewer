@@ -95,6 +95,10 @@
           visible light and magnetism from HMI.
         </li>
         <li>
+          <a href="http://jsoc.stanford.edu/" target="_blank" rel="noopener"><strong>Stanford's JSOC</strong></a>
+          is the archive that sends us the HMI pictures.
+        </li>
+        <li>
           <a href="https://ccmc.gsfc.nasa.gov/tools/DONKI/" target="_blank" rel="noopener"><strong>NASA CCMC DONKI</strong></a>
           is the catalog of flares and CMEs behind the timeline marks.
         </li>

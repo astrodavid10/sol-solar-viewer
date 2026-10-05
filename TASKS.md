@@ -17,7 +17,7 @@ answers "what is in flight and what is next".
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-10-05 (twenty-fourth session — phase 1 done; T41/T42 restore all five channels; phase 2 done except T38, which needs a visible browser tab)
+**Last updated:** 2026-10-05 (twenty-fourth session — plan phases 1, 2 (but T38), 3 and most of 4 done; T12 copy pass and T11 marks next)
 
 ---
 
@@ -50,8 +50,8 @@ older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T3
 | T36 | WebGL context-loss cover (plan 2.4) | DONE | `cb9c790` | cover + one auto-reload per minute; solDebug.loseContext(). Browser-verified both paths |
 | T37 | Kiosk take-home URL (plan 2.5) | DONE | `0f36049` | kioskHomeUrl set; QR refused for localhost/private hosts |
 | T38 | WWT render loop on requestAnimationFrame, measured (plan 2.6) | TODO — needs a visible Chrome tab | — | fps before/after cannot be measured while the tab is hidden (rAF and frames stop) |
-| T39 | Split SolarView3D.vue: cards, then time cluster (plan 4.1) | TODO | — | supersedes the deferred note below |
-| T40 | Held PFSS frames on the timeline (plan 4.2) | TODO | — |  |
+| T39 | Split SolarView3D.vue: cards, then time cluster (plan 4.1) | PARTIAL — seam 1 DONE | `17f8c94` | cards/copy -> src/data/cards.ts. Seam 2 deferred: T3 rewrote the time cluster in place and it is now small |
+| T40 | Held PFSS frames on the timeline (plan 4.2) | DONE | `cf22fdd` | axis on slot targets; hollow held ticks; 'no new magnetogram since' note. Browser-verified |
 | T41 | Hot Corona stops dropping out: fixed-res limb fit + carry-forward (plan 5.1) | DONE | `62a6559`+`112bc43` | carry-forward + limb band centred per channel (user-approved 2026-10-05; tol still 3%). Run 37298265012: 0171/0304/0193 all passed, live has 3 layers; issue #2 not re-commented (reasons unchanged) |
 | T42 | Current HMI imagery from JSOC (plan 5.2) | DONE | `f0db3a5` | JSOC dated tree; same product as GSFC's HMI browse (corr 0.999/1.000 at 2026-09-24 11:00:00). Run 37301822199 green, 5 layers live, issue #2 auto-closed; footgun 59 |
 | T43 | `_single` as filtered `cmd_all`; `pipeline/index.py` (plan 5.3) | TODO | — |  |
@@ -61,11 +61,11 @@ older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T3
 | T0 | Stand up this ledger | DONE | `3108484` | 18 rows incl. Alex's review |
 | T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22**. **12th on 2026-09-15** (`8d7f91d`, 19/19 slots, all six products `ok`) — the mirror itself was down: see note below. **13th on 2026-09-21** (`77f5e24`, 19/19 slots, all six products `ok`) — the mirror was down again, same interactive-logon cause, now footgun 56. **14th on 2026-09-22** (`ef1a1e3`, 19/19 slots, all six products `ok`) — mirror down ~44 h again; 0171 hi-res needed a second texture-only run (footgun 57). **15th on 2026-09-30** (`ef9d547`, 19/19 slots, all six products `ok`) — mirror down ~4.5 days; DONKI's API moved (footgun 58, `1bc2081`) |
 | T2 | Land the GONG relay (Option D, workstation mirror) | DONE | `8650fee`+`85e626c` | LIVE 2026-09-02: `gong-cache` fed hourly by `SolGongMirror`; CI traced 19/19 in run 33663715169 (dry) and **published** in 33664961891 (`gh-pages` `ca5426f`, Verdict ok, issue #1 closed). Formal "scheduled" confirmation = the next cron tick |
-| T3 | Honest clock when PFSS is stale (one playhead, union of windows) | TODO | — | app half of T1/T2 |
+| T3 | Honest clock when PFSS is stale (one playhead, union of windows) | DONE | `b9f199c` | hold slots to the newest texture slot; 'now' only < 6 h; chips on atNewestSlot; refresh chip after 30 min hidden. Browser-verified vs a 48 h stale manifest |
 | T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
 | T12 | Explainer copy pass | TODO | — | **AF** — aurora copy is wrong, not just unclear. The info panel's copy was rewritten separately 2026-09-11 (T23); the four explainer items here remain |
-| T4 | Reconcile CLAUDE.md / HANDOFF.md with the shipped tree | TODO | — | footgun 40 is wrong |
-| T6 | First real app tests | TODO | — | tripwire for footguns 19/47 |
+| T4 | Reconcile CLAUDE.md / HANDOFF.md with the shipped tree | DONE | `0830ac0` | plan phase 3: CLAUDE.md 71K -> 40K chars, HANDOFF 206K -> 48K, TASKS 104K -> 41K; history archived verbatim under docs/ |
+| T6 | First real app tests | PARTIAL — vitest DONE | `9db561b`+`17f8c94` | 33 app tests (winding/frame from the engine's own matrices, labels, manifest, cards, QR guard, latest-request). Playwright + cmd_all contract test are plan 6.1 |
 | T13 | Tap a live value to open its explainer | TODO | — | **AF** |
 | T16 | Earth on the textured side (verify, then frame) | TODO | — | **AF** — data proven correct, app path unverified |
 | T15 | Zoom out to Earth's orbit; our own planet orbits, bold + labelled | PARTIAL — **(c) DONE** | `c7b3438` (c) | **AF** + HANDOFF §8.4(f). Planet **labels** landed and browser-verified 2026-09-03 against WWT's own rings, then sat UNCOMMITTED until 2026-09-11, when they were re-verified and committed. (a) `MAX_ZOOM` and (b) our own orbit lines still TODO |

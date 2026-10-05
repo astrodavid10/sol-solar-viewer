@@ -61,7 +61,7 @@ from .config import (CME_MIN_SPEED_KMS, EVENTS_MAX_BYTES,
                      SCHEMA_EPHEM, SCHEMA_EVENTS, SCHEMA_INDEX,
                      SCHEMA_PFSS_ACCEPTED,
                      SCHEMA_STATS, SCHEMA_TEXTURE,
-                     TEX_NEAR_W, TEX_NEAR_H, TEX_NEAR_CDELT_DEG,
+                     TEX_CHANNELS, TEX_NEAR_W, TEX_NEAR_H, TEX_NEAR_CDELT_DEG,
                      TEX_NEAR_LON_SPAN_DEG, TEX_NEAR_MAX_BYTES,
                      TEX_HIRES_H,
                      TEX_HIRES_MAX_BYTES, TEX_HIRES_W, TEX_MAX_BYTES,
@@ -1153,6 +1153,38 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
         rep.check(not bad_fill,
                   "HMI layers use a flat far side (no invented structure)",
                   "got quiet fill on {0}".format(bad_fill))
+
+        # Per-layer freshness. The top-level obs check above only ever saw the
+        # default channel, so on 2026-10-04 two HMI layers 315 h old passed
+        # every check. A layer may be old only if it SAYS so.
+        ceilings = {ch["code"]: float(ch.get("max_age_hours",
+                                             TEX_MAX_OBS_AGE_HOURS))
+                    for ch in TEX_CHANNELS}
+        for lay in layers:
+            if not isinstance(lay, dict):
+                continue
+            lobs = parse_iso_z(lay.get("obs_iso") or "")
+            code = lay.get("channel")
+            if gen is None or lobs is None:
+                rep.check(False, "texture layer {0} obs_iso parses".format(code),
+                          "got {0!r}".format(lay.get("obs_iso")))
+                continue
+            lage = age_hours(lobs, gen)
+            ceiling = ceilings.get(code, TEX_MAX_OBS_AGE_HOURS)
+            if lay.get("status", "ok") == "ok":
+                rep.check(lage < ceiling,
+                          "texture layer {0} observation < {1:.0f} h old"
+                          .format(code, ceiling),
+                          "{0:.1f} h at generation".format(lage))
+            else:
+                rep.info("texture layer {0} is {1!r}, {2:.1f} h old".format(
+                    code, lay.get("status"), lage))
+        entry = ((idx or {}).get("products") or {}).get("texture") or {}
+        if entry.get("status") == "ok":
+            rep.check(len(layers) == len(TEX_CHANNELS),
+                      "texture status ok only with every channel published",
+                      "{0} of {1} layers".format(len(layers),
+                                                 len(TEX_CHANNELS)))
         for lay in layers:
             if not isinstance(lay, dict):
                 rep.check(False, "texture layer is an object")

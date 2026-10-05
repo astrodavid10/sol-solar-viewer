@@ -832,6 +832,7 @@ def run_texture(ctx: Ctx) -> ProductResult:
     regions = _regions_for_check(ctx)
 
     layers: List[dict] = []
+    skipped: Dict[str, str] = {}
     primary_doc: Optional[dict] = None
     primary_info: Optional[dict] = None
     total_bytes = 0
@@ -850,7 +851,10 @@ def run_texture(ctx: Ctx) -> ProductResult:
         except Exception as exc:                       # noqa: BLE001
             if code == TEX_CHANNELS[0]["code"]:
                 raise
-            print("  {0} skipped: {1}".format(code, exc))
+            # Loud, and carried into the index: a dropped layer used to cost
+            # the guest an option while every check stayed green.
+            print("  WARN {0} skipped: {1}".format(code, exc))
+            skipped[code] = str(exc)
             continue
         ctx.staging.write_bytes("texture/" + doc["url"], blob)
         if near_blob is not None:
@@ -909,6 +913,12 @@ def run_texture(ctx: Ctx) -> ProductResult:
             "sub_earth_carr_lon_deg": doc["sub_earth_carr_lon_deg"],
             "sub_earth_lat_deg": doc["sub_earth_lat_deg"],
             "source_url": doc["source_url"],
+            # Per layer, because the product-level status only ever described
+            # the default channel (2026-10-04: two HMI layers were 13 days old
+            # under a texture product that said ok).
+            "obs_age_hours": round(info["obs_age_hours"], 3),
+            "status": texture_export.texture_status(
+                info["obs_age_hours"], texture_export.max_age_hours(channel)),
         }
         if doc.get("high_res"):
             layer_entry["high_res"] = doc["high_res"]
@@ -931,16 +941,26 @@ def run_texture(ctx: Ctx) -> ProductResult:
     print("  {0} layer(s), {1} total, {2:.1f}s".format(
         len(layers), human_bytes(total_bytes), time.perf_counter() - t0))
 
-    status = texture_export.texture_status(primary_info["obs_age_hours"])
+    # Worst of: the default channel's age, any published layer past its own
+    # ceiling, and any channel that could not be published at all.
+    old_layers = [ly["channel"] for ly in layers if ly["status"] != "ok"]
+    problems = []
+    if skipped:
+        problems.append("missing layer(s) {0}".format(", ".join(skipped)))
+    if old_layers:
+        problems.append("old layer(s) {0}".format(", ".join(old_layers)))
+    status = "degraded" if problems else "ok"
     return ProductResult(
         name="texture", url="texture/texture.json", status=status,
         generated=ctx.now,
-        note=("" if status == "ok" else
-              "newest AIA frame is {0:.1f} h old".format(
-                  primary_info["obs_age_hours"])),
+        note="; ".join(problems),
         extra={"obs_iso": primary_doc["obs_iso"],
                "obs_age_hours": round(primary_info["obs_age_hours"], 3),
                "bytes": total_bytes, "layers": len(layers),
+               "layers_expected": len(TEX_CHANNELS),
+               "layers_missing": sorted(skipped),
+               "layer_ages_hours": {ly["channel"]: ly["obs_age_hours"]
+                                    for ly in layers},
                "width": primary_doc["width"],
                "height": primary_doc["height"],
                "slots": hist["slots"],

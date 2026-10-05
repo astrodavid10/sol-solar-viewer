@@ -76,6 +76,7 @@ import {
   TextureChannel,
   fieldColorMode,
   layers,
+  publishedChannels,
   surfaceMode,
   textureChannel,
 } from "../state/useAppState";
@@ -161,8 +162,11 @@ export default defineComponent({
       return ERUPTIONS_ENABLED ? ROWS : ROWS.filter((row) => row.key !== "eruptions");
     },
 
+    /** Only channels this run published (all of them until a manifest loads). */
     surfaces(): SurfaceOption[] {
-      return SURFACES;
+      const published = publishedChannels.value;
+      if (!published) { return SURFACES; }
+      return SURFACES.filter((s) => s.key === "artist" || published.includes(s.key as TextureChannel));
     },
 
     /** The switch is on when the polarity palette is in use. */

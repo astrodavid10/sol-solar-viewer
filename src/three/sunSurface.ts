@@ -122,6 +122,14 @@ export interface SunSurfaceOptions {
    * every `adoptTexture`, i.e. as soon as there IS a manifest.
    */
   highRes?: boolean;
+  /**
+   * Called each time a texture manifest is adopted, with the channels it
+   * publishes. A channel the pipeline could not build (2026-10-04: SDO stopped
+   * publishing HMI browse frames) is simply absent, and asking for it falls
+   * back to the default layer -- so the caller needs the list to stop offering
+   * it, or the panel names one channel while the sphere shows another.
+   */
+  onChannels?: (available: string[]) => void;
 }
 
 /**
@@ -1413,6 +1421,7 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     // 30-minute poll or a channel switch land back on the scrubbed moment
     // instead of snapping the guest to "now" underneath their finger.
     info = next;
+    options.onChannels?.(next.available);
     const wanted = wantUnix === null ? null : frameForUnix(next.frames, wantUnix);
     if (wanted) {
       showFrame(wanted);

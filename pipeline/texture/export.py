@@ -377,6 +377,28 @@ def fetch_source(now: datetime, verbose: bool = False,
     print("  no usable browse frame ({0}); trying latest_*.jpg".format(
         "; ".join(skipped[:3]) or "empty listing"))
     raw, headers = http_get_full(url, timeout=60.0)
+    # The fallback carries no observation time of its own, only Last-Modified,
+    # and it has NO age bound unless we impose one. Measured 2026-10-04: SDO
+    # stopped publishing HMI browse frames on 2026-09-24 and froze every
+    # latest_*.jpg at 2026-09-21, and this branch shipped those 13-day-old
+    # maps as the current Visible Sun / Magnetic Map with status ok. A missing
+    # Last-Modified used to become `now`, which invents an observation time.
+    lm = headers.get("last-modified")
+    try:
+        obstime = parsedate_to_datetime(lm).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        raise PipelineError(
+            "{0} has no usable Last-Modified ({1!r}), so its observation time "
+            "is unknown -- refusing it rather than calling it current".format(
+                url.rsplit("/", 1)[-1], lm))
+    ceiling = max_age_hours(channel_for(code))
+    age = age_hours(obstime, now)
+    if age > ceiling:
+        raise PipelineError(
+            "no current {0} frame: the browse archive has none in {1} day(s) "
+            "and {2} is {3:.1f} h old (Last-Modified {4}), past the {5:.0f} h "
+            "ceiling".format(code, 2, url.rsplit("/", 1)[-1], age, lm,
+                             ceiling))
     rgb = _decode(raw, src_res=src_res)
     mean = disk_mean(rgb)
     if mean < TEX_MIN_DISK_MEAN:
@@ -384,13 +406,6 @@ def fetch_source(now: datetime, verbose: bool = False,
             "every candidate frame is too dark to use (latest_*.jpg disk mean "
             "{0:.1f} < {1}); SDO is probably in eclipse -- keeping the "
             "previously published texture".format(mean, TEX_MIN_DISK_MEAN))
-    obstime = now
-    lm = headers.get("last-modified")
-    if lm:
-        try:
-            obstime = parsedate_to_datetime(lm).astimezone(timezone.utc)
-        except (TypeError, ValueError):
-            pass
     return SourceImage(rgb, obstime, url, "latest", len(raw))
 
 
@@ -1410,8 +1425,15 @@ def log_texture(info: dict, blob_len: int, verbose: bool = False) -> None:
                           r["sub_earth_deg"], r["pixels"]))
 
 
-def texture_status(obs_age: float) -> str:
-    return "ok" if obs_age < TEX_MAX_OBS_AGE_HOURS else "degraded"
+def max_age_hours(channel: dict) -> float:
+    """Oldest source image this channel may publish (``max_age_hours`` in
+    TEX_CHANNELS, else TEX_MAX_OBS_AGE_HOURS)."""
+    return float(channel.get("max_age_hours", TEX_MAX_OBS_AGE_HOURS))
+
+
+def texture_status(obs_age: float, ceiling: float = TEX_MAX_OBS_AGE_HOURS
+                   ) -> str:
+    return "ok" if obs_age < ceiling else "degraded"
 
 
 __all__ = [
@@ -1425,5 +1447,5 @@ __all__ = [
     "sub_earth_distance", "reproject_rgb", "quiet_sun_rgb",
     "farside_modulation", "feather_weight", "compose", "encode_jpeg",
     "ar_offsets", "ar_summary", "build_texture", "log_texture",
-    "texture_status",
+    "texture_status", "max_age_hours",
 ]

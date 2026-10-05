@@ -366,6 +366,7 @@ import {
   kiosk,
   layers,
   playing,
+  publishedChannels,
   resetToken,
   sceneUnix as sceneTime,
   sheet,
@@ -1183,6 +1184,15 @@ export default defineComponent({
         // fetched by any browser. sunSurface tests the GPU cap and the
         // manifest itself, once both are knowable.
         highRes: highRes.value,
+        onChannels: (available) => {
+          const list = available as TextureChannel[];
+          publishedChannels.value = list;
+          // The guest's channel (or a deep link's) is not published this run:
+          // show the default by name, rather than the default under its name.
+          if (list.length && !list.includes(this.textureChannel)) {
+            textureChannel.value = list[0];
+          }
+        },
       }));
       rt.stage.scene.add(rt.surface.object3d);
 

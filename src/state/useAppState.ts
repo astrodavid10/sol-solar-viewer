@@ -133,6 +133,14 @@ export const DEFAULT_TEXTURE_CHANNEL: TextureChannel = "0171";
 export const textureChannel = ref<TextureChannel>(DEFAULT_TEXTURE_CHANNEL);
 
 /**
+ * The channels the newest texture manifest actually publishes, or null until
+ * one has loaded. The layer panel and the kiosk attract loop offer only these:
+ * a missing channel silently falls back to the default layer, which would put
+ * one channel's name over another channel's picture.
+ */
+export const publishedChannels = ref<TextureChannel[] | null>(null);
+
+/**
  * True on a screen wide enough for the desktop rail (>= 900 px).
  *
  * Shared rather than local to sol.vue because it changes WHERE panels live,

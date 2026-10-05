@@ -73,10 +73,14 @@ def test_walker_finds_every_texture_file_on_disk():
         "missing_from_walker": sorted(on_disk - found),
         "referenced_but_absent": sorted(found - on_disk),
     }
-    # Sanity on the magnitude: 5 channels x (18 frames + 3 off-limb tiers)
-    # plus a high_res map each, minus the newest-frame/layer-url and
-    # default-tier duplicates.
-    assert len(found) > 100, len(found)
+    # Structure, not a file count: the count tracks how many channels this run
+    # published (3 on 2026-10-04, after SDO's HMI browse frames stopped) and
+    # how much of the history window is filled, neither of which is a walker
+    # property. Every layer must contribute its own map and off-limb tiers.
+    for layer in doc["layers"]:
+        assert layer["url"] in found, layer["channel"]
+        for tier in layer["off_limb"]["tiers"]:
+            assert tier["url"] in found, (layer["channel"], tier["size"])
 
 
 @live

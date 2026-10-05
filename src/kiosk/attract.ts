@@ -39,6 +39,7 @@ import {
   attractDrift,
   kiosk,
   playing,
+  publishedChannels,
   resetView,
   sheet,
   textureChannel,
@@ -149,12 +150,26 @@ function beginChannelPhase(id: TextureChannel, rehome: boolean): void {
   });
 }
 
+/**
+ * The attract channels this run actually published. A missing one would fall
+ * back to the default layer, so the loop would show 0171 three times a cycle
+ * under three different names -- or a 13-day-old map, before the pipeline
+ * learned to drop those (2026-10-04).
+ */
+function cycleChannels(): TextureChannel[] {
+  const published = publishedChannels.value;
+  if (!published) { return ATTRACT_CHANNELS; }
+  const shown = ATTRACT_CHANNELS.filter((c) => published.includes(c));
+  return shown.length ? shown : ATTRACT_CHANNELS;
+}
+
 /** One step of the loop: cycle the sphere's texture channel forever. */
 function nextPhase(): void {
   if (!attractActive.value) { return; }
-  const step = phase % ATTRACT_CHANNELS.length;
+  const channels = cycleChannels();
+  const step = phase % channels.length;
   phase += 1;
-  beginChannelPhase(ATTRACT_CHANNELS[step], step === 0);
+  beginChannelPhase(channels[step], step === 0);
   timer = window.setTimeout(nextPhase, PHASE_CHANNEL_MS);
 }
 

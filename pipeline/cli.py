@@ -73,7 +73,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -266,6 +266,7 @@ def _trace_all(ctx: Ctx, ss: pfss_seeds.SeedSet,
         return traced, timings
     print("  tracing {0} distinct magnetogram(s) for {1} slot(s)".format(
         len(keys), len(slots)))
+    pruned = False
     for key in keys:
         cache_path = pfss_solve.frame_cache_path(ctx.cache, ss.seed_set_id, key)
         if cache_path.exists() and not ctx.force:
@@ -278,6 +279,15 @@ def _trace_all(ctx: Ctx, ss: pfss_seeds.SeedSet,
             print("    {0}: MISSING from cache (skipped)".format(key))
             continue
         slot = next(s for s in slots if s.gong_key == key)
+        if not pruned:
+            # The window plus two days of margin, so a slot near the old
+            # edge still finds its file on the next run.
+            n = gong_src.prune_cache(ctx.cache / "gong", ctx.now - timedelta(
+                hours=WINDOW_HOURS + 48))
+            pruned = True
+            if n:
+                print("  pruned {0} cached magnetogram(s) older than the "
+                      "window".format(n))
         fits = gong_src.gong_download(slot.url, ctx.cache / "gong")
         if fits is None:
             print("    {0}: download failed".format(key))

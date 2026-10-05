@@ -200,9 +200,15 @@ def _scrape_gong(dir_url: str, timeout: float = GONG_SCRAPE_TIMEOUT
 def gong_list(target_dt: datetime) -> List[Tuple[datetime, str]]:
     """All candidates within one day either side of ``target_dt``."""
     cand: List[Tuple[datetime, str]] = []
+    today = datetime.now(timezone.utc).date()
     for offset in (0, -1, 1):
-        cand.extend(_scrape_gong(_gong_dir_url(target_dt
-                                               + timedelta(days=offset))))
+        day = target_dt + timedelta(days=offset)
+        # GONG has not written a directory for a day that has not started.
+        # Probing it produced an expected `HTTP 404` WARN on every run, which
+        # taught everyone reading the log to skim past GONG warnings.
+        if day.astimezone(timezone.utc).date() > today:
+            continue
+        cand.extend(_scrape_gong(_gong_dir_url(day)))
     # The +/-1 day directories overlap nothing, but dedupe defensively.
     seen = set()
     uniq = []
@@ -230,6 +236,33 @@ def gong_find(target_dt: datetime,
     if abs((best_dt - target_dt).total_seconds()) > tolerance_hours * 3600.0:
         return None
     return best_url, best_dt
+
+
+_CACHE_STAMP_RE = re.compile(r"mrzqs(\d{6})t(\d{4})", re.IGNORECASE)
+
+
+def prune_cache(cache_dir: Path, keep_after: datetime) -> int:
+    """Delete cached magnetograms observed before ``keep_after``.
+
+    The cache only ever grew: 176 FITS files since 2026-08-20, 46 MB, against
+    a window that needs ~19. The observation time comes from the filename
+    (``mrzqs261004t1914...``), not the mtime, which a CI cache restore does
+    not preserve faithfully. Returns the number of files removed.
+    """
+    removed = 0
+    for path in Path(cache_dir).glob("mrzqs*"):
+        m = _CACHE_STAMP_RE.search(path.name)
+        if not m:
+            continue
+        try:
+            obs = datetime.strptime(m.group(1) + m.group(2), "%y%m%d%H%M"
+                                    ).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if obs < keep_after:
+            quiet_unlink(path)
+            removed += 1
+    return removed
 
 
 def gong_file_key(url: str) -> str:

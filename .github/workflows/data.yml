@@ -406,10 +406,13 @@ jobs:
           # What this failure IS, as stable keys: the verdict's reasons plus
           # any failed step other than Verdict itself (a Validate tripwire or a
           # build crash is news even when the verdict reasons are unchanged).
+          # `|| true` on both pipelines: grep exits 1 when it filters out
+          # everything (Verdict the only failed step), and under the runner's
+          # `bash -e` + pipefail that killed this step in dry run 37248331473.
           STEPS=$(echo "$FAILED" | tr ',' '\n' | sed 's/^ *//' | grep -v '^Verdict$' \
-                    | sed 's/ /_/g; s/^/step:/' | sort | tr '\n' ' ')
+                    | sed 's/ /_/g; s/^/step:/' | sort | tr '\n' ' ' || true)
           REASONS=$(echo "$(cat verdict-reasons.txt 2>/dev/null) $STEPS" | tr ' ' '\n' \
-                      | grep -v '^$' | sort -u | tr '\n' ' ' | sed 's/ $//')
+                      | grep -v '^$' | sort -u | tr '\n' ' ' | sed 's/ $//' || true)
           [ -n "$REASONS" ] || REASONS=unknown
 
           {
@@ -461,7 +464,7 @@ jobs:
             # freezing) were lost in them.
             LAST=$(gh issue view "$NUM" --json body,comments \
                      --jq '((.comments | last | .body) // .body)' 2>/dev/null \
-                   | sed -n 's/.*<!-- sol-reasons: \(.*\) -->.*/\1/p' | tail -1)
+                   | sed -n 's/.*<!-- sol-reasons: \(.*\) -->.*/\1/p' | tail -1 || true)
             if [ "$LAST" = "$REASONS" ]; then
               echo "issue #$NUM already reports exactly: $REASONS -- not commenting"
             else

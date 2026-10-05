@@ -28,6 +28,7 @@ that can reach GONG would do; a GitHub runner cannot.
 ```bash
 cd /c/Users/adavi/Documents/DataStories/sol
 git status --porcelain          # expect EMPTY — a hand-publish should not carry local edits
+git pull --ff-only             # main moves under you (keepalive.yml commits monthly); step 8 pushes
 gh auth status                  # must be logged in; step 6 needs `gh auth token`
 ls "$USERPROFILE/anaconda3/envs/sdo/python.exe"   # the conda env the pipeline needs
 ```

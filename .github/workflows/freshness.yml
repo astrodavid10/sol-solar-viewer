@@ -428,7 +428,7 @@ jobs:
             # new in it, and the thread trained everyone to stop reading.
             LAST=$(gh issue view "$NUM" --json body,comments \
                      --jq '((.comments | last | .body) // .body)' 2>/dev/null \
-                   | sed -n 's/.*<!-- sol-reasons: \(.*\) -->.*/\1/p' | tail -1)
+                   | sed -n 's/.*<!-- sol-reasons: \(.*\) -->.*/\1/p' | tail -1 || true)
             if [ "$LAST" = "$REASONS" ]; then
               echo "issue #$NUM already reports exactly: $REASONS -- not commenting"
             else

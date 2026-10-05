@@ -102,8 +102,17 @@ jobs:
       # is the difference between a ~4 min and a ~15 min run the moment the
       # relay (TASKS.md T2) is live -- at which point this comment becomes
       # wrong in the other direction and should be re-measured.
+      #
+      # RESTORE and SAVE are separate steps (2026-10-04). The combined
+      # actions/cache step saves only when the whole JOB succeeds, and a run
+      # goes red at Verdict whenever any product is degraded -- 65% of runs
+      # in the 30 days to 2026-10-04. So the cache froze for days at a time
+      # (newest entry 10-01 15:28 until a green run on 10-04), taking with it
+      # the rolling wind series (stuck at 24.5 h of a 72 h design), the
+      # 30-day flare history, and the DONKI/SRS fallback copies. The save now
+      # runs right after the build, whatever the Verdict will say.
       - name: Restore pipeline cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: pipeline/.cache
           key: sol-cache-${{ github.run_id }}
@@ -199,6 +208,16 @@ jobs:
           if [ "$FORCE" = "true" ]; then ARGS="$ARGS --force"; fi
           python -m pipeline $ARGS
 
+      # See "Restore pipeline cache". `!cancelled()` rather than `always()`
+      # so a cancelled run cannot save a half-written cache; a FAILED build
+      # still saves, because whatever it fetched and traced is still good.
+      - name: Save pipeline cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/.cache
+          key: sol-cache-${{ github.run_id }}
+
       # PUBLISH FIRST.  `Validate` used to sit here, ahead of this step, and
       # that ordering is footguns 50 and 51: one unusable record in somebody
       # else's feed -- a frozen seed set pointing past a shrunken
@@ -291,6 +310,9 @@ jobs:
               "",
               "  %-14s %-9s %9s  %s" % ("product", "status", "age", "note"),
           ]
+          # (stable key, message) pairs.  The KEY carries no numbers, so the
+          # notify step can tell "the same outage, again" from "something new"
+          # and comment only on the latter.
           bad = []
           for name in sorted(products):
               v = products[name] if isinstance(products[name], dict) else {}
@@ -303,10 +325,24 @@ jobs:
               age_s = ("%.2f h" % age) if isinstance(age, (int, float)) else "? h"
               out.append("  %-14s %-9s %9s  %s"
                          % (name, st, age_s, v.get("note", "") or ""))
-              if st != "ok":
-                  bad.append("%s=%s" % (name, st))
-          if attempt != "ok":
-              bad.insert(0, "last_attempt_status=%s" % attempt)
+              err = str(v.get("last_error") or "")
+              if err.startswith("UPSTREAM MOVED"):
+                  bad.append(("upstream-moved:%s" % name, "%s: %s" % (name, err)))
+              elif st == "stale":
+                  bad.append(("stale:%s" % name, "%s is stale" % name))
+              elif st != "ok" and name == "pfss":
+                  # pfss turns `degraded` whenever ANY slot reuses an older
+                  # magnetogram, which GONG's normal hourly gaps cause on a
+                  # healthy mirror (run 36142150756: 17/19 slots, red).  Red
+                  # only when the field lines are actually old.
+                  da = v.get("data_age_hours")
+                  if not isinstance(da, (int, float)) or da > 12:
+                      bad.append(("old:pfss", "pfss field lines %s old" % (
+                          ("%.1f h" % da) if isinstance(da, (int, float)) else "of unknown age")))
+              elif st != "ok":
+                  bad.append(("degraded:%s" % name, "%s=%s (%s)" % (name, st, v.get("note") or "")))
+          # last_attempt_status is "degraded" whenever any product is; that
+          # product is already listed, so it is not a reason of its own.
 
           table = "\n".join(out)
           print(table)
@@ -318,14 +354,16 @@ jobs:
               with open(summary, "a", encoding="utf-8") as fh:
                   fh.write("### data verdict\n\n```\n%s\n```\n" % table)
 
+          pathlib.Path("verdict-reasons.txt").write_text(
+              " ".join(sorted(k for k, _ in bad)), encoding="utf-8")
           if bad:
               print("")
-              print("VERDICT: FAIL -- " + ", ".join(bad))
+              print("VERDICT: FAIL -- " + "; ".join(m for _, m in bad))
               print("The tree above IS published and IS being served; this run is red")
               print("so the degradation is seen rather than inferred a day later.")
               sys.exit(1)
           print("")
-          print("VERDICT: ok -- all %d products ok." % len(products))
+          print("VERDICT: ok -- nothing a guest would notice (%d products)." % len(products))
           PY
 
       # `failure() && github.event_name != 'workflow_dispatch'` was the old
@@ -365,6 +403,15 @@ jobs:
             2>/dev/null || true)
           [ -n "$FAILED" ] && [ "$FAILED" != "null" ] || FAILED='(no step reported failure yet -- open the run)'
 
+          # What this failure IS, as stable keys: the verdict's reasons plus
+          # any failed step other than Verdict itself (a Validate tripwire or a
+          # build crash is news even when the verdict reasons are unchanged).
+          STEPS=$(echo "$FAILED" | tr ',' '\n' | sed 's/^ *//' | grep -v '^Verdict$' \
+                    | sed 's/ /_/g; s/^/step:/' | sort | tr '\n' ' ')
+          REASONS=$(echo "$(cat verdict-reasons.txt 2>/dev/null) $STEPS" | tr ' ' '\n' \
+                      | grep -v '^$' | sort -u | tr '\n' ' ' | sed 's/ $//')
+          [ -n "$REASONS" ] || REASONS=unknown
+
           {
             echo "\`$FAILED\` failed on a \`$EVENT\` run at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
             echo
@@ -380,9 +427,12 @@ jobs:
               echo "No verdict table: the build never wrote \`dist-data/index.json\`, so nothing was promoted and nothing was published."
             fi
             echo
-            echo "If \`pfss\` is the stale product, this is the standing GONG block"
-            echo "(CLAUDE.md footgun 33) and the fix is the \`PFSS-UPDATE.md\` runbook,"
-            echo "not a code change. The permanent fix is the relay, TASKS.md T2."
+            echo "\`old:pfss\` or \`stale:pfss\` usually means the GONG mirror workstation"
+            echo "is off or logged out (footgun 56); \`freshness.yml\` reports the mirror's"
+            echo "heartbeat and dispatches a run once it is back. \`PFSS-UPDATE.md\` is the"
+            echo "fallback if the mirror itself is broken."
+            echo
+            echo "<!-- sol-reasons: $REASONS -->"
           } > notify-comment.md
 
           # Label only if there is a label to use.  A missing or unlabelable
@@ -405,9 +455,42 @@ jobs:
           if [ -z "$NUM" ] || [ "$NUM" = "null" ]; then
             gh issue create --title "$TITLE" --body-file notify-comment.md "${LABEL[@]}"
           else
-            gh issue comment "$NUM" --body-file notify-comment.md
-            echo "commented on issue #$NUM"
+            # Comment only when the SET of reasons changed. Issue #2 collected
+            # 76 comments between 09-04 and 10-04, 70 of them the same stale
+            # pfss, and the two real breaks of that month (DONKI moving, HMI
+            # freezing) were lost in them.
+            LAST=$(gh issue view "$NUM" --json body,comments \
+                     --jq '((.comments | last | .body) // .body)' 2>/dev/null \
+                   | sed -n 's/.*<!-- sol-reasons: \(.*\) -->.*/\1/p' | tail -1)
+            if [ "$LAST" = "$REASONS" ]; then
+              echo "issue #$NUM already reports exactly: $REASONS -- not commenting"
+            else
+              gh issue comment "$NUM" --body-file notify-comment.md
+              echo "commented on issue #$NUM (was: ${LAST:-none}, now: $REASONS)"
+            fi
           fi
+
+      # The failure thread has to self-clear, like freshness.yml's.  Issue #2
+      # stayed open from 09-04 to 10-04 through every green run in between,
+      # so "open" stopped meaning "currently failing".
+      - name: Close the failure issue on a green run
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TITLE='data pipeline: scheduled run failing'
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          NUM=$(gh issue list --state open --search "in:title \"$TITLE\"" \
+                  --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -z "$NUM" ] || [ "$NUM" = "null" ]; then
+            echo "no open '$TITLE' issue -- nothing to close"
+            exit 0
+          fi
+          gh issue close "$NUM" --reason completed --comment "green again at $NOW" \
+            || { gh issue comment "$NUM" --body "green again at $NOW" || true
+                 gh issue close "$NUM" || true; }
+          echo "closed issue #$NUM"
 
       # The 7-day artifact IS the audit trail: gh-pages keeps no history.
       - name: Upload artifact

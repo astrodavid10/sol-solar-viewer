@@ -38,9 +38,14 @@ on:
     - cron: "17 */2 * * *"
   workflow_dispatch:
 
-# Only issues.  No checkout, nothing to write to the repo.
+# No checkout, nothing written to the repo.  `contents: read` reads the GONG
+# mirror's heartbeat off the gong-cache branch through the API; `actions:
+# write` lets the backstop step dispatch `data.yml` when the mirror has caught
+# up but nothing has traced from it yet (docs/PLAN-2026-10.md item 1.7).
 permissions:
   issues: write
+  contents: read
+  actions: write
 
 jobs:
   check:
@@ -72,8 +77,22 @@ jobs:
       # anyway, land the relay; do not raise the number.
       INDEX_STALE_HOURS: "10"
       PFSS_STALE_HOURS: "12"
+      # MIRROR_STALE_HOURS: the GONG mirror pushes hourly while the
+      # workstation is on and logged in (footgun 56).  3 h is two missed
+      # pushes plus slop.  Before this check existed a mirror outage surfaced
+      # only through PFSS_STALE_HOURS, 12-20 h after it began (2026-10-04
+      # audit: five outages since 09-02, averaging 70 h).
+      MIRROR_STALE_HOURS: "3"
+      # Sphere-texture layers: the pipeline's own per-channel ceiling.
+      TEXTURE_LAYER_MAX_HOURS: "24"
+      TEXTURE_LAYERS_EXPECTED: "5"
+      # DONKI fetch age (events.json fetched_iso, once published).
+      EVENTS_FETCH_MAX_HOURS: "12"
     steps:
       - name: Check the live data products
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -o pipefail
           SITE="${SITE%/}"
@@ -107,6 +126,18 @@ jobs:
               rm -f pfss.json
             fi
           fi
+
+          # The mirror's own heartbeat, read through the CONTENTS API rather
+          # than raw.githubusercontent.com: the raw CDN is exactly the read
+          # path TASKS.md T22 suspects of serving a frozen view, and a
+          # heartbeat read through it could not tell "mirror stopped" from
+          # "CDN stale".  Tolerant: an API hiccup leaves no file, and the
+          # check below reports "unknown" rather than failing on it.
+          gh api "repos/$GH_REPO/contents/mirror-status.json?ref=gong-cache" \
+            --jq .content 2>/dev/null | base64 -d > mirror-status.json 2>/dev/null \
+            || rm -f mirror-status.json
+          curl -sS --retry 2 --max-time 30 -o texture.json "$SITE/data/texture/texture.json" || rm -f texture.json
+          curl -sS --retry 2 --max-time 30 -o events.json "$SITE/data/events/events.json" || rm -f events.json
 
           python3 - <<'PY'
           import datetime, json, os, pathlib, sys
@@ -169,8 +200,9 @@ jobs:
                   v.get("note", "") or "",
               ))
               if st != "ok":
-                  stale.append("products.%s.status=%s%s"
-                               % (name, st, (" (%s)" % v["note"]) if v.get("note") else ""))
+                  stale.append(("status:%s=%s" % (name, st),
+                                "products.%s.status=%s%s"
+                                % (name, st, (" (%s)" % v["note"]) if v.get("note") else "")))
 
           # pfss gets its own line and its own threshold: it is the headline
           # product and the one that goes stale on its own (footgun 33).
@@ -214,6 +246,62 @@ jobs:
               "thresholds: index %.0f h, pfss %.0f h" % (index_max, pfss_max),
           ]
 
+          def load(name):
+              f = pathlib.Path(name)
+              if not f.exists():
+                  return None
+              try:
+                  return json.loads(f.read_text(encoding="utf-8"))
+              except ValueError:
+                  return None
+
+          # GONG mirror heartbeat (footgun 56).
+          mirror_max = float(os.environ.get("MIRROR_STALE_HOURS") or 3)
+          ms = load("mirror-status.json")
+          mirror_age = None
+          if ms and ms.get("generated_iso"):
+              try:
+                  mirror_age = (now - parse(ms["generated_iso"])).total_seconds() / 3600.0
+              except ValueError:
+                  pass
+          out.append("gong mirror: %s" % (
+              ("last push %.1f h ago (%s)" % (mirror_age, ms["generated_iso"]))
+              if mirror_age is not None else "heartbeat UNKNOWN (could not read mirror-status.json)"))
+
+          # Every sphere-texture layer, not just the default the index
+          # describes (2026-10-04: two HMI layers were 13 days old under a
+          # texture product that said ok).
+          tex_max = float(os.environ.get("TEXTURE_LAYER_MAX_HOURS") or 24)
+          tex_expected = int(os.environ.get("TEXTURE_LAYERS_EXPECTED") or 5)
+          tex = load("texture.json")
+          tex_problems = []
+          if tex and isinstance(tex.get("layers"), list):
+              have = [ly.get("channel") for ly in tex["layers"] if isinstance(ly, dict)]
+              if len(have) < tex_expected:
+                  tex_problems.append(("texture:layers=%d" % len(have),
+                                       "texture publishes %d of %d channels (%s)"
+                                       % (len(have), tex_expected, ", ".join(map(str, have)))))
+              for ly in tex["layers"]:
+                  if not isinstance(ly, dict) or not ly.get("obs_iso"):
+                      continue
+                  lage = (now - parse(ly["obs_iso"])).total_seconds() / 3600.0
+                  if lage > tex_max:
+                      tex_problems.append(("texture:old=%s" % ly.get("channel"),
+                                           "texture layer %s is %.1f h old (> %.0f h)"
+                                           % (ly.get("channel"), lage, tex_max)))
+          out.append("texture layers: %s" % (
+              "; ".join(m for _, m in tex_problems) if tex_problems
+              else ("all fresh" if tex else "UNKNOWN (texture.json unreadable)")))
+
+          # DONKI: the events stage serves its cache when the fetch fails, so
+          # the product's own age says nothing about the catalog's age.
+          ev_max = float(os.environ.get("EVENTS_FETCH_MAX_HOURS") or 12)
+          ev = load("events.json")
+          ev_age = None
+          if ev and ev.get("fetched_iso"):
+              ev_age = (now - parse(ev["fetched_iso"])).total_seconds() / 3600.0
+              out.append("events: DONKI fetched %.1f h ago" % ev_age)
+
           table = "\n".join(out)
           print(table)
           pathlib.Path("freshness.txt").write_text(table + "\n", encoding="utf-8")
@@ -222,27 +310,53 @@ jobs:
               with open(summary, "a", encoding="utf-8") as fh:
                   fh.write("### live data freshness\n\n```\n%s\n```\n" % table)
 
-          if attempt != "ok":
-              stale.insert(0, "last_attempt_status=%s -- the last pipeline run did not"
-                              " finish clean, so this tree is whatever survived it" % attempt)
+          # `last_attempt_status` alone is not a reason any more: it is
+          # "degraded" whenever any product is, and that product already has
+          # its own line.  Counting it twice made every degraded run look like
+          # two problems.
           if index_age is None:
-              stale.insert(0, "generated_iso=%r could not be parsed" % gen)
+              stale.insert(0, ("index:unparseable", "generated_iso=%r could not be parsed" % gen))
           elif index_age > index_max:
-              stale.insert(0, "the index is %.1f h old (> %.0f h): either the last run failed"
-                              " or the cron never fired -- PFSS-UPDATE.md step 2 tells you which"
-                              % (index_age, index_max))
+              stale.insert(0, ("index:old",
+                               "the index is %.1f h old (> %.0f h): either the last run failed"
+                               " or the cron never fired -- PFSS-UPDATE.md step 2 tells you which"
+                               % (index_age, index_max)))
+          pfss_old = pfss_age is None or pfss_age > pfss_max
           if pfss_age is None:
-              stale.append("the field-line data age could not be determined at all --"
-                           " neither the index nor pfss/manifest.json would say")
+              stale.append(("pfss:unknown-age",
+                            "the field-line data age could not be determined at all --"
+                            " neither the index nor pfss/manifest.json would say"))
           elif pfss_age > pfss_max:
-              stale.append("pfss field-line data is %.1f h old (> %.0f h): run the"
-                           " PFSS-UPDATE.md runbook from a GONG-reachable machine"
-                           % (pfss_age, pfss_max))
+              stale.append(("pfss:old",
+                            "pfss field-line data is %.1f h old (> %.0f h)" % (pfss_age, pfss_max)))
+          mirror_down = mirror_age is not None and mirror_age > mirror_max
+          if mirror_down:
+              stale.append(("mirror:down",
+                            "GONG mirror has not pushed for %.1f h (> %.0f h): the workstation is"
+                            " off, asleep, on battery or logged out (footgun 56). Field lines"
+                            " cannot refresh until it is back." % (mirror_age, mirror_max)))
+          stale.extend(tex_problems)
+          if ev_age is not None and ev_age > ev_max:
+              stale.append(("events:fetch-old",
+                            "DONKI was last fetched %.1f h ago (> %.0f h); events.json is a"
+                            " cached copy" % (ev_age, ev_max)))
+
+          # Backstop for a recovered mirror (plan item 1.7, finding #18):
+          # field lines are old but the mirror is pushing again, so the next
+          # data run WOULD fix them -- and GitHub's cron delivers only ~4 of
+          # its 6 daily slots. The next step dispatches one.
+          if pfss_old and mirror_age is not None and not mirror_down:
+              pathlib.Path("dispatch-data.flag").write_text("1", encoding="utf-8")
+
+          # Stable keys (no numbers) so a comment is posted only when the SET
+          # of problems changes, not every run while the same outage persists.
+          pathlib.Path("reasons.txt").write_text(
+              " ".join(sorted(k for k, _ in stale)), encoding="utf-8")
 
           if stale:
               print("")
-              for s in stale:
-                  print("STALE: %s" % s)
+              for _, m in stale:
+                  print("STALE: %s" % m)
               sys.exit(1)
           print("")
           print("FRESH: index %.1f h, pfss data %.1f h, all %d products ok."
@@ -270,6 +384,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           TITLE='live data is stale'
+          REASONS=$(cat reasons.txt 2>/dev/null || echo unknown)
 
           {
             echo "Live-data check failed at $(date -u +%Y-%m-%dT%H:%M:%SZ)."
@@ -284,10 +399,13 @@ jobs:
               echo "The check did not get as far as reading the manifest -- see the run."
             fi
             echo
-            echo "Stale \`pfss\` alone is the standing GONG block (CLAUDE.md footgun 33):"
-            echo "follow \`PFSS-UPDATE.md\`. Everything stale at once usually means the last"
-            echo "\`data\` run failed or Pages is wedged (footguns 34, 49, 50, 51) --"
+            echo "\`mirror:down\` means the GONG mirror workstation is off or logged out"
+            echo "(footgun 56): field lines refresh on their own once it is back, because"
+            echo "this check then dispatches a \`data\` run. Everything stale at once usually"
+            echo "means the last \`data\` run failed or Pages is wedged (footguns 34, 49) --"
             echo "\`PFSS-UPDATE.md\` step 2 distinguishes them."
+            echo
+            echo "<!-- sol-reasons: $REASONS -->"
           } > stale-comment.md
 
           LABEL=()
@@ -305,9 +423,40 @@ jobs:
           if [ -z "$NUM" ] || [ "$NUM" = "null" ]; then
             gh issue create --title "$TITLE" --body-file stale-comment.md "${LABEL[@]}" || true
           else
-            gh issue comment "$NUM" --body-file stale-comment.md || true
-            echo "commented on issue #$NUM"
+            # Comment only when the SET of problems changed.  Before this, a
+            # 79 h mirror outage meant a comment on every run with nothing
+            # new in it, and the thread trained everyone to stop reading.
+            LAST=$(gh issue view "$NUM" --json body,comments \
+                     --jq '((.comments | last | .body) // .body)' 2>/dev/null \
+                   | sed -n 's/.*<!-- sol-reasons: \(.*\) -->.*/\1/p' | tail -1)
+            if [ "$LAST" = "$REASONS" ]; then
+              echo "issue #$NUM already reports exactly: $REASONS -- not commenting"
+            else
+              gh issue comment "$NUM" --body-file stale-comment.md || true
+              echo "commented on issue #$NUM (was: ${LAST:-none}, now: $REASONS)"
+            fi
           fi
+
+      # Plan item 1.7's backstop for finding #18. The check above writes the
+      # flag only when the field lines are old AND the mirror is pushing
+      # again, i.e. when the next `data` run would fix the site. GitHub's cron
+      # delivered ~64% of `data`'s slots in the 30 days to 2026-10-04, with
+      # gaps up to 11.5 h, so waiting for the schedule can cost half a day.
+      # Never dispatches on top of a run that is already queued or going.
+      - name: Dispatch a data run when the mirror has caught up
+        if: ${{ always() && hashFiles('dispatch-data.flag') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          BUSY=$(gh run list --workflow data.yml --json status \
+                   --jq '[.[] | select(.status=="queued" or .status=="in_progress" or .status=="waiting")] | length' \
+                   2>/dev/null || echo 0)
+          if [ "${BUSY:-0}" != "0" ]; then
+            echo "a data run is already queued or running ($BUSY) -- not dispatching"
+            exit 0
+          fi
+          gh workflow run data.yml && echo "dispatched data.yml: field lines old, mirror fresh"
 
       # THE DASHBOARD HAS TO SELF-CLEAR.  A `live data is stale` issue left
       # open after a republish is worse than no issue: the next reader cannot

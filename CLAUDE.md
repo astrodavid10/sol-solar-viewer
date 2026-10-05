@@ -468,6 +468,11 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     The texture is held in its own slot OUTSIDE `TEXTURE_BUDGET_BYTES`' LRU, because at 3x the
     whole budget it would evict everything else on sight; it is never an eviction candidate and
     must be disposed explicitly.
+    **Since T35 the default is "auto":** the map loads only on a wide screen, after field lines
+    load, while the disk is drawn >= 1600 drawing-buffer px (`HIRES_ON_PX`; off again below
+    1300). At default framing the disk is ~350 px on a 911 px-tall buffer, so most guests never
+    download it; `?hires=1` forces it (dome machines), `?hires=0` turns it off. Verifying the gate
+    in Chrome needs a VISIBLE tab: it is fed per frame, and a hidden tab renders no frames.
 41. **Run background pipeline commands with `python -u`.** Without it, stdout is block-buffered
     and a run that gets killed — a tool timeout, a Ctrl-C — leaves a **zero-byte log** even
     though it did minutes of work and left files in `.staging`. Measured: a `--with-hires` run

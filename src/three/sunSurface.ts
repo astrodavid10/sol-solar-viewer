@@ -124,6 +124,12 @@ export interface SunSurfaceOptions {
    */
   highRes?: boolean;
   /**
+   * True (the default) to load the high-res map only while the disk is drawn
+   * large enough to show it -- see `setDiskPixels`. False (`?hires=1`) loads it
+   * whenever it is wanted and fits the GPU, as before T35.
+   */
+  highResAuto?: boolean;
+  /**
    * Called each time a texture manifest is adopted, with the channels it
    * publishes. A channel the pipeline could not build (2026-10-04: SDO stopped
    * publishing HMI browse frames) is simply absent, and asking for it falls
@@ -283,6 +289,13 @@ export interface SunSurface {
    */
   setHighRes: (enabled: boolean) => void;
   /**
+   * The Sun's disk diameter as drawn, in drawing-buffer pixels (0 = "do not
+   * use the high-res map now", e.g. before field lines load or on a narrow
+   * screen). In auto mode the 8192 map loads above HIRES_ON_PX and is taken
+   * off the sphere below HIRES_OFF_PX (T35).
+   */
+  setDiskPixels: (px: number) => void;
+  /**
    * True while the high-res map is the one ACTUALLY painted on the sphere
    * right now -- both the toggle is on and the playhead is on the newest
    * frame. Distinct from `hasHighRes()`, which only says the option exists;
@@ -346,6 +359,15 @@ const MAX_SPOTS = 8;
  * memory, this is the number to lower; the JPEGs stay in the HTTP cache, so a
  * smaller budget costs a decode on revisit, never a download.
  */
+/**
+ * Auto mode's hysteresis for the 8192 map, in drawing-buffer pixels of disk
+ * diameter (T35). The 4096 map already carries ~2048 px across the near side,
+ * so below ~1600 px the 8192 map adds nothing visible; the lower "off" edge
+ * keeps a guest zooming around the threshold from reloading it every frame.
+ */
+const HIRES_ON_PX = 1600;
+const HIRES_OFF_PX = 1300;
+
 const TEXTURE_BUDGET_BYTES = 40e6;
 
 /** RGBA bytes a decoded map occupies, before mipmaps. */
@@ -1025,6 +1047,9 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
    *  rather than from a post-construction `setHighRes()` — see the doc on
    *  `SunSurfaceOptions.highRes` for the race that cost. */
   let hiresWanted = options.highRes ?? false;
+  const hiresAuto = options.highResAuto ?? true;
+  /** Auto mode's size gate: is the disk drawn big enough for the 8192 map? */
+  let hiresSizeOk = !hiresAuto;
   /** True while the hi-res map is the one actually painted on the sphere. */
   let hiresOnScreen = false;
   /** The hi-res load in flight, if any. Latest request wins (T34): this was
@@ -1212,7 +1237,7 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
    *  load lands, because the guest may have switched channel or scrubbed off
    *  "now" while it downloaded. */
   function hiresStillWanted(meta: SunHighRes): boolean {
-    return hiresWanted && isAtNewestFrame() && info?.highRes?.url === meta.url;
+    return hiresWanted && hiresSizeOk && isAtNewestFrame() && info?.highRes?.url === meta.url;
   }
 
   function loadHighRes(meta: SunHighRes): void {
@@ -1263,8 +1288,30 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
    */
   function applyHighRes(): void {
     if (destroyed || !info) { return; }
-    if (hiresWanted && isAtNewestFrame() && hiresFits(info.highRes)) {
+    if (hiresWanted && hiresSizeOk && isAtNewestFrame() && hiresFits(info.highRes)) {
       loadHighRes(info.highRes);
+    }
+  }
+
+  /** Take the high-res map off the sphere and put the normal frame back. */
+  function unpaintHighRes(): void {
+    hiresReq.clear();
+    if (!hiresOnScreen || !texture || !info) { return; }
+    sdo.map = texture;
+    sdo.needsUpdate = true;
+    applyFarSide(info.subEarthCarrLonDeg, info.subEarthLatDeg);
+    hiresOnScreen = false;
+  }
+
+  function setDiskPixels(px: number): void {
+    if (!hiresAuto) { return; }
+    const next = hiresSizeOk ? px >= HIRES_OFF_PX : px >= HIRES_ON_PX;
+    if (next === hiresSizeOk) { return; }
+    hiresSizeOk = next;
+    if (next) {
+      applyHighRes();
+    } else {
+      unpaintHighRes();
     }
   }
 
@@ -1548,6 +1595,8 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       requested = mode;
       applyMode();
     },
+
+    setDiskPixels,
 
     setChannel(next: string): void {
       if (!next || next === channel) { return; }

@@ -10,7 +10,7 @@
 
 import { App, computed, reactive, ref } from "vue";
 
-import { boolParam, boolParamDefaultTrue } from "../urlParams";
+import { boolParam, stringParam } from "../urlParams";
 
 export type SheetId = "info" | "layers";
 
@@ -114,8 +114,26 @@ export const surfaceMode = ref<SurfaceMode>(DEFAULT_SURFACE);
  * 2048 px near side (0.64x), so it discards ~36% of the linear detail the source
  * has. The 8192 map discards none of it. Visible when the disk on screen exceeds
  * ~2048 px, which needs either a large display or a deep zoom.
+ *
+ * **Since 2026-10-05 (T35) the default is "auto", not "on".** Auto loads the map
+ * only on a wide screen, once field lines have loaded, and only while the disk
+ * is drawn at least ~1600 drawing-buffer px across (sunSurface.setDiskPixels).
+ * Below that the 8192 map is pure cost: on a phone the disk is under 2000 px,
+ * so it was ~134 MB of GPU memory (more with mipmaps) and 1-3.5 MB of download
+ * for nothing visible, on the devices most likely to lose the WebGL context.
+ * `?hires=1` forces it on (dome machines, testing); `?hires=0` turns it off.
  */
-export const highRes = ref(boolParamDefaultTrue("hires"));
+export type HighResMode = "auto" | "on" | "off";
+
+function parseHighRes(v: string | null): HighResMode {
+  if (v === null) { return "auto"; }
+  return v === "0" || v === "false" ? "off" : "on";
+}
+
+export const highResMode: HighResMode = parseHighRes(stringParam("hires"));
+
+/** Whether the guest wants the 8192 map at all (any mode but "off"). */
+export const highRes = ref(highResMode !== "off");
 
 /**
  * Which SDO product the 3D sphere is painted with, as the product CODE — the

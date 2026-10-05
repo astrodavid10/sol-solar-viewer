@@ -363,6 +363,7 @@ import {
   attractDrift,
   fieldColorMode,
   highRes,
+  highResMode,
   frameT,
   frameTimes,
   getAppHandle,
@@ -1219,6 +1220,7 @@ export default defineComponent({
         // fetched by any browser. sunSurface tests the GPU cap and the
         // manifest itself, once both are knowable.
         highRes: highRes.value,
+        highResAuto: highResMode === "auto",
         onChannels: (available) => {
           const list = available as TextureChannel[];
           publishedChannels.value = list;
@@ -1346,6 +1348,7 @@ export default defineComponent({
         // updateSpacecraft() because it must NOT be gated on the optional
         // ephemeris product; see updateSurfaceFrame()'s own comment.
         this.updateSurfaceFrame();
+        this.feedDiskPixels();
         this.updateSurfaceMarkers();
         this.layoutLabels();
         this.tuneWind();
@@ -1690,6 +1693,27 @@ export default defineComponent({
      * The scene time comes from the playhead (`sceneUnix`), which is derived
      * from the field-line frame count, so this needs no ephemeris at all.
      */
+    /**
+     * The disk's drawn diameter for sunSurface's high-res gate (T35). Zero
+     * until field lines have loaded (the 8192 map must not compete with the
+     * headline product's first download) and on a narrow screen (a phone has
+     * the least GPU memory to spare and the least to gain).
+     * WWT's FOV is a fixed pi/4 VERTICAL (footgun 11), so the angular
+     * diameter over pi/4 is the fraction of the buffer height it covers.
+     */
+    feedDiskPixels(): void {
+      const rt = this.rt;
+      if (!rt.surface || !rt.stage) { return; }
+      if (!rt.manifest || !this.wide) {
+        rt.surface.setDiskPixels(0);
+        return;
+      }
+      const d = currentDistanceAu();
+      const angular = d > R_SUN_AU ? 2 * Math.asin(R_SUN_AU / d) : Math.PI;
+      const bufferH = rt.stage.renderer.getContext().drawingBufferHeight;
+      rt.surface.setDiskPixels((angular / (Math.PI / 4)) * bufferH);
+    },
+
     updateSurfaceFrame(): void {
       const surface = this.rt.surface;
       if (!this.rt.stage || !surface) { return; }

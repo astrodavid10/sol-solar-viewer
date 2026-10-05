@@ -26,8 +26,12 @@ const FLARE: SolarEvent = {
 };
 
 describe("cards", () => {
-  it("stamps flares in UTC", () => {
-    expect(flareStamp(Date.UTC(2026, 7, 22, 20, 9) / 1000)).toBe("Aug 22, 20:09 UTC");
+  it("stamps flares in the guest's local time with the zone (TZ pinned to UTC here)", () => {
+    expect(flareStamp(Date.UTC(2026, 7, 22, 20, 9) / 1000)).toBe("Aug 22, 8:09 PM UTC");
+  });
+
+  it("gives event cards local time first, then UTC as the sources publish it", () => {
+    expect(eventCard(FLARE).detail).toBe("Oct 4, 10:00 AM UTC · 10:00 UTC");
   });
 
   it("formats a distance in solar radii and AU", () => {

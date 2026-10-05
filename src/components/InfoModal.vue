@@ -79,7 +79,7 @@
       </ul>
 
       <p class="im-fine">
-        The flare and CME marks come from NASA's DONKI catalog, which is a
+        The flare and eruption marks come from NASA's DONKI catalog, which is a
         research database and not an official forecast. For the forecast, see
         NOAA's Space Weather Prediction Center below.
       </p>
@@ -100,7 +100,7 @@
         </li>
         <li>
           <a href="https://ccmc.gsfc.nasa.gov/tools/DONKI/" target="_blank" rel="noopener"><strong>NASA CCMC DONKI</strong></a>
-          is the catalog of flares and CMEs behind the timeline marks.
+          is the catalog of flares and eruptions (CMEs) behind the timeline marks.
         </li>
         <li>
           <a href="https://www.swpc.noaa.gov/" target="_blank" rel="noopener"><strong>NOAA Space Weather Prediction Center</strong></a>

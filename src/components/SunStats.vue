@@ -47,6 +47,7 @@ import { dataBaseUrl } from "../data/pfss";
 import { RegionDay, loadRegionHistory, regionDayAt, utDate } from "../data/regions";
 import { seriesAt } from "../data/swpc";
 import { atNewestSlot, sceneUnix } from "../state/useAppState";
+import { guestClock } from "../data/guestTime";
 
 interface Chip {
   key: string;
@@ -61,11 +62,12 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**
- * A short UT stamp for a scrubbed value, e.g. "16:00 UT".
+ * A short local clock stamp for a scrubbed value, e.g. "11:00 AM".
  *
- * Always UT and always says so. Every time in this app's data is UT -- NOAA
- * issues on UT days, the PFSS slots are a UT grid -- and a local-time label
- * beside a UT-gridded number invites the guest to compare two different clocks.
+ * Local since T12 (plan 4.4): this used to be "16:00 UT" while the chips'
+ * live values said local time and the scrubber said UTC, three clocks on one
+ * screen. The scrubber above now states the date, local time and zone, so
+ * the chip only needs the clock.
  *
  * TIME ONLY, no date, and that is a deliberate trade for horizontal room: the
  * scrubber sitting directly above these chips already states the playhead's
@@ -79,10 +81,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
  */
 function timeLabel(unixSeconds: number): string {
   if (!Number.isFinite(unixSeconds)) { return ""; }
-  const d = new Date(unixSeconds * 1000);
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${hh}:${mm} UT`;
+  return guestClock(unixSeconds);
 }
 
 /** "Aug 21" from a `YYYY-MM-DD` UT date, parsed as UTC rather than local. */
@@ -95,12 +94,26 @@ function dayLabel(date: string): string {
 }
 
 /** One sentence each. No jargon that isn't immediately unpacked. */
+// Plain docent sentences (T12 and the guest-copy-voice rule): one idea each,
+// what a thing is before what it means, no asides. `wind` is filled in with
+// the travel time at the current speed.
 const EXPLAINERS: Record<string, string> = {
-  flare: "Flares are magnetic explosions on the Sun. NASA labels their strength A, B, C, M, X — each letter is ten times stronger than the one before — and the number that follows fills in the steps between, so M9 is nearly an X and X5 is five times an X1.",
-  wind: "The Sun blows a constant stream of charged particles past Earth; at these speeds it makes the trip in about four days.",
-  kp: "Kp measures how hard the solar wind is shaking Earth's magnetic field — at 5 and above the northern lights push south.",
-  sunspots: "The sunspots NOAA counted that day. Each is an island of magnetism strong enough to cool the surface, and the more there are, the busier the Sun is. NOAA publishes one count per day, so this steps as you scrub rather than sliding.",
+  flare: "A flare is a sudden flash of light from the Sun's magnetic field. Scientists rate flares A, B, C, M and X. Each letter is ten times stronger than the one before. The number after the letter fills in the steps, so an M9 is almost an X. A flare is not the same as an eruption (CME). An eruption is a cloud of gas that leaves the Sun, and big flares often launch one.",
+  wind: "The Sun sends out a steady stream of charged particles called the solar wind. At {speed} it takes about {days} to reach Earth.",
+  kp: "Kp measures how much the solar wind is shaking Earth's magnetic field, on a scale from 0 to 9. At 5 and above, the northern and southern lights spread toward the equator. People far from the poles may be able to see them.",
+  sunspots: "These are the sunspots NOAA counted on that day. Each one is a patch of strong magnetism that cools the surface, so it looks dark. More sunspots mean a busier Sun. NOAA counts them once a day.",
 };
+
+/** "3 days" / "about 2 and a half days" travel time from the Sun to Earth. */
+function windTravel(speedKms: number): string {
+  const days = 1.496e8 / speedKms / 86400;
+  const half = Math.round(days * 2) / 2;
+  if (half === Math.floor(half)) { return `${half} day${half === 1 ? "" : "s"}`; }
+  return `${Math.floor(half)} and a half days`;
+}
+
+/** How old a cached Kp or G-scale may be and still raise the storm banner. */
+const STORM_MAX_AGE_MS = 6 * 3600 * 1000;
 
 export default defineComponent({
   name: "SunStats",
@@ -377,7 +390,14 @@ export default defineComponent({
     },
 
     explainer(): string {
-      return this.openKey ? EXPLAINERS[this.openKey] ?? "" : "";
+      if (!this.openKey) { return ""; }
+      const text = EXPLAINERS[this.openKey] ?? "";
+      if (this.openKey !== "wind") { return text; }
+      const speed = this.stats.wind.value;
+      if (typeof speed !== "number" || !(speed > 0)) {
+        return "The Sun sends out a steady stream of charged particles called the solar wind. It usually takes three to four days to reach Earth.";
+      }
+      return text.replace("{speed}", `${Math.round(speed)} km/s`).replace("{days}", windTravel(speed));
     },
 
     /**
@@ -386,15 +406,20 @@ export default defineComponent({
      * severity — a G3+ night deserves stronger wording than a G1 blip.
      */
     auroraAlert(): string {
-      const kp = this.stats.kp.value;
-      const g = this.stats.scales.value ? this.stats.scales.value.gScale : null;
+      // Only on readings we can stand behind: fetched this session, or a
+      // cached value under 6 h old. A returning guest whose SWPC fetch failed
+      // used to see a days-old storm from the localStorage cache (T12).
+      const fresh = (f: { ok: boolean; fetchedAt: number }): boolean =>
+        f.ok || (f.fetchedAt > 0 && Date.now() - f.fetchedAt < STORM_MAX_AGE_MS);
+      const kp = fresh(this.stats.kp) ? this.stats.kp.value : null;
+      const g = fresh(this.stats.scales) && this.stats.scales.value ? this.stats.scales.value.gScale : null;
       const gLevel = g ?? 0;
       const storming = (kp !== null && kp >= 5) || gLevel >= 1;
       if (!storming) { return ""; }
       if (gLevel >= 3 || (kp !== null && kp >= 7)) {
-        return "Strong geomagnetic storm — aurora may be visible unusually far south tonight!";
+        return "Strong geomagnetic storm. The northern and southern lights may be seen much closer to the equator than usual tonight.";
       }
-      return "Geomagnetic storm conditions — aurora may be visible tonight at high latitudes!";
+      return "Geomagnetic storm. The northern and southern lights may be visible tonight in places near the poles.";
     },
   },
 

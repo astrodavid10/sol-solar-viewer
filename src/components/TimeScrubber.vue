@@ -76,7 +76,7 @@
         >?</button>
         <div v-if="keyOpen" class="ts-key" role="note" data-camera-passthrough="false">
           <p><span class="ts-key-mark ts-event-dot is-m"></span>A flare. This is a flash of light from the Sun. The redder the mark, the stronger the flare.</p>
-          <p><span class="ts-key-mark ts-event-dot is-cme"></span>A CME. This is a cloud of gas leaving the Sun.</p>
+          <p><span class="ts-key-mark ts-event-dot is-cme"></span>An eruption (CME). This is a cloud of gas leaving the Sun.</p>
           <p><span class="ts-key-mark ts-key-tick"></span>A hollow tick means no new magnetic map came in for that hour.</p>
           <p>Tap a mark to jump to it and read about it.</p>
         </div>
@@ -96,11 +96,11 @@
 import { defineComponent } from "vue";
 
 import { kiosk, playing } from "../state/useAppState";
+import { guestStamp } from "../data/guestTime";
 
 /** How often the "N hours ago" text re-derives from the wall clock. */
 const AGE_REFRESH_MS = 60000;
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** The newest slot reads "now" only while it is younger than this (T3). */
 const NOW_MAX_AGE_S = 6 * 3600;
@@ -325,10 +325,7 @@ export default defineComponent({
       if (!this.held[i]) { return ""; }
       const mag = this.magTimes[i];
       if (!Number.isFinite(mag)) { return "no new magnetogram for this hour"; }
-      const d = new Date(mag * 1000);
-      const hh = String(d.getUTCHours()).padStart(2, "0");
-      const mm = String(d.getUTCMinutes()).padStart(2, "0");
-      return `no new magnetogram since ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${hh}:${mm} UTC`;
+      return `no new magnetic map since ${guestStamp(mag)}`;
     },
 
     gapText(): string {
@@ -417,11 +414,9 @@ export default defineComponent({
       return times[indexA] + (times[indexB] - times[indexA]) * fraction;
     },
 
+    /** Local date, time and zone (T12): the one clock a guest reads. */
     stampText(): string {
-      const d = new Date(this.playheadUnix * 1000);
-      const hh = String(d.getUTCHours()).padStart(2, "0");
-      const mm = String(d.getUTCMinutes()).padStart(2, "0");
-      return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${hh}:${mm} UTC`;
+      return guestStamp(this.playheadUnix);
     },
 
     /**

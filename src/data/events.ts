@@ -234,7 +234,7 @@ export async function loadEvents(
 // Guest-facing phrasing
 // ---------------------------------------------------------------------
 
-/** Headline for the card: "M8.1 flare" / "Fast CME". */
+/** Headline for the card: "M8.1 flare" / "Fast eruption". Guests see "Eruption (CME)" as the term (user decision 2026-10-05, T9). */
 export function eventTitle(event: SolarEvent): string {
   if (event.kind === "flare") {
     return event.cls ? `${event.cls} flare` : "Solar flare";
@@ -252,7 +252,7 @@ export function eventTitle(event: SolarEvent): string {
 export function describeCmeSpeed(speedKms: number): string {
   if (!(speedKms > 0)) { return ""; }
   const mph = (speedKms * 2236.936) / 1e6;
-  return `${Math.round(speedKms).toLocaleString()} km/s — ${mph.toFixed(1)} million mph`;
+  return `${Math.round(speedKms).toLocaleString()} km/s, about ${mph.toFixed(1)} million mph`;
 }
 
 /**
@@ -261,8 +261,8 @@ export function describeCmeSpeed(speedKms: number): string {
  */
 export function describeFlareClass(cls: string): string {
   const letter = (cls || "").charAt(0).toUpperCase();
-  if (letter === "X") { return "The strongest class — ten times an M."; }
-  if (letter === "M") { return "A medium flare; ten times a C."; }
+  if (letter === "X") { return "The strongest class. It is ten times an M."; }
+  if (letter === "M") { return "A medium flare. It is ten times a C."; }
   if (letter === "C") { return "A common, small flare."; }
   if (letter === "B" || letter === "A") { return "A very small flare."; }
   return "";
@@ -271,7 +271,7 @@ export function describeFlareClass(cls: string): string {
 /** "heading roughly toward Earth" / "heading away from Earth". */
 export function describeCmeAim(event: SolarEvent): string {
   if (event.isEarthDirected) { return "Heading toward Earth."; }
-  return "Heading away from Earth — no impact expected here.";
+  return "Heading away from Earth. It will not hit us.";
 }
 
 /** The soonest predicted Earth arrival, if WSA-ENLIL expects one. */

@@ -265,9 +265,9 @@ export function describeDistance(rSun: number): string {
 }
 
 const BLURBS: Record<string, string> = {
-  psp: "The fastest human-made object — it flies through the Sun's corona.",
+  psp: "The fastest object people have ever built. It flies through the Sun's corona.",
   solo: "ESA's Sun observer, taking the closest-ever pictures of our star.",
-  stereoa: "Watching the Sun from a different angle than Earth since 2006 — it sees storms coming before we do.",
+  stereoa: "It has watched the Sun from a different angle than Earth since 2006. It sees some storms before we do.",
   earth: "",
 };
 

@@ -8,5 +8,8 @@ export default defineConfig({
   test: {
     include: ["tests/app/**/*.test.ts"],
     environment: "node",
+    // Guest-facing stamps are local time (src/data/guestTime.ts). Pinning the
+    // zone keeps their expected strings the same on every machine and runner.
+    env: { TZ: "UTC" },
   },
 });

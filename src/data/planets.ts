@@ -141,7 +141,7 @@ interface PlanetPresentation {
 const PRESENTATION: Record<string, PlanetPresentation> = {
   mercury: {
     color: "#b8b0a6",
-    blurb: "The smallest planet, and the fastest — it laps the Sun four times a year.",
+    blurb: "The smallest planet and the fastest. It goes around the Sun four times a year.",
   },
   venus: {
     color: "#e6d3a3",
@@ -157,7 +157,7 @@ const PRESENTATION: Record<string, PlanetPresentation> = {
   },
   jupiter: {
     color: "#d9b48a",
-    blurb: "The giant — its magnetic field is the largest structure in the solar system.",
+    blurb: "The biggest planet. Its magnetic field is the largest structure in the solar system.",
   },
   saturn: {
     color: "#e3cf9a",

@@ -20,6 +20,7 @@ import { SOLAR_SYSTEM_BODIES, describeOrbitPeriod, planetBlurb } from "./planets
 import { SolarRegion, describeRegionArea, describeRegionMagnetism } from "./regions";
 import { AU_KM, R_SUN_KM } from "./solarFrames";
 import { bodyBlurb, describeDistance } from "./spacecraft";
+import { guestStamp, utcStamp } from "./guestTime";
 import { thinFlareEvents } from "./useSolarStats";
 
 export interface CardInfo {
@@ -35,19 +36,19 @@ export interface CardInfo {
  * Every event card carries this line. DONKI's own terms call it "prototyping
  * quality... research context", and that has to reach the guest.
  */
-export const EVENT_DISCLAIMER = "Research data from NASA CCMC — not an official forecast.";
+export const EVENT_DISCLAIMER = "This is research data from NASA CCMC. It is not an official forecast.";
 
 /** Timeline-mark ids for DONKI events are this prefix + the DONKI id. */
 export const EVENT_PREFIX = "evt:";
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "Aug 22, 20:09 UTC" — flares are quoted in UTC everywhere in this app. */
+/** "Aug 22, 3:09 PM CDT": guests read local time (T12, plan 4.4). */
 export function flareStamp(unix: number): string {
-  const d = new Date(unix * 1000);
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${hh}:${mm} UTC`;
+  return guestStamp(unix);
+}
+
+/** An event card's time line: local, then UTC as published by DONKI/NOAA. */
+function eventWhen(unix: number): string {
+  return `${guestStamp(unix)} · ${utcStamp(unix).split(", ")[1]}`;
 }
 
 /** "45 R☉ · 0.21 AU" */
@@ -79,7 +80,7 @@ export function planetCard(name: string, rSun: number): CardInfo | null {
 }
 
 export function eventCard(event: SolarEvent): CardInfo {
-  const when = flareStamp(event.unix);
+  const when = eventWhen(event.unix);
   const region = event.arNumber ? `sunspot region ${event.arNumber}` : "";
 
   if (event.kind === "flare") {
@@ -87,7 +88,7 @@ export function eventCard(event: SolarEvent): CardInfo {
       ? `From ${region}${event.sourceLocation ? ` (${event.sourceLocation})` : ""}.`
       : "";
     const linked = event.linked.length
-      ? " It also threw off a cloud of gas — the blue circle on the timeline."
+      ? " It also launched an eruption, shown as a blue circle on the timeline."
       : "";
     return {
       name: eventTitle(event),
@@ -102,6 +103,8 @@ export function eventCard(event: SolarEvent): CardInfo {
   const parts = [describeCmeAim(event)];
   if (arrival) { parts.push(`Expected at Earth ${flareStamp(arrival)}.`); }
   if (region) { parts.push(`It came from ${region}.`); }
+  // One flare-versus-CME line, matching the flare chip's explainer (T12).
+  parts.push("An eruption (CME) is a cloud of gas leaving the Sun. A flare is a flash of light.");
   return {
     name: eventTitle(event),
     detail: describeCmeSpeed(event.speedKms ?? 0),
@@ -122,7 +125,7 @@ export function regionCard(region: SolarRegion): CardInfo {
     compare: `This is ${describeRegionMagnetism(region.magType)}.`,
     blurb: region.seedCount > 0 ? seeds : "",
     warn: region.isComplex
-      ? "⚠ Watch this one — regions like this produce most big flares."
+      ? "⚠ Watch this one. Regions like this produce most big flares."
       : "",
   };
 }

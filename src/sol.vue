@@ -73,7 +73,7 @@
 </template>
 
 <script lang="ts">
-import { defineAsyncComponent, defineComponent, getCurrentInstance, h } from "vue";
+import { defineAsyncComponent, defineComponent, getCurrentInstance, h, onMounted, ref } from "vue";
 
 import BrandMark from "./components/BrandMark.vue";
 import InfoModal from "./components/InfoModal.vue";
@@ -85,6 +85,7 @@ import { statsTrack } from "./kiosk/kioskStats";
 import { isReachableFromPhone, takeHomeUrl } from "./kiosk/takeHome";
 import { kiosk, setAppHandle, sheet, textureChannel, wide } from "./state/useAppState";
 import { initDeepLink } from "./state/useDeepLink";
+import { type DiskStill, diskStillCaption, fetchDiskStill } from "./data/diskStill";
 
 /** Above this width the stage moves left and the controls become a right rail. */
 const WIDE_QUERY = "(min-width: 900px)";
@@ -107,10 +108,22 @@ const chunkLoading = defineComponent({
 
 const chunkFailed = defineComponent({
   name: "SolarView3DFailed",
-  render() {
-    return h("div", { class: "sol-3d-placeholder no-select" }, [
-      h("p", { class: "sol-3d-text" },
-        "The 3D view couldn't load. Sun Now and the live numbers still work."),
+  setup() {
+    // Today's Sun as a flat picture, so a failed 3D download still shows the
+    // Sun (T33). The old copy pointed at a "Sun Now" view that no longer
+    // exists.
+    const still = ref<DiskStill | null>(null);
+    onMounted(() => { void fetchDiskStill().then((s) => { still.value = s; }); });
+    return () => h("div", { class: "sol-3d-placeholder no-select" }, [
+      still.value
+        ? h("img", { class: "sol-3d-still", src: still.value.url, alt: diskStillCaption(still.value) })
+        : null,
+      h("p", { class: "sol-3d-text" }, "The 3D view couldn't load."),
+      still.value ? h("p", { class: "sol-3d-text" }, diskStillCaption(still.value)) : null,
+      h("p", { class: "sol-3d-text" }, "The live numbers below still work."),
+      // A reload, not a remount: footgun 17, and the URL already carries state.
+      h("button", { type: "button", class: "sol-3d-retry", onClick: () => window.location.reload() },
+        "Try again"),
     ]);
   },
 });
@@ -127,6 +140,11 @@ const solarView3d = defineAsyncComponent({
   errorComponent: chunkFailed,
   timeout: CHUNK_TIMEOUT_MS,
   delay: 0,
+  // One automatic retry: a single dropped request on lobby Wi-Fi should not
+  // cost the guest the 3D view.
+  onError(_error, retry, fail, attempts) {
+    if (attempts <= 1) { retry(); } else { fail(); }
+  },
 });
 
 /**

@@ -900,7 +900,7 @@ def run_texture(ctx: Ctx) -> ProductResult:
     for channel in TEX_CHANNELS:
         code = channel["code"]
         try:
-            blob, doc, info, offlimb, near_blob = texture_export.build_texture(
+            blob, doc, info, offlimb, near_blob, disk_blob = texture_export.build_texture(
                 ctx.now, regions, verbose=ctx.verbose, code=code,
                 with_near=ctx.with_near_side,
                 # The window's file name keys on the SLOT it fills, not on
@@ -922,6 +922,10 @@ def run_texture(ctx: Ctx) -> ProductResult:
                 skipped[code] = str(exc)
             continue
         ctx.staging.write_bytes("texture/" + doc["url"], blob)
+        if disk_blob is not None:
+            ctx.staging.write_bytes("texture/" + doc["disk_still"]["url"],
+                                    disk_blob)
+            total_bytes += len(disk_blob)
         if near_blob is not None:
             ctx.staging.write_bytes(
                 "texture/" + doc["near_side"]["url"], near_blob)

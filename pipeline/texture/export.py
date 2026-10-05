@@ -1439,7 +1439,38 @@ def build_texture(now: datetime, regions: Optional[List[dict]] = None,
     }
     if near_meta is not None:
         doc["near_side"] = near_meta
-    return blob, doc, info, offlimb, near_blob
+    # The DEFAULT channel also publishes a plain disk picture. It is what the
+    # app shows behind its loading cover and on its failure card, so a guest
+    # whose 3D view cannot load (WorldWide Telescope down, no WebGL, a lost
+    # context) still sees today's Sun instead of a black panel (T33). Same
+    # origin, so none of footgun 6's no-CORS rules apply to it.
+    disk_blob = None
+    if channel["code"] == DEFAULT_CODE:
+        disk_blob = build_disk_still(src)
+        doc["disk_still"] = {
+            "url": disk_still_name(channel["code"]),
+            "width": DISK_STILL_SIZE, "height": DISK_STILL_SIZE,
+            "bytes": len(disk_blob), "obs_iso": iso_z(src.obstime),
+            "source_url": src.url,
+        }
+    return blob, doc, info, offlimb, near_blob, disk_blob
+
+
+DISK_STILL_SIZE = 1024
+
+
+def disk_still_name(code: str) -> str:
+    return "sdo{0}_disk_{1}.jpg".format(code, DISK_STILL_SIZE)
+
+
+def build_disk_still(src: "SourceImage", quality: int = 80) -> bytes:
+    """The source still itself, downsampled to DISK_STILL_SIZE, as a JPEG."""
+    from PIL import Image
+    img = Image.fromarray(np.clip(src.rgb, 0, 255).astype(np.uint8))
+    img = img.resize((DISK_STILL_SIZE, DISK_STILL_SIZE), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=quality, optimize=True, progressive=True)
+    return buf.getvalue()
 
 
 def log_texture(info: dict, blob_len: int, verbose: bool = False) -> None:
@@ -1504,4 +1535,5 @@ __all__ = [
     "farside_modulation", "feather_weight", "compose", "encode_jpeg",
     "ar_offsets", "ar_summary", "build_texture", "log_texture",
     "texture_status", "max_age_hours", "limb_in_band",
+    "build_disk_still", "disk_still_name", "DISK_STILL_SIZE",
 ]

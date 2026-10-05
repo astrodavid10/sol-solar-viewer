@@ -249,18 +249,21 @@
     </div>
 
     <div v-if="!ready && !failed" class="sv-cover no-select">
+      <img v-if="diskStill" class="sv-still is-dim" :src="diskStill.url" alt="" />
       <div class="sol-spinner"></div>
       <p class="sv-cover-text">Bringing the Sun into three dimensions…</p>
     </div>
 
     <div v-if="failed" class="sv-cover no-select">
+      <img v-if="diskStill" class="sv-still" :src="diskStill.url" :alt="diskStillCaption" />
       <div class="sv-error">
-        <h3 class="sv-error-title">The 3D view isn't available right now</h3>
+        <h3 class="sv-error-title">The 3D view couldn't load</h3>
+        <p v-if="diskStillCaption" class="sv-error-body">{{ diskStillCaption }}</p>
         <p class="sv-error-body">
-          It needs a live connection to the WorldWide Telescope service and a
-          WebGL-capable browser. <strong>Sun Now</strong> and the live space-weather
-          numbers still work.
+          The 3D view needs the WorldWide Telescope service and a browser that
+          can draw 3D graphics. The live numbers below still work.
         </p>
+        <button type="button" class="sv-retry" @click="retry">Try again</button>
       </div>
     </div>
   </div>
@@ -375,6 +378,7 @@ import {
   wide,
 } from "../state/useAppState";
 import { boolParam, stringParam } from "../urlParams";
+import { type DiskStill, diskStillCaption, fetchDiskStill } from "../data/diskStill";
 
 // --- engine installation ----------------------------------------------------
 // main.ts must stay engine-free (the whole point of the async chunk), so the
@@ -399,6 +403,9 @@ installEngine();
 
 /** Solar-system mode has this long to engage before we show the error card. */
 const MODE_TIMEOUT_MS = 10000;
+
+/** The whole view, engine readiness included, has this long (T33). */
+const OVERALL_TIMEOUT_MS = 20000;
 
 /** How often the playhead is written back to shared state (scrubber follow).
  *  ~30 Hz: at 10 Hz the native range thumb visibly steps across a 0.8 s/frame
@@ -590,6 +597,8 @@ interface Runtime {
   live: Record<string, LivePosition>;
   abort: AbortController | null;
   modeTimer: number;
+  /** T33: fails the view if the engine is not READY in time at all. */
+  overallTimer: number;
   lastTickMs: number;
   lastPublishMs: number;
   lastProjectMs: number;
@@ -660,6 +669,7 @@ function makeRuntime(): Runtime {
     live: {},
     abort: null,
     modeTimer: 0,
+    overallTimer: 0,
     lastTickMs: 0,
     lastPublishMs: 0,
     lastProjectMs: 0,
@@ -737,6 +747,8 @@ export default defineComponent({
     return {
       ready: false,
       failed: false,
+      /** Today's flat picture of the Sun for the cover and the failure card. */
+      diskStill: null as DiskStill | null,
       fieldLinesAbsent: false,
 
       frameCount: 0,
@@ -801,6 +813,10 @@ export default defineComponent({
   },
 
   computed: {
+    diskStillCaption(): string {
+      return diskStillCaption(this.diskStill);
+    },
+
     showUnobserved(): boolean {
       return this.unobservedShown && !this.unobservedDismissed;
     },
@@ -1054,6 +1070,18 @@ export default defineComponent({
 
   async mounted() {
     const host = this.host();
+    void fetchDiskStill().then((still) => { this.diskStill = still; });
+    // One overall deadline, armed BEFORE waiting on the engine. The 10 s mode
+    // timer below only starts once the engine reports ready, and "ready"
+    // waits on the imageset-catalog request to worldwidetelescope.org, which
+    // has no timeout: on stalled lobby Wi-Fi the guest sat on the loading
+    // cover forever (2026-10-04 audit, T33).
+    this.rt.overallTimer = window.setTimeout(() => {
+      if (!this.ready && !this.failed) {
+        console.error(`[SolarView3D] 3D view not ready after ${OVERALL_TIMEOUT_MS / 1000} s.`);
+        this.failed = true;
+      }
+    }, OVERALL_TIMEOUT_MS);
     try {
       await host.waitForReady();
     } catch (err) {
@@ -1108,6 +1136,7 @@ export default defineComponent({
     const rt = this.rt;
     rt.destroyed = true;
     window.clearTimeout(rt.modeTimer);
+    window.clearTimeout(rt.overallTimer);
     window.removeEventListener("resize", this.onResize);
     window.removeEventListener("orientationchange", this.onResize);
     window.clearTimeout(this.copiedTimer);
@@ -1133,6 +1162,12 @@ export default defineComponent({
   },
 
   methods: {
+    /** Footgun 17 forbids remounting the engine; a reload is the safe retry,
+     *  and the deep-link state is already in the URL. */
+    retry(): void {
+      window.location.reload();
+    },
+
     /** The WWTAwareComponent methods we use, typed narrowly (see WwtHost). */
     host(): WwtHost {
       return this as unknown as WwtHost;
@@ -3050,13 +3085,35 @@ export default defineComponent({
 }
 
 .sv-error-body {
-  margin: 0;
+  margin: 0 0 0.5rem;
   color: var(--sol-text-dim);
   font-size: 0.85rem;
   line-height: 1.45;
+}
 
-  strong {
-    color: var(--sol-text);
+// Today's Sun, flat (T33). Square JPEG with a black surround, so it needs no
+// mask; the loading cover dims it under the spinner.
+.sv-still {
+  width: min(62vmin, 20rem);
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+
+  &.is-dim {
+    position: absolute;
+    opacity: 0.35;
   }
+}
+
+.sv-retry {
+  margin-top: 0.4rem;
+  min-height: 44px;
+  padding: 0 1.2rem;
+  border-radius: 22px;
+  border: 1px solid rgba(var(--sol-select-rgb), 0.5);
+  background: var(--sol-surface-raised);
+  color: var(--sol-text);
+  font-weight: 600;
+  cursor: pointer;
 }
 </style>

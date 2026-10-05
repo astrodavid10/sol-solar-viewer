@@ -207,6 +207,26 @@
   font-size: 0.95rem;
 }
 
+// The chunk-failure card's picture of today's Sun and its retry (T33). Global
+// because a render-function component gets no scoped-style attribute.
+.sol-3d-still {
+  width: min(62vmin, 20rem);
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.sol-3d-retry {
+  min-height: 44px;
+  padding: 0 1.2rem;
+  border-radius: 22px;
+  border: 1px solid rgba(var(--sol-select-rgb), 0.5);
+  background: var(--sol-surface-raised);
+  color: var(--sol-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
 // Every live number, everywhere. Without this, a value re-rendering every few
 // seconds jitters as its glyph widths change, which reads as instability in the
 // data rather than in the font.

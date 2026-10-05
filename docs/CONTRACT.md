@@ -106,6 +106,11 @@ NOT an index into today's `ar/regions.json`, which CI regenerates every 4 h (foo
 (`url`, `width` 4096, `height` 2048, `projection` plate carree, `lon_at_u0_deg` 0,
 `north_up`, `obs_iso`, `sub_earth_carr_lon_deg`, `sub_earth_lat_deg`, `far_side`,
 `far_side_max_age_hours`, `source`, `near_side_half_angle_deg`), so an old reader still works.
+`disk_still` (optional, since 2026-10-05): `url`, `width` and `height` (1024), `bytes`,
+`obs_iso`, `source_url` — the default channel's newest SDO still as a plain picture. The app
+shows it behind its loading cover and on the failure cards when the 3D view cannot load
+(T33). Absent means the app shows text only; it never substitutes another image.
+
 `layers[]` is one entry per channel published this run, default first:
 
 - `channel` (SDO product code: `0171`, `0304`, `0193`, `HMIIC`, `HMIB`), `label`,

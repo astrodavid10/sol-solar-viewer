@@ -1136,6 +1136,23 @@ def _check_texture(rep: Report, get, idx: Optional[dict]) -> None:
             rep.info("texture status is {0!r}; obs age {1:.2f} h".format(
                 entry.get("status"), obs_age))
 
+    # The disk still behind the app's loading cover and failure card (T33).
+    # Optional (additive), but when named it must decode at its stated size.
+    still = doc.get("disk_still")
+    if isinstance(still, dict):
+        raw = get("texture/" + str(still.get("url") or ""))
+        ok = False
+        if raw:
+            try:
+                from PIL import Image
+                import io as _io
+                with Image.open(_io.BytesIO(raw)) as im:
+                    ok = im.size == (still.get("width"), still.get("height"))
+            except Exception:                            # noqa: BLE001
+                ok = False
+        rep.check(ok, "texture disk_still decodes at its declared size",
+                  "url {0!r}".format(still.get("url")))
+
     # Every published channel is validated, not just the default one: a layer
     # the app can offer but cannot decode is the same bug as a broken default,
     # it just takes a guest one extra tap to find.

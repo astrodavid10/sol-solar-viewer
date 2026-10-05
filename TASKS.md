@@ -41,7 +41,7 @@ older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T3
 | T28 | Upstream contract errors + DONKI cache age limit (plan 1.5) | DONE | `38c1d66` | UpstreamContractError (`UPSTREAM MOVED:`); DONKI cache <= 24 h; events.json `fetched_iso` |
 | T29 | Pipeline loose ends (plan 1.6) | DONE | `7a2bc4e` | no future GONG dirs, cache prune, walker test, runbook pull |
 | T30 | Quieter, smarter GitHub signal + mirror heartbeat + freshness backstop dispatch (plan 1.7) | DONE | `0fb390d`+`7a2bc4e` | Verdict reason keys; comment-on-change verified (#2 got one comment per change); mirror heartbeat + backstop dispatch in freshness.yml |
-| T31 | Repo-scoped mirror PAT + catch-up dispatch (plan 1.8) | DONE (code) — token pending | `275b2d2` | user to mint a fine-grained PAT (contents+actions write, this repo) into `%LOCALAPPDATA%\sol-gong-mirror	oken`; until then `gh auth token` fallback with WARN |
+| T31 | Repo-scoped mirror PAT + catch-up dispatch (plan 1.8) | DONE (code) — token pending | `275b2d2` | user to mint a fine-grained PAT (contents+actions write, this repo) into `%LOCALAPPDATA%\sol-gong-mirror\token`; until then `gh auth token` fallback with WARN |
 | T32 | `docs/CONTRACT.md` (plan 2.0) | TODO | — |  |
 | T33 | No silent hang: overall timeout, disk still, Try again (plan 2.1) | TODO | — | adds `disk_still` to texture.json |
 | T34 | Texture loads: latest request wins (plan 2.2) | TODO | — |  |

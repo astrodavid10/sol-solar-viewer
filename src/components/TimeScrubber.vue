@@ -31,19 +31,24 @@
           ></span>
         </div>
 
-        <!-- Solar flares inside the window: tap one to scrub to it. -->
-        <div v-if="eventMarks.length" class="ts-events">
+        <!-- Solar flares and CMEs inside the window: tap one to scrub to it.
+             Each button is a transparent hit area up to 44 px wide around an
+             8 px painted mark (T11: the marks used to BE the 8 px buttons). In
+             a cluster each area stops halfway to its neighbour, so a tap always
+             picks the nearest mark and no area steals another's taps. -->
+        <div v-if="eventMarks.length" ref="band" class="ts-events">
           <button
-            v-for="mark in eventMarks"
+            v-for="mark in hitMarks"
             :key="mark.key"
             type="button"
             class="ts-event"
-            :class="'is-' + mark.severity"
-            :style="{ left: mark.left + '%' }"
+            :style="{ left: mark.hitLeft + 'px', width: mark.hitWidth + 'px' }"
             :title="mark.label"
             :aria-label="'Jump to ' + mark.label"
             @click="onMark(mark)"
-          ></button>
+          >
+            <span class="ts-event-dot" :class="'is-' + mark.severity" :style="{ left: mark.dotLeft + 'px' }"></span>
+          </button>
         </div>
 
         <input
@@ -60,6 +65,21 @@
           @pointerup="onRelease"
           @pointercancel="onRelease"
         >
+
+        <button
+          v-if="eventMarks.length"
+          type="button"
+          class="ts-key-btn"
+          :aria-expanded="keyOpen"
+          aria-label="What the marks on the timeline mean"
+          @click="keyOpen = !keyOpen"
+        >?</button>
+        <div v-if="keyOpen" class="ts-key" role="note" data-camera-passthrough="false">
+          <p><span class="ts-key-mark ts-event-dot is-m"></span>A flare. This is a flash of light from the Sun. The redder the mark, the stronger the flare.</p>
+          <p><span class="ts-key-mark ts-event-dot is-cme"></span>A CME. This is a cloud of gas leaving the Sun.</p>
+          <p><span class="ts-key-mark ts-key-tick"></span>A hollow tick means no new magnetic map came in for that hour.</p>
+          <p>Tap a mark to jump to it and read about it.</p>
+        </div>
 
         <p class="ts-label">
           <template v-if="loadingText">{{ loadingText }}</template>
@@ -114,6 +134,17 @@ interface EventMark {
   label: string;
   severity: string;
 }
+
+interface HitMark extends EventMark {
+  /** px from the band's left edge: the hit area's left edge and width. */
+  hitLeft: number;
+  hitWidth: number;
+  /** px from the hit area's left edge to the painted mark's center. */
+  dotLeft: number;
+}
+
+/** Widest hit area per mark (a 44 px minimum touch target), T11. */
+const HIT_MAX_PX = 44;
 
 export default defineComponent({
   name: "TimeScrubber",
@@ -209,6 +240,10 @@ export default defineComponent({
   data() {
     return {
       nowUnix: Date.now() / 1000,
+      /** Width of the mark band in px, measured; 0 until mounted. */
+      bandWidth: 0,
+      bandObserver: null as ResizeObserver | null,
+      keyOpen: false,
       ageTimer: 0,
       resumeAfterDrag: false,
     };
@@ -353,6 +388,23 @@ export default defineComponent({
       return out;
     },
 
+    /**
+     * The marks with non-overlapping hit areas: each reaches at most 22 px
+     * either side of its mark, and never past the midpoint to a neighbour.
+     */
+    hitMarks(): HitMark[] {
+      const width = this.bandWidth;
+      const half = HIT_MAX_PX / 2;
+      const marks = [...this.eventMarks].sort((a, b) => a.left - b.left);
+      const centers = marks.map((m) => (m.left / 100) * width);
+      return marks.map((mark, i) => {
+        const c = centers[i];
+        const lo = i > 0 ? Math.max(c - half, (centers[i - 1] + c) / 2) : c - half;
+        const hi = i < marks.length - 1 ? Math.min(c + half, (c + centers[i + 1]) / 2) : c + half;
+        return { ...mark, hitLeft: lo, hitWidth: Math.max(hi - lo, 1), dotLeft: c - lo };
+      });
+    },
+
     /** Magnetogram time at the playhead, interpolated between frames. */
     playheadUnix(): number {
       const times = this.times;
@@ -407,13 +459,28 @@ export default defineComponent({
       this.nowUnix = Date.now() / 1000;
     }, AGE_REFRESH_MS);
     if (this.canPlay && this.kiosk) { this.playing = true; }
+    this.bandObserver = new ResizeObserver(() => this.measureBand());
+    this.bandObserver.observe(this.$el as Element);
+    this.measureBand();
+  },
+
+  updated() {
+    // The band only exists while there are marks; measure it once it appears.
+    if (!this.bandWidth) { this.measureBand(); }
   },
 
   beforeUnmount() {
     window.clearInterval(this.ageTimer);
+    this.bandObserver?.disconnect();
   },
 
   methods: {
+    measureBand(): void {
+      const band = this.$refs.band as HTMLElement | undefined;
+      const w = band ? band.clientWidth : 0;
+      if (w && Math.abs(w - this.bandWidth) > 0.5) { this.bandWidth = w; }
+    },
+
     /** Tapping a mark always scrubs there; if it is a DONKI event it also asks
      *  the parent to open its card. Scrub first so the view is already at the
      *  right moment by the time the card appears. */
@@ -550,19 +617,36 @@ export default defineComponent({
   pointer-events: none;
 }
 
+// The hit area (T11): transparent, up to 44 px wide, extending upward from
+// the band so it never overlaps the range input the guest drags.
 .ts-event {
   position: absolute;
-  top: 2px;
-  width: 8px;
-  height: 8px;
-  margin-left: -4px;
+  top: -22px;
+  height: 32px;
   padding: 0;
   border: none;
-  border-radius: 1px;
-  transform: rotate(45deg);
+  background: transparent;
   cursor: pointer;
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
+
+  &:focus-visible {
+    outline: 2px solid rgba(var(--sol-select-rgb), 0.8);
+    outline-offset: -2px;
+    border-radius: 6px;
+  }
+}
+
+// The painted mark, centered at `left` inside its hit area.
+.ts-event-dot {
+  position: absolute;
+  top: 24px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 1px;
+  transform: rotate(45deg);
+  pointer-events: none;
 
   // C flares: quiet amber diamonds.
   background: rgba(var(--sol-accent-rgb), 0.55);
@@ -578,7 +662,7 @@ export default defineComponent({
     width: 10px;
     height: 10px;
     margin-left: -5px;
-    top: 0;
+    top: 22px;
   }
 
   // CMEs: a circle in the open-field blue, deliberately NOT a diamond and
@@ -589,13 +673,62 @@ export default defineComponent({
     width: 9px;
     height: 9px;
     margin-left: -4.5px;
-    top: 1px;
+    top: 23px;
     border-radius: 50%;
     transform: none;
     background: transparent;
     border: 2px solid var(--sol-accent2, #5fb8ff);
     box-shadow: 0 0 6px rgba(var(--sol-accent2-rgb), 0.55);
   }
+}
+
+// The key (T11): a small "?" at the right end of the label row, opening a
+// note above the track. Not a permanent legend strip: phones have no room.
+.ts-key-btn {
+  position: absolute;
+  right: 0;
+  bottom: -6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--sol-select-rgb), 0.35);
+  background: transparent;
+  color: var(--sol-text-dim);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ts-key {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 26px);
+  z-index: 2;
+  width: min(20rem, 100%);
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
+  background: var(--sol-surface);
+  border: 1px solid rgba(var(--sol-select-rgb), 0.2);
+  color: var(--sol-text-dim);
+  font-size: 0.78rem;
+  line-height: 1.4;
+
+  p { margin: 0 0 0.35rem; }
+  p:last-child { margin-bottom: 0; }
+}
+
+.ts-key-mark {
+  position: relative;
+  display: inline-block;
+  top: 0;
+  margin: 0 0.6rem 0 0.2rem;
+  vertical-align: middle;
+}
+
+.ts-key-tick {
+  width: 4px;
+  height: 8px;
+  box-shadow: inset 0 0 0 1px rgba(var(--sol-select-rgb), 0.7);
 }
 
 .ts-tick {

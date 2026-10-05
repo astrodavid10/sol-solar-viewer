@@ -1,0 +1,253 @@
+{
+ "active_regions_url": "../ar/regions.json",
+ "constants": {
+  "mat3_hci_to_ecliptic_j2000": [
+   0.24588701750990838,
+   -0.9615452003040561,
+   0.12235359574738569,
+   0.9692984961404203,
+   0.24392020362673938,
+   -0.03103803541800976,
+   -4.000611136e-08,
+   0.12622900631361522,
+   0.9920011280059491
+  ],
+  "note": "All mat3 values are ROW-MAJOR and right-multiply COLUMN vectors: v_ecliptic_j2000 = M . v_frame. THREE.Matrix3.fromArray() expects column-major, so transpose or (better) use quat_carr_to_ecl, which is convention-free.",
+  "solar_axis_node_deg": 75.76576,
+  "solar_axis_tilt_deg": 7.25173
+ },
+ "frame_spacing_hours": 4,
+ "frames": [
+  {
+   "b0_deg": 6.532836050835886,
+   "bytes": 115462,
+   "carrington_rotation": 2316.3293020444576,
+   "hci_rot_deg": 54.37659301312641,
+   "index": 0,
+   "l0_deg": 241.4512639953449,
+   "mag_age_hours": 0.233333,
+   "mag_file": "mrzqs261005t0014c2316_181",
+   "mag_iso": "2026-10-05T00:14:00Z",
+   "mag_unix": 1791159240,
+   "mat3_carr_to_ecliptic_j2000": [
+    -0.6383862533114997,
+    -0.7599293317082789,
+    0.12235359574738565,
+    0.7628465283894751,
+    -0.6458342004582253,
+    -0.03103803541801005,
+    0.10260685019544805,
+    0.07352276061120928,
+    0.9920011280059492
+   ],
+   "mat3_heeq_to_ecliptic_j2000": [
+    0.9726189174446533,
+    -0.1975905843821399,
+    0.12235359574738577,
+    0.20273879637467396,
+    0.9787408343386611,
+    -0.0310380354180102,
+    -0.11361963682981344,
+    0.05499400114181217,
+    0.9920011280059493
+   ],
+   "n_closed": 1041,
+   "n_open_neg": 94,
+   "n_open_pos": 111,
+   "n_valid": 1246,
+   "p_deg": 26.151846522248512,
+   "quat_carr_to_ecl": [
+    0.06214261649781256,
+    0.01173589416410933,
+    0.9050167929071363,
+    0.4206485095172167
+   ],
+   "reused": false,
+   "target_iso": "2026-10-05T00:00:00Z",
+   "url": "f16.bin"
+  },
+  {
+   "b0_deg": 6.524153324402708,
+   "bytes": 115462,
+   "carrington_rotation": 2316.335155974195,
+   "hci_rot_deg": 56.642160564377036,
+   "index": 1,
+   "l0_deg": 239.3438492897556,
+   "mag_age_hours": 0.066667,
+   "mag_file": "mrzqs261005t0404c2316_179",
+   "mag_iso": "2026-10-05T04:04:00Z",
+   "mag_unix": 1791173040,
+   "mat3_carr_to_ecliptic_j2000": [
+    -0.6679282492585648,
+    -0.7340990746827524,
+    0.1223535957473856,
+    0.7367195639789754,
+    -0.6754856951912589,
+    -0.03103803541801027,
+    0.1054330967629048,
+    0.06940910705309707,
+    0.9920011280059492
+   ],
+   "mat3_heeq_to_ecliptic_j2000": [
+    0.9720698059609232,
+    -0.2002745364413011,
+    0.1223535957473858,
+    0.2054396270527823,
+    0.9781774890038123,
+    -0.0310380354180102,
+    -0.11346740490337467,
+    0.05530741414510316,
+    0.9920011280059492
+   ],
+   "n_closed": 1044,
+   "n_open_neg": 93,
+   "n_open_pos": 109,
+   "n_valid": 1246,
+   "p_deg": 26.15785758399725,
+   "quat_carr_to_ecl": [
+    0.0623624845695401,
+    0.0105050709345179,
+    0.9131559385526348,
+    0.4026745533169823
+   ],
+   "reused": false,
+   "target_iso": "2026-10-05T04:00:00Z",
+   "url": "f17.bin"
+  },
+  {
+   "b0_deg": 6.514658762346238,
+   "bytes": 115462,
+   "carrington_rotation": 2316.341518906463,
+   "hci_rot_deg": 59.104733991298076,
+   "index": 2,
+   "l0_deg": 237.0531936732239,
+   "mag_age_hours": 0.233333,
+   "mag_file": "mrzqs261005t0814c2316_177",
+   "mag_iso": "2026-10-05T04:04:00Z",
+   "mag_unix": 1791173040,
+   "mat3_carr_to_ecliptic_j2000": [
+    -0.6988532939937456,
+    -0.704722407109194,
+    0.12235359574738569,
+    0.7070157572484783,
+    -0.7065163546300611,
+    -0.03103803541800983,
+    0.10831801547504352,
+    0.06481488685844104,
+    0.992001128005949
+   ],
+   "mat3_heeq_to_ecliptic_j2000": [
+    0.9714645008785621,
+    -0.20319035690812515,
+    0.12235359574738575,
+    0.20837375053837826,
+    0.9775566584316022,
+    -0.03103803541800998,
+    -0.11330094271159308,
+    0.05564762722334751,
+    0.9920011280059493
+   ],
+   "n_closed": 1045,
+   "n_open_neg": 92,
+   "n_open_pos": 107,
+   "n_valid": 1244,
+   "p_deg": 26.164191584060063,
+   "quat_carr_to_ecl": [
+    0.06257382166362907,
+    0.00916257820887378,
+    0.9215979026437935,
+    0.38295935795529995
+   ],
+   "reused": true,
+   "target_iso": "2026-10-05T08:00:00Z",
+   "url": "f18.bin"
+  }
+ ],
+ "generated_iso": "2026-10-05T10:43:27Z",
+ "generated_unix": 1791197007,
+ "geometry": {
+  "frame": "HeliographicCarrington",
+  "n_bg_lines": 1152,
+  "n_lines": 1267,
+  "n_verts_total": 18816,
+  "seed_set_id": "0051e757",
+  "topology_bytes": 12706,
+  "topology_url": "topology.bin",
+  "units": "R_sun",
+  "verts_per_line": {
+   "buckets": {
+    "10": 373,
+    "16": 299,
+    "28": 306,
+    "6": 289
+   },
+   "max": 28,
+   "mean": 14.850829,
+   "min": 6
+  }
+ },
+ "model": {
+  "max_steps": "auto",
+  "method": "PFSS",
+  "nrho": 35,
+  "rss": 2.5,
+  "solver": "sunkit-magex 1.1.0",
+  "source": "GONG mrzqs synoptic magnetogram (gong2.nso.edu)",
+  "tracer": "PerformanceTracer"
+ },
+ "newest_mag_age_hours": 2.490992,
+ "newest_mag_iso": "2026-10-05T08:14:00Z",
+ "newest_mag_unix": 1791188040,
+ "pipeline_version": "1.0.0",
+ "quantization": {
+  "xyz": {
+   "decode": "world_rsun = q / 65535 * 5.2 - 2.6",
+   "dtype": "uint16",
+   "layout": "interleaved_xyz",
+   "limit_rsun": 2.6,
+   "max_error_km": 27.6008239871927,
+   "max_error_rsun": 3.967345693143e-05,
+   "normalized": true,
+   "offset": -2.6,
+   "scale": 5.2
+  }
+ },
+ "render_hints": {
+  "colors": {
+   "closed": [
+    1.0,
+    0.85,
+    0.2
+   ],
+   "open_neg": [
+    1.0,
+    0.4,
+    0.1
+   ],
+   "open_pos": [
+    0.3,
+    0.55,
+    1.0
+   ]
+  },
+  "load_order": "newest_first",
+  "opacity_model": {
+   "closed_floor": 0.25,
+   "formula": "t=(r-1)/(rss-1); closed: max(closed_floor, 1-(1-closed_floor)*t); open: clamp(1-t,0,1); invalid: 0",
+   "note": "Per-vertex opacity is NOT shipped: it is a two-instruction function of the dequantized radius, and shipping it would add 2 bytes per vertex.",
+   "rss": 2.5
+  },
+  "recommended_first_frame": 18
+ },
+ "run_id": "37298265012",
+ "schema": "sol.pfss/2",
+ "seed_regions": [
+  4545,
+  4546,
+  4547,
+  4548
+ ],
+ "seed_regions_note": "ar_index i in topology.bin refers to seed_regions[i], the NOAA AR number this seed set was frozen against; -1 is the background grid. A number missing from ar/regions.json means the region rotated off or was dropped since the trace, which is normal.",
+ "status": "ok",
+ "window_hours": 72
+}

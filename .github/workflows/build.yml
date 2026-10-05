@@ -55,11 +55,12 @@ jobs:
       - name: Build
         run: yarn build
 
-      # deCollideLabels' invariants (src/three/labelLayout.ts). Zero imports,
-      # ~1 s, and the app's only unit test of any kind -- it was wired to
-      # nothing until now.
-      - name: Check label layout
-        run: yarn check:labels
+      # App unit tests (vitest, tests/app/): the footgun 19/47 winding and
+      # world-frame tripwires built from the engine's own matrices, the label
+      # de-collision invariants (formerly scripts/check_label_layout.mjs), the
+      # manifest parser, the kiosk QR guard and latest-request-wins. ~1 s.
+      - name: App unit tests
+        run: yarn test:app
 
   # ── the Python pipeline ────────────────────────────────────────────────────
   # Parallel with `app`: the two tracks share only a data contract, so neither

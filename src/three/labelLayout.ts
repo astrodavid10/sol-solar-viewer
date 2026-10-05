@@ -44,7 +44,7 @@
 // instead.
 //
 // No three.js and no WWT imports (CLAUDE.md footgun 12) — this is pure screen
-// arithmetic, and `scripts/check_label_layout.mjs` tests it with plain numbers.
+// arithmetic, and `tests/app/labelLayout.test.ts` tests it with plain numbers.
 
 export interface LabelBox {
   /** CSS px, the chip's anchor point. Mutated in place. */
@@ -79,7 +79,7 @@ const groupCount: number[] = [];
 /**
  * Push overlapping chips apart vertically, in place.
  *
- * Guarantees, all three checked by `scripts/check_label_layout.mjs`:
+ * Guarantees, all three checked by `tests/app/labelLayout.test.ts`:
  *   - no two visible chips within `spreadX` horizontally are closer than
  *     `strideY` vertically;
  *   - `x` is never touched and the caller's array order never changes, because

@@ -168,6 +168,22 @@ rewrite itself — and never reaches a cache key or the published manifest.
 | `SOL_GONG_PROXY_INDEX` | `index.html` |
 | `SOL_GONG_PROXY_TOKEN` | **leave unset.** `raw.githubusercontent.com` needs no shared secret to read a public branch, so there is nothing to authenticate with the token for — and setting one would be silently ignored (`_relay_headers()` only attaches it, it never gates on it). The consequence is real and deliberate: the `gong-cache` branch is **publicly readable**. That is fine — GONG's data is public and NSO already serves it to anyone — and the bandwidth CI consumes reading it is GitHub's, not NSO's. |
 
+**Since 2026-10-05 (plan item 1.8, TASKS.md T31) the preferred credential is a
+fine-grained token limited to this one repository**, with `contents: write`
+(the push) and `actions: write` (the catch-up dispatch below), saved as plain
+text in `%LOCALAPPDATA%\sol-gong-mirror\token` (or the path in
+`SOL_MIRROR_TOKEN_FILE`), readable by the task's account only. `gh auth token`
+is now the fallback, and each run that uses it prints a WARN, because it is the
+owner's whole account (repo + workflow scope on every repository). When the
+token expires the push fails, and `freshness.yml`'s mirror heartbeat
+(`mirror:down` after 3 h) reports it.
+
+**Catch-up dispatch.** When a push follows a gap of more than 3 h since the
+previous run's heartbeat (the workstation was off: footgun 56) and brought new
+files, the mirror POSTs `workflow_dispatches` for `data.yml`, unless a run is
+already queued or in progress. A stale site recovers within minutes of the
+workstation waking up, instead of at a cron slot GitHub may not deliver.
+
 The Scheduled Task itself needs no repository secret at all: it authenticates
 its push with `gh auth token` (falling back to whatever the Windows
 credential manager already has configured for `git push`), read from the

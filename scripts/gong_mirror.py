@@ -521,21 +521,106 @@ def _stage_and_commit(state_dir: Path, message: str, dry_run: bool) -> bool:
     return True
 
 
-def _get_gh_token() -> Optional[str]:
+# Hours since the previous run after which a push counts as a CATCH-UP: the
+# mirror runs hourly, so its own previous heartbeat is normally ~1 h old.
+CATCH_UP_HOURS = 3.0
+
+
+def _token_file() -> Path:
+    """Where a repo-scoped token lives (docs/PLAN-2026-10.md item 1.8)."""
+    env = os.environ.get("SOL_MIRROR_TOKEN_FILE")
+    if env:
+        return Path(env)
+    return _default_state_dir().parent / "token"
+
+
+def _get_gh_token() -> Tuple[Optional[str], str]:
+    """(token, where it came from).
+
+    A fine-grained token limited to this repo (contents: write, actions:
+    write) in ``_token_file()`` is preferred. ``gh auth token`` is the
+    fallback, and it is the owner's whole account: on 2026-10-04 it carried
+    repo + workflow scope on every repository, used unattended by a scheduled
+    task on a laptop.
+    """
+    path = _token_file()
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+        if token:
+            return token, "token file {0}".format(path)
+    except OSError:
+        pass
     try:
         result = subprocess.run(["gh", "auth", "token"],
                                 capture_output=True, text=True)
     except FileNotFoundError:
-        return None
+        return None, ""
     if result.returncode != 0:
-        return None
+        return None, ""
     token = result.stdout.strip()
-    return token or None
+    if token:
+        print("WARN no repo-scoped token at {0}; using `gh auth token`, which "
+              "can write to every repo on the account".format(path))
+    return (token or None), "`gh auth token`"
+
+
+def _read_previous_status(state_dir: Path) -> Optional[datetime]:
+    """generated_iso of the last run's heartbeat, before this run overwrites it."""
+    try:
+        prev = json.loads((state_dir / "mirror-status.json").read_text("utf-8"))
+        return datetime.strptime(prev["generated_iso"], "%Y-%m-%dT%H:%M:%SZ"
+                                 ).replace(tzinfo=timezone.utc)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _repo_slug(remote: str) -> Optional[str]:
+    m = re.search(r"github\.com[/:]([^/]+/[^/.]+?)(?:\.git)?/?$", remote)
+    return m.group(1) if m else None
+
+
+def _dispatch_data(remote: str) -> None:
+    """Ask GitHub to run data.yml now, unless one is already queued or running.
+
+    After an outage the field lines stay stale until the next `data` run, and
+    GitHub's cron delivered only ~64% of those slots (gaps up to 11.5 h) in
+    the 30 days to 2026-10-04. On 2026-10-04 this exact dispatch, done by
+    hand, turned a 79 h-stale site green in 8 minutes. Never fatal: the push
+    already succeeded, and freshness.yml has the same backstop.
+    """
+    slug = _repo_slug(remote)
+    token, _src = _get_gh_token()
+    if not slug or not token:
+        print("catch-up: cannot dispatch data.yml (repo {0!r}, token {1})"
+              .format(slug, "yes" if token else "none"))
+        return
+    api = "https://api.github.com/repos/{0}/actions/workflows/data.yml".format(slug)
+    hdrs = {"Authorization": "Bearer " + token,
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "sol-gong-mirror"}
+    try:
+        for state in ("queued", "in_progress"):
+            req = urllib.request.Request("{0}/runs?status={1}&per_page=1"
+                                         .format(api, state), headers=hdrs)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                if json.loads(resp.read().decode("utf-8")).get("total_count"):
+                    print("catch-up: a data run is already {0}; not "
+                          "dispatching".format(state))
+                    return
+        req = urllib.request.Request(
+            api + "/dispatches", method="POST", headers=hdrs,
+            data=json.dumps({"ref": "main"}).encode("utf-8"))
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            print("catch-up: dispatched data.yml (HTTP {0})".format(resp.status))
+    except Exception as exc:                                    # noqa: BLE001
+        # The message never contains the token: urllib errors carry the URL
+        # and status, not the request headers.
+        print("WARN catch-up: dispatching data.yml failed: {0}".format(exc))
 
 
 def _push(state_dir: Path, branch: str) -> None:
     """Force-push HEAD to `branch`. Never prints the token."""
-    token = _get_gh_token()
+    token, source = _get_gh_token()
     if token:
         basic = base64.b64encode(
             "x-access-token:{0}".format(token).encode("ascii")).decode("ascii")
@@ -550,8 +635,8 @@ def _push(state_dir: Path, branch: str) -> None:
         _git(state_dir, "-c", "http.extraheader={0}".format(header),
             "push", "-q", "--force", "origin", "HEAD:{0}".format(branch),
             env=_git_env())
-        print("pushed to origin/{0} (authenticated via `gh auth token`)".format(
-            branch))
+        print("pushed to origin/{0} (authenticated via {1})".format(
+            branch, source))
     else:
         print("`gh auth token` unavailable -- falling back to a plain "
               "`git push` (Windows Credential Manager / "
@@ -627,6 +712,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         dirs_pruned, files_pruned = _prune(state_dir, days[0], days[-1])
 
+        prev_run = _read_previous_status(state_dir)
         status = _write_status(state_dir, args.retain_days, total_added,
                                files_pruned, total_rejected, now)
 
@@ -692,6 +778,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print("SUMMARY: FAILURE -- push to origin/{0} was rejected: "
                       "{1}".format(args.branch, exc))
                 raise
+            # A catch-up after an outage (the workstation was off: footgun
+            # 56) with new files: have CI trace them now, not at the next
+            # cron slot that GitHub may or may not deliver.
+            gap_h = ((now - prev_run).total_seconds() / 3600.0
+                     if prev_run else None)
+            if total_added > 0 and gap_h is not None and gap_h > CATCH_UP_HOURS:
+                print("catch-up: previous run was {0:.1f} h ago and {1} new "
+                      "file(s) arrived".format(gap_h, total_added))
+                _dispatch_data(args.remote)
 
         # A GONG outage with a populated state dir is NOT the empty-tree case
         # above: every file already mirrored is still on disk and still in the

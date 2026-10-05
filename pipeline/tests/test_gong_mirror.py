@@ -392,3 +392,28 @@ def test_download_rejects_a_body_that_is_not_a_gzipped_fits(
     assert fragment in err
     assert not dest.exists()
     assert list(tmp_path.glob("*.part")) == []
+
+
+# ── repo-scoped credential + catch-up dispatch (docs/PLAN-2026-10.md 1.8) ────
+
+def test_a_repo_scoped_token_file_beats_gh_auth_token(tmp_path, monkeypatch):
+    token = tmp_path / "token"
+    token.write_text("  github_pat_example  \n", encoding="utf-8")
+    monkeypatch.setenv("SOL_MIRROR_TOKEN_FILE", str(token))
+    monkeypatch.setattr(gong_mirror.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("fell back to gh auth token despite a token file")))
+    got, source = gong_mirror._get_gh_token()
+    assert got == "github_pat_example" and "token file" in source
+
+
+def test_the_previous_heartbeat_is_read_before_it_is_overwritten(tmp_path):
+    (tmp_path / "mirror-status.json").write_text(
+        '{"generated_iso": "2026-10-01T12:55:53Z"}', encoding="utf-8")
+    assert gong_mirror._read_previous_status(tmp_path) == datetime(
+        2026, 10, 1, 12, 55, 53, tzinfo=timezone.utc)
+    assert gong_mirror._read_previous_status(tmp_path / "missing") is None
+
+
+def test_the_repo_slug_comes_from_the_remote():
+    assert gong_mirror._repo_slug(gong_mirror.DEFAULT_REMOTE) == "astrodavid10/sol-solar-viewer"
+    assert gong_mirror._repo_slug("git@github.com:a/b.git") == "a/b"

@@ -82,7 +82,7 @@ import SunStats from "./components/SunStats.vue";
 import { attractActive, initAttract, stopAttract } from "./kiosk/attract";
 import { KIOSK_RELOAD_HOUR, installKioskGuards, scheduleDailyReload } from "./kiosk/kiosk";
 import { statsTrack } from "./kiosk/kioskStats";
-import { takeHomeUrl } from "./kiosk/takeHome";
+import { isReachableFromPhone, takeHomeUrl } from "./kiosk/takeHome";
 import { kiosk, setAppHandle, sheet, textureChannel, wide } from "./state/useAppState";
 import { initDeepLink } from "./state/useDeepLink";
 
@@ -279,6 +279,12 @@ export default defineComponent({
      */
     showTakeHomeQr(): void {
       const url = takeHomeUrl(this.kioskHomeUrl, textureChannel.value);
+      if (!isReachableFromPhone(url)) {
+        // Loud for the operator, invisible to the guest: a QR that opens
+        // nothing off the museum network is worse than no QR.
+        console.error(`[kiosk] take-home QR refused: ${url} is not reachable from a guest's phone. Set kioskHomeUrl in main.ts.`);
+        return;
+      }
       this.showQr(url, "Take it with you", textureChannel.value);
       statsTrack("takeHome");
     },

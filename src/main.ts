@@ -58,8 +58,9 @@ if (boolParam("kioskStats")) {
     // Canonical public URL for the take-home QR code shown in kiosk mode.
     // Must be absolute: an empty value falls back to deriving it from the
     // current URL, which on an exhibit machine is a localhost/LAN address the
-    // guest's phone cannot reach. Set this when the production URL is known.
-    kioskHomeUrl: "",
+    // guest's phone cannot reach (footgun 42 records a kiosk served from
+    // 192.168.1.121). takeHome.ts also refuses to draw a QR for such a host.
+    kioskHomeUrl: "https://astrodavid10.github.io/sol-solar-viewer/",
   })
     .component("font-awesome-icon", FontAwesomeIcon)
     .component("transition-expand", TransitionExpand)

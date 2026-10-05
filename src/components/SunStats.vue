@@ -46,7 +46,7 @@ import { flareLabel, kpLabel, sunspotLabel, windLabel } from "../data/swpc";
 import { dataBaseUrl } from "../data/pfss";
 import { RegionDay, loadRegionHistory, regionDayAt, utDate } from "../data/regions";
 import { seriesAt } from "../data/swpc";
-import { sceneUnix } from "../state/useAppState";
+import { atNewestSlot, sceneUnix } from "../state/useAppState";
 
 interface Chip {
   key: string;
@@ -125,7 +125,7 @@ export default defineComponent({
     const { stats } = useSolarStats();
     // The moment under the field-line playhead. Reading it here is what makes
     // the sunspot chip follow the scrubber instead of always reporting now.
-    return { stats, sceneUnix };
+    return { stats, sceneUnix, atNewestSlot };
   },
 
   data() {
@@ -233,15 +233,15 @@ export default defineComponent({
     },
 
     /**
-     * Is the playhead resting at "now"?
+     * Is the playhead resting at "now"? Since T3: at the newest playhead slot.
      *
-     * Within one Kp cadence (3 h) of the newest data counts as now: the
-     * scrubber's newest slot is snapped to a 4 h grid and the live readings are
-     * minutes old, so demanding exact equality would label the resting state
-     * "historical" and drop the freshness dot the guest should be seeing.
+     * It used to be "within 3 h of sceneUnix by the wall clock". The newest
+     * slot sits on a 4 h grid, and with stale field lines it was days old, so
+     * the resting state read as history and every chip showed old values
+     * while the aurora banner read live Kp (2026-10-04 audit).
      */
     atNow(): boolean {
-      return Date.now() / 1000 - this.sceneUnix < 3 * 3600;
+      return this.atNewestSlot;
     },
 
     /**

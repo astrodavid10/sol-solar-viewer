@@ -200,8 +200,9 @@ export const fieldColorMode = ref<FieldColorMode>(DEFAULT_FIELD_COLOR);
 export const frameT = ref(0);
 
 /**
- * Magnetogram time of each published frame, unix seconds, oldest first — the
- * `mag_unix` column of `pfss/manifest.json`.
+ * The time of each playhead SLOT, unix seconds, oldest first: the PFSS slot
+ * target times (T40), followed by any hold slots that reach the newest sphere
+ * texture when the field lines are stale (T3). An even 4 h grid.
  *
  * Shared rather than private to SolarView3D because `frameT` alone is a
  * fractional INDEX and cannot be turned into a wall-clock time without it.
@@ -219,14 +220,35 @@ export const frameTimes = ref<number[]>([]);
  * Kept here rather than duplicated per consumer so there is exactly one
  * definition of "scene time"; SolarView3D's own `sceneUnix()` reads it.
  */
+/**
+ * Wall-clock seconds, ticking once a minute. Only the no-manifest fallback of
+ * `sceneUnix` reads it; reading Date.now() inside the computed cached the
+ * page-load time forever (2026-10-04 audit).
+ */
+const wallClock = ref(Date.now() / 1000);
+if (typeof window !== "undefined") {
+  window.setInterval(() => { wallClock.value = Date.now() / 1000; }, 60_000);
+}
+
 export const sceneUnix = computed<number>(() => {
   const times = frameTimes.value;
-  if (!times.length) { return Date.now() / 1000; }
+  if (!times.length) { return wallClock.value; }
   const last = times.length - 1;
   const t = Math.min(Math.max(frameT.value, 0), last);
   const indexA = Math.min(Math.floor(t), last);
   const indexB = Math.min(indexA + 1, last);
   return times[indexA] + (times[indexB] - times[indexA]) * (t - indexA);
+});
+
+/**
+ * True while the playhead rests on the newest slot (T3). The stats chips key
+ * their live-versus-history choice on this, not on wall-clock distance from
+ * `sceneUnix`: a 4 h slot grid put the resting state outside a 3 h window, and
+ * stale field lines put it days away, so the chips silently showed old values.
+ */
+export const atNewestSlot = computed<boolean>(() => {
+  const n = frameTimes.value.length;
+  return n === 0 || frameT.value >= n - 1.001;
 });
 
 /** Field-line animation playback (M-W5). */

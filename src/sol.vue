@@ -36,6 +36,15 @@
              pointing at a destroyed GL context and the Sun comes back black
              (footgun 17). -->
         <solar-view-3d />
+
+        <!-- A phone tab reopened hours later still shows the data it loaded
+             (field lines, regions and events load once). After 30+ minutes
+             hidden, the page checks index.json and offers a reload when the
+             pipeline has published since (T3). A reload, not a refetch: the
+             engine cannot be remounted (footgun 17) and the URL holds state. -->
+        <button v-if="newerData" type="button" class="sol-newer" @click="reloadPage">
+          New data is available · Refresh
+        </button>
       </main>
 
       <!-- Desktop rail. On a phone these are overlays the guest opens from
@@ -89,6 +98,9 @@ import { type DiskStill, diskStillCaption, fetchDiskStill } from "./data/diskSti
 
 /** Above this width the stage moves left and the controls become a right rail. */
 const WIDE_QUERY = "(min-width: 900px)";
+
+/** A tab hidden this long re-checks index.json when it comes back (T3). */
+const STALE_TAB_MS = 30 * 60 * 1000;
 
 /** Give up on the 3D chunk after this long (a dead network, not a slow one). */
 const CHUNK_TIMEOUT_MS = 30000;
@@ -196,6 +208,12 @@ export default defineComponent({
 
 
 
+      /** T3: generated_unix of the index this page loaded with. */
+      dataVersion: 0,
+      /** When the tab was last hidden (ms), for the stale-tab check. */
+      hiddenSince: 0,
+      /** True once the pipeline has published since this page loaded. */
+      newerData: false,
       // Kiosk: the QR modal is open exactly while qrUrl is non-empty.
       qrUrl: "",
       qrTitle: "",
@@ -230,6 +248,9 @@ export default defineComponent({
     this.mediaQuery = window.matchMedia(WIDE_QUERY);
     wide.value = this.mediaQuery.matches;
     this.mediaQuery.addEventListener("change", this.onWideChange);
+
+    void this.fetchDataVersion().then((v) => { this.dataVersion = v; });
+    document.addEventListener("visibilitychange", this.onVisibility);
   },
 
   beforeUnmount() {
@@ -238,9 +259,41 @@ export default defineComponent({
     }
     this.kioskCleanups.forEach((off) => off());
     this.kioskCleanups = [];
+    document.removeEventListener("visibilitychange", this.onVisibility);
   },
 
   methods: {
+    /** generated_unix of the live index.json, or 0 if it cannot be read. */
+    async fetchDataVersion(): Promise<number> {
+      try {
+        const url = new URL("data/index.json", document.baseURI).href;
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) { return 0; }
+        /* eslint-disable-next-line @typescript-eslint/naming-convention -- pipeline JSON key */
+        const doc = await response.json() as { generated_unix?: number };
+        return Number(doc.generated_unix) || 0;
+      } catch {
+        return 0;
+      }
+    },
+
+    async onVisibility(): Promise<void> {
+      if (document.visibilityState === "hidden") {
+        this.hiddenSince = Date.now();
+        return;
+      }
+      const away = this.hiddenSince ? Date.now() - this.hiddenSince : 0;
+      this.hiddenSince = 0;
+      // The kiosk reloads itself nightly; a lobby screen is never "hidden".
+      if (this.kioskMode || away < STALE_TAB_MS || !this.dataVersion) { return; }
+      const latest = await this.fetchDataVersion();
+      if (latest > this.dataVersion) { this.newerData = true; }
+    },
+
+    reloadPage(): void {
+      window.location.reload();
+    },
+
     onWideChange(event: MediaQueryListEvent): void {
       wide.value = event.matches;
     },
@@ -360,6 +413,25 @@ export default defineComponent({
 // button stack) had slack, the larger one (the brand mark) had none, so the
 // title's max-width case touched the brand mark exactly (E5, measured at
 // 320/360px: brand mark 12-60, title's maxed-out box starting at 60 too).
+// T3's "New data is available" chip: top center, over the stage. z-index 6
+// clears the stage's stacking context (footgun 27), same as the title row.
+.sol-newer {
+  position: absolute;
+  top: 3.2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  min-height: 44px;
+  padding: 0 1.1rem;
+  border-radius: 22px;
+  border: 1px solid rgba(var(--sol-select-rgb), 0.5);
+  background: var(--sol-surface);
+  color: var(--sol-text);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
 .sol-topbar {
   position: absolute;
   top: 0;

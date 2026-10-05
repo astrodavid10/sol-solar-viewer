@@ -98,6 +98,13 @@ export interface FieldLines {
   /** Paint every line one flat color instead of the polarity palette. */
   setMonochrome: (on: boolean) => void;
   setTime: (frames: number) => void;
+  /**
+   * Extra playable slots past the newest frame, where the field lines HOLD
+   * that frame (T3). Set when the other products (the sphere textures) reach
+   * further toward "now" than the field lines do, so one playhead can still
+   * reach the newest of everything. 0 by default.
+   */
+  setHold: (slots: number) => void;
   /** Advance the playhead by `dtSec` of wall clock, looping. */
   advance: (dtSec: number) => void;
   /** Global multiplier, for layer fades. */
@@ -335,6 +342,18 @@ export function createFieldLines(options: FieldLinesOptions): FieldLines {
   let from = options.frameCount;
   let to = -1;
   let playhead = Math.max(0, options.frameCount - 1);
+  /** T3: playable slots past the newest frame, holding it. */
+  let hold = 0;
+
+  /**
+   * The newest PLAYABLE index: the newest loaded frame, plus the hold slots
+   * when that frame is the manifest's newest (a missing newest frame keeps
+   * its own clamp, see recomputeLoadedRange).
+   */
+  function lastT(): number {
+    if (to < 0) { return -1; }
+    return to === options.frameCount - 1 ? to + hold : to;
+  }
   let boundA = -1;
   let boundB = -1;
 
@@ -361,8 +380,9 @@ export function createFieldLines(options: FieldLinesOptions): FieldLines {
     const last = to;
     if (from > last) { return; }
 
-    const clamped = Math.min(Math.max(playhead, from), last);
-    playhead = clamped;
+    // The playhead may run into the hold slots; the FRAME it shows may not.
+    playhead = Math.min(Math.max(playhead, from), lastT());
+    const clamped = Math.min(playhead, last);
 
     const indexA = Math.min(Math.floor(clamped), last);
     const indexB = Math.min(indexA + 1, last);
@@ -437,20 +457,22 @@ export function createFieldLines(options: FieldLinesOptions): FieldLines {
       const wasEmpty = from >= options.frameCount;
       // Frames arrive in whatever order the pool finishes them, so "resting on
       // the newest we had" has to be sampled BEFORE the range moves.
-      const wasAtNewest = to >= 0 && playhead >= to - 1e-4;
+      const wasAtNewest = to >= 0 && playhead >= lastT() - 1e-4;
       recomputeLoadedRange();
 
       // First frame in is the newest (load_order: newest_first) — park there,
       // because the app is fundamentally about "now". Same reason a playhead
       // already parked at the newest follows a newer frame in: what "now" means
       // just changed, and nobody asked to look at four hours ago.
-      if (wasEmpty || wasAtNewest) { playhead = to; }
+      if (wasEmpty || wasAtNewest) { playhead = lastT(); }
       apply();
     },
 
-    loadedCount: () => loaded,
+    // Hold slots count as loaded once the frame they hold is: the scrubber
+    // sizes its axis and its "Loading..." copy on these.
+    loadedCount: () => loaded + (lastT() > to ? hold : 0),
     loadedFrom: () => from,
-    loadedTo: () => to,
+    loadedTo: () => lastT(),
     time: () => playhead,
     frameIndex: currentIndexA,
 
@@ -519,8 +541,17 @@ export function createFieldLines(options: FieldLinesOptions): FieldLines {
       apply();
     },
 
+    setHold(slots: number): void {
+      const next = Math.max(0, Math.floor(slots));
+      if (next === hold) { return; }
+      const wasAtNewest = to >= 0 && playhead >= lastT() - 1e-4;
+      hold = next;
+      if (wasAtNewest) { playhead = lastT(); }
+      apply();
+    },
+
     advance(dtSec: number): void {
-      const last = to;
+      const last = lastT();
       if (from >= last) { return; }
       const span = last - from;
       let next = playhead + dtSec / SECONDS_PER_FRAME;

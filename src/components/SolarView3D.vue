@@ -754,6 +754,8 @@ export default defineComponent({
       failed: false,
       /** Today's flat picture of the Sun for the cover and the failure card. */
       diskStill: null as DiskStill | null,
+      /** T3: playhead slots past the newest field-line frame, holding it. */
+      holdSlots: 0,
       /** Per frame: slot reused an older magnetogram (T40). */
       frameHeld: [] as boolean[],
       /** Per frame: the magnetogram's own time, for the held note. */
@@ -1203,6 +1205,8 @@ export default defineComponent({
           if (list.length && !list.includes(this.textureChannel)) {
             textureChannel.value = list[0];
           }
+          // A new texture manifest can move the newest slot (T3).
+          this.applyTimeAxis();
         },
       }));
       rt.stage.scene.add(rt.surface.object3d);
@@ -1450,16 +1454,7 @@ export default defineComponent({
             rt.manifest = markRaw(manifest);
             this.frameCount = manifest.frames.length;
             this.loadedFrom = manifest.frames.length;
-            // The SLOT time, not the magnetogram time: a slot that reused an
-            // older magnetogram would otherwise sit on top of its neighbour
-            // and shrink the axis (T40). Slots are an even 4 h grid, which is
-            // also what the texture frames are keyed on (footgun 36).
-            frameTimes.value = manifest.frames.map((f) => {
-              const t = Date.parse(f.targetIso) / 1000;
-              return Number.isFinite(t) ? t : f.magUnix;
-            });
-            this.frameHeld = manifest.frames.map((f) => f.reused);
-            this.frameMagTimes = manifest.frames.map((f) => f.magUnix);
+            this.applyTimeAxis();
             // Surfaced now so the banner (if it appears) already has the right
             // number in it; `dataStale` itself waits for index.json's verdict.
             this.dataStaleHours = manifest.newestMagAgeHours;
@@ -1512,11 +1507,55 @@ export default defineComponent({
         closedFloor: manifest.hints.closedFloor,
       }));
       rt.fieldLines.setVisible(this.layers.fieldLines);
+      rt.fieldLines.setHold(this.holdSlots);
       // The layer can be (re)built long after the guest picked a color — a
       // deep link sets it before any frame data has arrived.
       rt.fieldLines.setMonochrome(this.fieldColorMode === "blue");
       stage.scene.add(rt.fieldLines.group);
       if (boolParam("debug")) { this.installDebugHandle(); }
+    },
+
+    /**
+     * Build the playhead's axis: the PFSS slot targets (T40), then hold slots
+     * up to the newest sphere-texture slot when the field lines are stale (T3).
+     *
+     * Before T3 the axis was PFSS alone, so with field lines days old the
+     * freshest published texture was unreachable, the off-limb corona never
+     * drew (it waits for the newest texture frame), and the scrubber said
+     * "now" under a banner saying the data was days old. Both products share
+     * the pipeline's 4 h slot grid, so the extra slots are exact. Appending
+     * (never prepending) keeps every existing index meaning the same slot.
+     */
+    applyTimeAxis(): void {
+      const manifest = this.rt.manifest;
+      if (!manifest || !manifest.frames.length) { return; }
+      const n = manifest.frames.length;
+      const targets = manifest.frames.map((f) => {
+        const t = Date.parse(f.targetIso) / 1000;
+        return Number.isFinite(t) ? t : f.magUnix;
+      });
+      const spacing = (manifest.frameSpacingHours || 4) * 3600;
+      const texFrames = this.rt.surface?.textureInfo()?.frames ?? [];
+      const texNewest = texFrames.length
+        ? Date.parse(texFrames[texFrames.length - 1].targetIso) / 1000
+        : NaN;
+      let hold = 0;
+      if (Number.isFinite(texNewest)) {
+        // Capped at one window, so a long outage cannot stretch the track
+        // past twice its normal span.
+        hold = Math.min(n, Math.max(0, Math.round((texNewest - targets[n - 1]) / spacing)));
+      }
+      const lastMag = manifest.frames[n - 1].magUnix;
+      frameTimes.value = targets.concat(
+        Array.from({ length: hold }, (_, i) => targets[n - 1] + (i + 1) * spacing));
+      this.frameHeld = manifest.frames.map((f) => f.reused).concat(new Array(hold).fill(true));
+      this.frameMagTimes = manifest.frames.map((f) => f.magUnix).concat(new Array(hold).fill(lastMag));
+      this.holdSlots = hold;
+      this.frameCount = n + hold;
+      if (this.rt.fieldLines) {
+        this.rt.fieldLines.setHold(hold);
+        this.syncFrameCounts();
+      }
     },
 
     syncFrameCounts(): void {

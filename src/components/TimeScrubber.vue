@@ -82,6 +82,9 @@ const AGE_REFRESH_MS = 60000;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+/** The newest slot reads "now" only while it is younger than this (T3). */
+const NOW_MAX_AGE_S = 6 * 3600;
+
 interface Tick {
   index: number;
   left: number;
@@ -376,7 +379,10 @@ export default defineComponent({
      * honest answer to what the guest is asking.
      */
     ageText(): string {
-      if (this.atNewest) { return "now"; }
+      // "now" only while the newest slot really is recent. When every product
+      // is stale (a pipeline outage), the newest slot is hours or days old and
+      // saying "now" would contradict the banner a few pixels above (T3).
+      if (this.atNewest && this.nowUnix - this.playheadUnix < NOW_MAX_AGE_S) { return "now"; }
       const hours = (this.nowUnix - this.playheadUnix) / 3600;
       if (hours < 1.5) { return "just now"; }
       return `${Math.round(hours)} hours ago`;

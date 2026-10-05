@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-10-04 (twenty-fourth session — audit; plan `docs/PLAN-2026-10.md` adopted, rows T24-T46 added)
+**Last updated:** 2026-10-05 (twenty-fourth session — plan phase 1 done, T24-T31; T41/T42 pulled ahead of phase 2)
 
 ---
 
@@ -34,14 +34,14 @@ older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T3
 
 | # | Task | Status | Commit | Note |
 |---|------|--------|--------|------|
-| T24 | Per-channel texture age ceiling; drop stale layers; per-layer status (plan 1.1) | IN PROGRESS | — | HMI layers showed 09-21 imagery as `ok` |
-| T25 | Save the CI cache on red runs (plan 1.2) | TODO | — |  |
-| T26 | Validator crash isolation per product (plan 1.3) | TODO | — | 24 crash sites on a null |
-| T27 | Region position bounds for srs.txt (plan 1.4) | TODO | — |  |
-| T28 | Upstream contract errors + DONKI cache age limit (plan 1.5) | TODO | — | footgun 58's mechanism |
-| T29 | Pipeline loose ends (plan 1.6) | TODO | — |  |
-| T30 | Quieter, smarter GitHub signal + mirror heartbeat + freshness backstop dispatch (plan 1.7) | TODO | — | GitHub only, by decision |
-| T31 | Repo-scoped mirror PAT + catch-up dispatch (plan 1.8) | TODO | — | needs the user to mint the PAT |
+| T24 | Per-channel texture age ceiling; drop stale layers; per-layer status (plan 1.1) | DONE | `f5a1363`+`38c1d66` | live 2026-10-05 00:50Z: HMIIC/HMIB dropped (latest_* 320 h old), texture `degraded` naming them; validator per-layer age; panel + attract offer only published channels |
+| T25 | Save the CI cache on red runs (plan 1.2) | DONE | `0fb390d` | restore/save split; saved on red runs 37247690602, 37248331473, 37248930980 |
+| T26 | Validator crash isolation per product (plan 1.3) | DONE | `38c1d66` | test_validator_isolation fails 4/7 without the fix |
+| T27 | Region position bounds for srs.txt (plan 1.4) | DONE | `38c1d66` | parse_srs bounds + SrsFormatError; cached srs.txt <= 2 days |
+| T28 | Upstream contract errors + DONKI cache age limit (plan 1.5) | DONE | `38c1d66` | UpstreamContractError (`UPSTREAM MOVED:`); DONKI cache <= 24 h; events.json `fetched_iso` |
+| T29 | Pipeline loose ends (plan 1.6) | DONE | `7a2bc4e` | no future GONG dirs, cache prune, walker test, runbook pull |
+| T30 | Quieter, smarter GitHub signal + mirror heartbeat + freshness backstop dispatch (plan 1.7) | DONE | `0fb390d`+`7a2bc4e` | Verdict reason keys; comment-on-change verified (#2 got one comment per change); mirror heartbeat + backstop dispatch in freshness.yml |
+| T31 | Repo-scoped mirror PAT + catch-up dispatch (plan 1.8) | DONE (code) — token pending | `275b2d2` | user to mint a fine-grained PAT (contents+actions write, this repo) into `%LOCALAPPDATA%\sol-gong-mirror	oken`; until then `gh auth token` fallback with WARN |
 | T32 | `docs/CONTRACT.md` (plan 2.0) | TODO | — |  |
 | T33 | No silent hang: overall timeout, disk still, Try again (plan 2.1) | TODO | — | adds `disk_still` to texture.json |
 | T34 | Texture loads: latest request wins (plan 2.2) | TODO | — |  |
@@ -51,7 +51,7 @@ older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T3
 | T38 | WWT render loop on requestAnimationFrame, measured (plan 2.6) | TODO | — |  |
 | T39 | Split SolarView3D.vue: cards, then time cluster (plan 4.1) | TODO | — | supersedes the deferred note below |
 | T40 | Held PFSS frames on the timeline (plan 4.2) | TODO | — |  |
-| T41 | Hot Corona stops dropping out: fixed-res limb fit + carry-forward (plan 5.1) | TODO | — |  |
+| T41 | Hot Corona stops dropping out: fixed-res limb fit + carry-forward (plan 5.1) | IN PROGRESS | — | pulled ahead of phase 2: live has 2 of 5 channels after T24 |
 | T42 | Current HMI imagery from JSOC (plan 5.2) | TODO | — | orientation gate vs SDO 2026-09-24 |
 | T43 | `_single` as filtered `cmd_all`; `pipeline/index.py` (plan 5.3) | TODO | — |  |
 | T44 | Share preview + service worker (plan 7.1) | TODO | — |  |

@@ -247,13 +247,13 @@ app yet, and it is not part of this chore.
   filled by a 15:14Z magnetogram, **0.77 h** — the low end of the band, not an anomaly.)
 - `regions` printing `today's srs.txt lists 5 region(s), the history product 6` is expected and is
   explained in footgun 30 — different epochs, and `parse_srs` reads Section I only.
-- With `--with-texture --with-hires`, the texture stage prints a `limb fit` per channel and a
-  `hi-res 8192x4096 …` line per channel — **expect all five, 0304 included.** `TEX_LIMB_FIT_RES
-  = 2048` now performs the limb fit at a fixed resolution whatever the source, so the guard keeps
-  its calibration instead of rejecting the one channel with a diffuse limb; the live product
-  carried `high_res 8192` on 5/5 layers when checked 2026-08-31. **`CLAUDE.md` footgun 40 still
-  says 0304 is excluded and is out of date** (`TASKS.md` T4 owns that fix) — a *missing* 0304
-  hi-res line is now a regression, not the guard working.
+- With `--with-texture --with-hires`, the texture stage prints a `limb fit` per channel (with
+  the channel's `expected` offset beside it) and a `hi-res 8192x4096 …` line per channel. Every
+  AIA channel should pass; `CLAUDE.md` footgun 40 explains the per-channel band. A
+  `WARN <code> skipped` line followed by `carried forward` is a channel standing in with its
+  last good layer, which is fine; `skipped` with nothing carried means the channel is absent.
+  Since 2026-09-24 HMIIC and HMIB are absent until TASKS.md T42 lands, because SDO stopped
+  publishing HMI browse frames.
 - The `history:`, `texture ok` and `hi-res` lines appear **only** with `--with-texture`. Under
   option (a) the publish line carries fewer files — **26 rather than 67**, measured 2026-08-31 —
   there is no `texture` line in the per-product summary, and `index.json` reports the texture

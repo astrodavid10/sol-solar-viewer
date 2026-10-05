@@ -431,29 +431,33 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     `-webkit-` prefix too, or older Safari silently skips it and the page looks fine on the
     one device you tested.
 
-40. **The opt-in 4K sphere texture: why it needs an 8192-wide map, and why 0304 does not get
-    one.** `--with-hires` publishes a per-layer `high_res` block (`sol.texture/4`) holding a
-    single 8192x4096 map of the NEWEST frame only, built from SDO's 4096 px browse still
-    instead of the usual 2048.
+40. **The 8192-wide sphere map, and the limb guard every channel must pass.** `--with-hires`
+    publishes a per-layer `high_res` block (`sol.texture/4`) holding a single 8192x4096 map of
+    the NEWEST frame only, built from SDO's 4096 px browse still. CI passes the flag on every
+    run (`data.yml`); each channel's 8192 pass takes ~40-60 s there. (This entry used to say
+    "never enable in CI" and that 0304 is excluded. Both stopped being true; see below.)
     **Why 8192 and not 4096:** half of a plate-carree map is the visible hemisphere, so a
     4096-wide map gives only 2048 px across a disk that carries ~3204 px of real detail in a
-    4096 source (the disk fills 0.7824 of an AIA frame, footgun 21). The normal map was
-    therefore throwing away most of a 4K frame, and 8192 is the width that actually shows it.
-    **0304 is EXCLUDED, and this is the guard working, not a bug.** Measured 2026-08-23, the
-    limb fit against the synthesized WCS:
-      2048 source: r_fit 807.4 vs r_pred 789.4  = +2.28%  (inside TEX_LIMB_RADIUS_TOL's 3%)
-      4096 source: r_fit 1644.8 vs r_pred 1578.8 = +4.18%  (REFUSED)
-    `r_pred` doubles exactly with the source resolution; `r_fit` does not — it comes out 30 px
-    wider than twice the 2048 fit. The fitter finds a systematically larger limb at higher
-    sampling, and 0304 is He II 304 A, the AIA channel with the most extended chromospheric
-    limb brightening: a diffuse edge, so more ray samples cross it further out. **Do NOT
-    "fix" this by raising `TEX_LIMB_RADIUS_TOL`.** That tolerance exists to catch SDO
-    re-cropping the browse product, which would silently ship a map misregistered by several
-    percent — exactly what footgun 21 is about. A 4% radius error displaces every feature on
-    the disk. The failure is SOFT by design: the channel simply has no `high_res` key
-    (additive-only contract, footgun 22), the app hides the option for it, and four of five
-    channels still get 4K. If it must be fixed properly, fix the FITTER to be
-    resolution-independent — and note that doing so risks the already-validated 2048 path.
+    4096 source (the disk fills 0.7824 of an AIA frame, footgun 21).
+    **The limb guard (`fit_limb`) is what stops a misregistered map shipping.** It fits the
+    disk edge and compares it with the radius predicted from the channel's plate scale; SDO
+    re-cropping its browse product would move every feature on the disk, and this is the only
+    check that would notice. Two rules hold it together:
+    - It fits at a FIXED `TEX_LIMB_FIT_RES = 2048` whatever the source, because the fitter
+      creeps outward with sampling on a soft limb (0304: +2.0% native 2048, +4.2% native 4096,
+      +2.3% when 4096 is downsampled first). Logged radii are scaled back to source pixels.
+    - The +/-3% band (`TEX_LIMB_RADIUS_TOL`) sits around each channel's own measured
+      `limb_excess` (`config.TEX_CHANNELS`), not around zero, because each wavelength's limb
+      is emission from a different height. Measured 2026-10-04, 12 frames per channel:
+      0171 -0.87%, 0304 +2.22%, 0193 +3.49% (8 of 12 frames over a zero-centred 3%, which is
+      why the Hot Corona layer kept vanishing). Centring moves the band, it does not widen it:
+      a re-crop moves every channel by the same factor, and `test_limb_band.py` asserts a 3.5%
+      shift is still caught on each. **Never raise `TEX_LIMB_RADIUS_TOL`.** If a channel
+      drifts out of its band, re-measure it (fetch ~12 browse frames over two days and run
+      `fit_limb` in quiet mode) before changing its `limb_excess`, and record the numbers here.
+    A channel that fails the guard is SOFT: its last good layer is carried forward while it is
+    under the age ceiling (T41), and otherwise the channel is absent (additive contract,
+    footgun 22).
     **GPU, not bytes, is the binding constraint.** 8192x4096 RGBA is ~134 MB decoded, against
     ~1.1-3.6 MB on the wire. Many mobile GPUs cap `MAX_TEXTURE_SIZE` at 4096, where loading it
     fails outright — so `sunSurface.hasHighRes()` reads
@@ -463,9 +467,6 @@ node scripts/check_label_layout.mjs             # label de-collision invariants
     The texture is held in its own slot OUTSIDE `TEXTURE_BUDGET_BYTES`' LRU, because at 3x the
     whole budget it would evict everything else on sight; it is never an eviction candidate and
     must be disposed explicitly.
-    **Never enable this in CI.** Each 8192 reprojection is ~3 minutes (4x the pixels of the
-    normal map, three colour planes each), so a five-channel run is ~16 min against a ~9 min
-    job budget. It is a workstation/dome option, published by hand.
 41. **Run background pipeline commands with `python -u`.** Without it, stdout is block-buffered
     and a run that gets killed — a tool timeout, a Ctrl-C — leaves a **zero-byte log** even
     though it did minutes of work and left files in `.staging`. Measured: a `--with-hires` run

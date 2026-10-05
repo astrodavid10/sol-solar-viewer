@@ -919,6 +919,12 @@ def solar_frame(src: "SourceImage"):
             float(sun.P(obstime).to_value(u.deg)))
 
 
+def limb_in_band(ratio: float, channel: dict) -> bool:
+    """Is a fitted limb (``r_fit / r_pred - 1``) inside this channel's guard
+    band: TEX_LIMB_RADIUS_TOL either side of its measured ``limb_excess``?"""
+    return abs(ratio - float(channel.get("limb_excess", 0.0)))         <= TEX_LIMB_RADIUS_TOL
+
+
 def fit_limb(src: "SourceImage", channel: dict, obstime,
              quiet: bool = False):
     """Fit the disk edge and assert the synthesized WCS still applies.
@@ -961,18 +967,26 @@ def fit_limb(src: "SourceImage", channel: dict, obstime,
     # the SAME real disk-center offset at 2x the pixels (the 4096 px hi-res
     # source) would fail this check for being MORE precise, not less.
     center_tol_px = TEX_LIMB_CENTER_TOL_PX * (src_res / float(TEX_SRC_RES))
+    # The band sits around this channel's own measured limb offset (config:
+    # limb_excess), because each wavelength's limb is emission from a
+    # different height -- 0193's sits ~3.5% out, which a zero-centred band
+    # rejected in most runs.
+    excess = float(channel.get("limb_excess", 0.0))
+    ratio = r_fit / r_pred - 1.0
+    in_band = limb_in_band(ratio, channel)
     if not quiet:
-        print("  limb fit: r {0:.1f} px vs {1:.1f} predicted ({2:+.2%}), "
-              "center {3:.1f} px off, scatter {4:.1f} px ({5} rays)".format(
-                  r_fit, r_pred, r_fit / r_pred - 1.0, c_off, resid, n_rays))
-    if abs(r_fit / r_pred - 1.0) > TEX_LIMB_RADIUS_TOL \
-            or c_off > center_tol_px:
+        print("  limb fit: r {0:.1f} px vs {1:.1f} predicted ({2:+.2%}; "
+              "expected {3:+.1%}), center {4:.1f} px off, scatter {5:.1f} px "
+              "({6} rays)".format(r_fit, r_pred, ratio, excess, c_off, resid,
+                                  n_rays))
+    if not in_band or c_off > center_tol_px:
         raise PipelineError(
             "browse JPG geometry has changed: limb radius {0:.1f} px vs "
-            "{1:.1f} predicted ({2:+.1%}, tol {3:.0%}), disk center {4:.1f} "
-            "px from the array center (tol {5:.0f}); the synthesized WCS is "
-            "no longer valid".format(r_fit, r_pred, r_fit / r_pred - 1.0,
-                           TEX_LIMB_RADIUS_TOL, c_off, center_tol_px))
+            "{1:.1f} predicted ({2:+.1%}; expected {3:+.1%} +/- {4:.0%}), "
+            "disk center {5:.1f} px from the array center (tol {6:.0f}); the "
+            "synthesized WCS is no longer valid".format(
+                r_fit, r_pred, ratio, excess, TEX_LIMB_RADIUS_TOL, c_off,
+                center_tol_px))
     return cx, cy, r_fit, r_pred, c_off, resid, n_rays
 
 
@@ -1447,5 +1461,5 @@ __all__ = [
     "sub_earth_distance", "reproject_rgb", "quiet_sun_rgb",
     "farside_modulation", "feather_weight", "compose", "encode_jpeg",
     "ar_offsets", "ar_summary", "build_texture", "log_texture",
-    "texture_status", "max_age_hours",
+    "texture_status", "max_age_hours", "limb_in_band",
 ]

@@ -242,17 +242,39 @@ TEX_WAVELENGTH = 171                      # the app's default channel
 #             BRIGHT pixels near each cataloged region, which only means
 #             anything in EUV: sunspots are DARK in HMIIC, and bright in HMIB
 #             just means positive polarity.
+#   limb_excess  where this channel's fitted limb normally sits relative to
+#             the radius predicted from `scale`, as a fraction. The limb guard
+#             (TEX_LIMB_RADIUS_TOL) is a band of +/-3% AROUND this value, not
+#             around zero. Each wavelength sees emission from a different
+#             height, so each has its own stable offset; measured 2026-10-04,
+#             12 frames per channel at the fixed TEX_LIMB_FIT_RES:
+#                 0171  mean -0.87%  (min -1.60, max -0.18)
+#                 0304  mean +2.22%  (min +2.03, max +2.45)
+#                 0193  mean +3.49%  (min +2.88, max +4.64; 8 of 12 over +3%)
+#             0193's emission comes from the hot corona above the limb, so a
+#             guard centred on zero rejected it in most runs and the Hot
+#             Corona layer kept vanishing. Centring changes WHERE the band
+#             sits, not how wide it is: SDO re-cropping its browse product
+#             moves every channel by the same factor, and a 3% move still
+#             leaves the band. HMI values are 0.0 until T42 measures them.
+#             Re-measure with the scratch method recorded in footgun 40 before
+#             changing a number here; never widen TEX_LIMB_RADIUS_TOL instead.
 TEX_CHANNELS = (
     {"code": "0171",  "label": "Coronal Loops", "wavelength": 171,
-     "scale": 0.6009, "farside": "quiet", "ar_check": True},
+     "scale": 0.6009, "farside": "quiet", "ar_check": True,
+     "limb_excess": -0.009},
     {"code": "0304",  "label": "Chromosphere",  "wavelength": 304,
-     "scale": 0.6009, "farside": "quiet", "ar_check": True},
+     "scale": 0.6009, "farside": "quiet", "ar_check": True,
+     "limb_excess": 0.022},
     {"code": "0193",  "label": "Hot Corona",    "wavelength": 193,
-     "scale": 0.6009, "farside": "quiet", "ar_check": True},
+     "scale": 0.6009, "farside": "quiet", "ar_check": True,
+     "limb_excess": 0.035},
     {"code": "HMIIC", "label": "Visible Sun",   "wavelength": None,
-     "scale": 0.5044, "farside": "flat",  "ar_check": False},
+     "scale": 0.5044, "farside": "flat",  "ar_check": False,
+     "limb_excess": 0.0},
     {"code": "HMIB",  "label": "Magnetic Map",  "wavelength": None,
-     "scale": 0.5044, "farside": "flat",  "ar_check": False},
+     "scale": 0.5044, "farside": "flat",  "ar_check": False,
+     "limb_excess": 0.0},
 )
 # Plate carree, 0.0879 deg/px. Raised from 2048x1024 when the app became a
 # single sphere view: the Earth-facing hemisphere is half the width, so this is
@@ -364,7 +386,8 @@ def tex_src_scale(channel_scale: float, src_res: int = TEX_SRC_RES) -> float:
 
 
 TEX_SRC_SCALE_ARCSEC = tex_src_scale(0.6)   # AIA default, kept for callers
-TEX_LIMB_RADIUS_TOL = 0.03                # warn if the fitted limb is >3% off
+# Half-width of the limb guard, around each channel's limb_excess (above).
+TEX_LIMB_RADIUS_TOL = 0.03
 
 # ── Opt-in high-resolution newest-frame texture (--with-hires) ──────────────
 # TEX_OUT_W/H (4096x2048) resamples the 2048 px browse still, and half of a

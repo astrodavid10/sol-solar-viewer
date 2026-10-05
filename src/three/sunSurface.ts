@@ -67,6 +67,7 @@ import {
   WebGLRenderer,
 } from "three";
 
+import { LatestRequest } from "./latestRequest";
 import { SOLID_SIDE } from "./winding";
 
 export type SunSurfaceMode = "sdo" | "synthetic" | "wwt";
@@ -1026,7 +1027,12 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
   let hiresWanted = options.highRes ?? false;
   /** True while the hi-res map is the one actually painted on the sphere. */
   let hiresOnScreen = false;
-  let hiresLoading = false;
+  /** The hi-res load in flight, if any. Latest request wins (T34): this was
+   *  a boolean that DROPPED a newer channel's request while an older one
+   *  downloaded, and then painted the older one when it landed. */
+  const hiresReq = new LatestRequest();
+  /** The normal-res map the sphere is waiting on; same rule. */
+  const mapReq = new LatestRequest();
   /**
    * The one resident high-res texture, if any -- deliberately NOT part of
    * the `resident` LRU above.
@@ -1202,23 +1208,34 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     hiresOnScreen = true;
   }
 
+  /** Should this hi-res map be on the sphere right now? Re-asked when a
+   *  load lands, because the guest may have switched channel or scrubbed off
+   *  "now" while it downloaded. */
+  function hiresStillWanted(meta: SunHighRes): boolean {
+    return hiresWanted && isAtNewestFrame() && info?.highRes?.url === meta.url;
+  }
+
   function loadHighRes(meta: SunHighRes): void {
-    if (hiresLoading) { return; }
     if (hiresTexture && hiresUrl === meta.url) {
       // Already decoded (guest toggled off and back on, or scrubbed away
       // from "now" and straight back) -- paint synchronously.
+      hiresReq.clear();
       paintHighRes(hiresTexture, meta);
       return;
     }
-    hiresLoading = true;
+    if (hiresReq.inFlight() === meta.url) { return; }   // already on its way
+    const ticket = hiresReq.begin(meta.url);
     loader.load(
       meta.url,
       (loaded) => {
-        hiresLoading = false;
-        if (destroyed) {
+        // Superseded by a newer request, no longer wanted, or torn down:
+        // drop it. At ~134 MB decoded it is not worth keeping on spec.
+        if (destroyed || !hiresReq.isCurrent(ticket) || !hiresStillWanted(meta)) {
+          hiresReq.clear(ticket);
           loaded.dispose();
           return;
         }
+        hiresReq.clear(ticket);
         disposeHighRes();      // at most one resident at a time (see above)
         hiresTexture = loaded;
         hiresUrl = meta.url;
@@ -1226,7 +1243,7 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       },
       undefined,
       () => {
-        hiresLoading = false;
+        hiresReq.clear(ticket);
         // Nothing to say to the guest: the normal-res frame adoptTexture
         // already painted stays up, which is the honest fallback.
         console.warn(`[sunSurface] high-res texture unavailable: ${meta.url}`);
@@ -1318,11 +1335,13 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
     // Any earlier "adopt it when the prefetch lands" intent is void the moment
     // we commit to a different frame below.
     adoptOnArrival = null;
+    const ticket = mapReq.begin(next.url);
 
     const held = resident.get(next.url);
     if (held) {
       // Already decoded. Adopting it synchronously is what makes scrubbing back
       // across frames we have seen feel instant rather than re-decoding 8 MB.
+      mapReq.clear(ticket);
       adoptTexture(held, next);
       return;
     }
@@ -1339,6 +1358,19 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
       next.url,
       (loaded) => {
         pending.delete(next.url);
+        if (!mapReq.isCurrent(ticket)) {
+          // The guest moved on while this decoded (T34). Keep it in the ring
+          // -- scrubbing back to it is then free -- but never paint it.
+          if (destroyed) { loaded.dispose(); return; }
+          loaded.colorSpace = SRGBColorSpace;
+          loaded.wrapS = RepeatWrapping;
+          loaded.anisotropy = 4;
+          touchResident(next.url, loaded, textureBytes(
+            (loaded.image as { width?: number } | undefined)?.width ?? 0,
+            (loaded.image as { height?: number } | undefined)?.height ?? 0));
+          return;
+        }
+        mapReq.clear(ticket);
         adoptTexture(loaded, next);
       },
       undefined,
@@ -1413,8 +1445,11 @@ export function createSunSurface(options: SunSurfaceOptions): SunSurface {
   }
 
   async function checkTexture(): Promise<void> {
-    const next = await fetchTextureInfo(options.dataBaseUrl, channel, abort.signal);
-    if (destroyed || !next) { return; }
+    const asked = channel;
+    const next = await fetchTextureInfo(options.dataBaseUrl, asked, abort.signal);
+    // A quicker channel switch overtook this fetch: its own checkTexture will
+    // adopt the manifest the guest actually asked for (T34).
+    if (destroyed || !next || asked !== channel) { return; }
     if (info && next.generatedUnix === info.generatedUnix && next.url === info.url) { return; }
     // Adopt the manifest first (so `info.frames` exists), then honor whatever
     // playhead the caller last asked for. Doing it in this order is what lets a

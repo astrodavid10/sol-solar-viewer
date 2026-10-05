@@ -16,7 +16,7 @@ pick up at an exact point. `HANDOFF.md` is the *session* chronology and stays th
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-10-05 (twenty-fourth session — plan phase 1 done, T24-T31; T41/T42 pulled ahead of phase 2)
+**Last updated:** 2026-10-05 (twenty-fourth session — phase 1 done; T41/T42 restore all five channels; phase 2 done except T37's sibling T38, which needs a visible browser tab)
 
 ---
 
@@ -42,17 +42,17 @@ older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T3
 | T29 | Pipeline loose ends (plan 1.6) | DONE | `7a2bc4e` | no future GONG dirs, cache prune, walker test, runbook pull |
 | T30 | Quieter, smarter GitHub signal + mirror heartbeat + freshness backstop dispatch (plan 1.7) | DONE | `0fb390d`+`7a2bc4e` | Verdict reason keys; comment-on-change verified (#2 got one comment per change); mirror heartbeat + backstop dispatch in freshness.yml |
 | T31 | Repo-scoped mirror PAT + catch-up dispatch (plan 1.8) | DONE (code) — token pending | `275b2d2` | user to mint a fine-grained PAT (contents+actions write, this repo) into `%LOCALAPPDATA%\sol-gong-mirror\token`; until then `gh auth token` fallback with WARN |
-| T32 | `docs/CONTRACT.md` (plan 2.0) | TODO | — |  |
-| T33 | No silent hang: overall timeout, disk still, Try again (plan 2.1) | TODO | — | adds `disk_still` to texture.json |
-| T34 | Texture loads: latest request wins (plan 2.2) | TODO | — |  |
-| T35 | Hi-res map only when the disk is big enough (plan 2.3) | TODO | — | rewrites footgun 40 |
-| T36 | WebGL context-loss cover (plan 2.4) | TODO | — |  |
+| T32 | `docs/CONTRACT.md` (plan 2.0) | DONE | `c232220`+`965609c` | docs/CONTRACT.md; dead plan refs removed |
+| T33 | No silent hang: overall timeout, disk still, Try again (plan 2.1) | DONE | `965609c` | 20 s overall timeout; disk_still (additive); failure cards with today's Sun + Try again; chunk retry once. Browser-verified |
+| T34 | Texture loads: latest request wins (plan 2.2) | DONE | `582df6f` | src/three/latestRequest.ts; race itself needs vitest (4.0) or a slow network |
+| T35 | Hi-res map only when the disk is big enough (plan 2.3) | DONE | `3987124` | ?hires auto: wide + field lines loaded + disk >= 1600 px (off < 1300). Gate verified 349/1550/1788/1550/544 px. Mipmaps kept (deviation, see commit) |
+| T36 | WebGL context-loss cover (plan 2.4) | DONE | `cb9c790` | cover + one auto-reload per minute; solDebug.loseContext(). Browser-verified both paths |
 | T37 | Kiosk take-home URL (plan 2.5) | TODO | — |  |
-| T38 | WWT render loop on requestAnimationFrame, measured (plan 2.6) | TODO | — |  |
+| T38 | WWT render loop on requestAnimationFrame, measured (plan 2.6) | TODO — needs a visible Chrome tab | — | fps before/after cannot be measured while the tab is hidden (rAF and frames stop) |
 | T39 | Split SolarView3D.vue: cards, then time cluster (plan 4.1) | TODO | — | supersedes the deferred note below |
 | T40 | Held PFSS frames on the timeline (plan 4.2) | TODO | — |  |
 | T41 | Hot Corona stops dropping out: fixed-res limb fit + carry-forward (plan 5.1) | DONE | `62a6559`+`112bc43` | carry-forward + limb band centred per channel (user-approved 2026-10-05; tol still 3%). Run 37298265012: 0171/0304/0193 all passed, live has 3 layers; issue #2 not re-commented (reasons unchanged) |
-| T42 | Current HMI imagery from JSOC (plan 5.2) | NEXT | — | orientation gate vs SDO 2026-09-24 |
+| T42 | Current HMI imagery from JSOC (plan 5.2) | DONE | `f0db3a5` | JSOC dated tree; same product as GSFC's HMI browse (corr 0.999/1.000 at 2026-09-24 11:00:00). Run 37301822199 green, 5 layers live, issue #2 auto-closed; footgun 59 |
 | T43 | `_single` as filtered `cmd_all`; `pipeline/index.py` (plan 5.3) | TODO | — |  |
 | T44 | Share preview + service worker (plan 7.1) | TODO | — |  |
 | T45 | Build stack bumps + Vite spike (plan 7.2) | TODO | — |  |

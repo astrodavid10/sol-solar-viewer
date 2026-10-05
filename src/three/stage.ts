@@ -32,6 +32,13 @@ export interface ThreeStageOptions {
    * driver reset). Rebuild GPU objects from the ArrayBuffers you retained.
    */
   onContextRestored?: () => void;
+  /**
+   * The GPU context is gone. three.js can rebuild from retained buffers, but
+   * WWT's engine has no context-loss handling at all (its tile and texture
+   * caches die with the context, footgun 17), so the caller has to tell the
+   * guest and reload (T36).
+   */
+  onContextLost?: () => void;
 }
 
 export interface ThreeStage {
@@ -119,6 +126,7 @@ export function createThreeStage(options: ThreeStageOptions = {}): ThreeStage {
     lost = true;
     applyRenderState();
     console.warn("[stage] WebGL context lost; pausing three.js rendering.");
+    options.onContextLost?.();
   }
 
   function onRestored(): void {

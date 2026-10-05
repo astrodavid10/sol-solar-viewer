@@ -254,6 +254,18 @@
       <p class="sv-cover-text">Bringing the Sun into three dimensions…</p>
     </div>
 
+    <div v-if="contextLost && !failed" class="sv-cover no-select" role="alert">
+      <div class="sv-error">
+        <h3 class="sv-error-title">The 3D view paused to save memory</h3>
+        <p class="sv-error-body">
+          {{ contextAutoReload
+            ? "Your device needed the memory back. The view will reload in a moment."
+            : "Your device needed the memory back. Close other tabs or apps, then reload." }}
+        </p>
+        <button type="button" class="sv-retry" @click="retry">Reload</button>
+      </div>
+    </div>
+
     <div v-if="failed" class="sv-cover no-select">
       <img v-if="diskStill" class="sv-still" :src="diskStill.url" :alt="diskStillCaption" />
       <div class="sv-error">
@@ -407,6 +419,10 @@ const MODE_TIMEOUT_MS = 10000;
 
 /** The whole view, engine readiness included, has this long (T33). */
 const OVERALL_TIMEOUT_MS = 20000;
+
+/** T36: how long the "paused" cover shows before the page reloads itself. */
+const CONTEXT_RELOAD_DELAY_MS = 3000;
+const CONTEXT_RELOAD_KEY = "sol-context-reload";
 
 /** How often the playhead is written back to shared state (scrubber follow).
  *  ~30 Hz: at 10 Hz the native range thumb visibly steps across a 0.8 s/frame
@@ -600,6 +616,8 @@ interface Runtime {
   modeTimer: number;
   /** T33: fails the view if the engine is not READY in time at all. */
   overallTimer: number;
+  /** T36: the pending automatic reload after a lost WebGL context. */
+  contextReloadTimer: number;
   lastTickMs: number;
   lastPublishMs: number;
   lastProjectMs: number;
@@ -671,6 +689,7 @@ function makeRuntime(): Runtime {
     abort: null,
     modeTimer: 0,
     overallTimer: 0,
+    contextReloadTimer: 0,
     lastTickMs: 0,
     lastPublishMs: 0,
     lastProjectMs: 0,
@@ -750,6 +769,10 @@ export default defineComponent({
       failed: false,
       /** Today's flat picture of the Sun for the cover and the failure card. */
       diskStill: null as DiskStill | null,
+      /** T36: the GPU dropped the WebGL context. */
+      contextLost: false,
+      /** False once a reload in the last minute already failed to help. */
+      contextAutoReload: true,
       fieldLinesAbsent: false,
 
       frameCount: 0,
@@ -1138,6 +1161,7 @@ export default defineComponent({
     rt.destroyed = true;
     window.clearTimeout(rt.modeTimer);
     window.clearTimeout(rt.overallTimer);
+    window.clearTimeout(rt.contextReloadTimer);
     window.removeEventListener("resize", this.onResize);
     window.removeEventListener("orientationchange", this.onResize);
     window.clearTimeout(this.copiedTimer);
@@ -1183,6 +1207,7 @@ export default defineComponent({
           target: stringParam("three") === "overlay" ? "overlay" : "wwt",
           onBeforeRender: this.tick,
           onContextRestored: this.onContextRestored,
+          onContextLost: this.onContextLost,
         }));
       } catch (err) {
         console.error("[SolarView3D] three.js stage failed:", err);
@@ -1271,6 +1296,38 @@ export default defineComponent({
     /** Rebuild GPU buffers from the retained ArrayBuffers after context loss. */
     onContextRestored(): void {
       this.rt.fieldLines?.rebuild();
+      // three.js is whole again, WWT is not (footgun 17): reload to get the
+      // engine back. Same once-per-minute guard as the loss path.
+      if (this.contextLost) { this.reloadAfterContextLoss(CONTEXT_RELOAD_DELAY_MS); }
+    },
+
+    /**
+     * iOS and Android drop WebGL contexts under memory pressure. three.js
+     * survives that; WWT does not -- it has no context-loss handling, and a
+     * Sun drawn from its dead caches renders black (footgun 17). Before T36
+     * the guest got a frozen or half-drawn scene with nothing to tap. Now a
+     * cover says what happened, and the page reloads itself once (the URL
+     * already carries the guest's view) unless that already happened within
+     * the last minute, which would mean the device cannot hold the view and a
+     * loop would only make it worse; then the Reload button is the way out.
+     */
+    onContextLost(): void {
+      this.contextLost = true;
+      this.reloadAfterContextLoss(CONTEXT_RELOAD_DELAY_MS);
+    },
+
+    reloadAfterContextLoss(delayMs: number): void {
+      window.clearTimeout(this.rt.contextReloadTimer);
+      this.rt.contextReloadTimer = window.setTimeout(() => {
+        let last = 0;
+        try { last = Number(sessionStorage.getItem(CONTEXT_RELOAD_KEY)) || 0; } catch { /* storage blocked */ }
+        if (Date.now() - last < 60_000) {
+          this.contextAutoReload = false;
+          return;
+        }
+        try { sessionStorage.setItem(CONTEXT_RELOAD_KEY, String(Date.now())); } catch { /* storage blocked */ }
+        window.location.reload();
+      }, delayMs);
     },
 
     // --- per-frame --------------------------------------------------------
@@ -2550,6 +2607,13 @@ export default defineComponent({
     installDebugHandle(): void {
       const rt = this.rt;
       (window as unknown as { solDebug?: unknown }).solDebug = {
+        /** T36: force a WebGL context loss (WEBGL_lose_context) to test the cover. */
+        loseContext: (): boolean => {
+          const gl = rt.stage?.renderer.getContext();
+          const ext = gl?.getExtension("WEBGL_lose_context");
+          ext?.loseContext();
+          return !!ext;
+        },
         stage: rt.stage,
         fieldLines: rt.fieldLines,
         surface: rt.surface,

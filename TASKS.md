@@ -17,7 +17,7 @@ answers "what is in flight and what is next".
 - **Record the hash in a FOLLOW-UP commit, never by amending.** Amending changes the hash the
   row just recorded, and you will do it twice before noticing.
 
-**Last updated:** 2026-10-05 (twenty-fourth session — plan phases 1, 2 (but T38), 3 and most of 4 done; T12 copy pass and T11 marks next)
+**Last updated:** 2026-10-05 (twenty-fourth session — plan phases 1-4 done except T38 (needs a visible tab) and seam 2 (deferred); phases 5.3, 6 and 7 remain)
 
 ---
 
@@ -62,8 +62,8 @@ older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T3
 | T1 | Republish PFSS from the workstation | DONE, now a FALLBACK | `4ee53fc`+ | 10 hand-publishes 2026-08-25 .. 09-02; **no longer recurring** since T2 went live — `PFSS-UPDATE.md` is the fallback for a mirror outage. **11th on 2026-09-09** (`ac6b53d`, 19/19 slots, all six products `ok`) — needed because the relay's CI *read* path went stale, not the mirror: see **T22**. **12th on 2026-09-15** (`8d7f91d`, 19/19 slots, all six products `ok`) — the mirror itself was down: see note below. **13th on 2026-09-21** (`77f5e24`, 19/19 slots, all six products `ok`) — the mirror was down again, same interactive-logon cause, now footgun 56. **14th on 2026-09-22** (`ef1a1e3`, 19/19 slots, all six products `ok`) — mirror down ~44 h again; 0171 hi-res needed a second texture-only run (footgun 57). **15th on 2026-09-30** (`ef9d547`, 19/19 slots, all six products `ok`) — mirror down ~4.5 days; DONKI's API moved (footgun 58, `1bc2081`) |
 | T2 | Land the GONG relay (Option D, workstation mirror) | DONE | `8650fee`+`85e626c` | LIVE 2026-09-02: `gong-cache` fed hourly by `SolGongMirror`; CI traced 19/19 in run 33663715169 (dry) and **published** in 33664961891 (`gh-pages` `ca5426f`, Verdict ok, issue #1 closed). Formal "scheduled" confirmation = the next cron tick |
 | T3 | Honest clock when PFSS is stale (one playhead, union of windows) | DONE | `b9f199c` | hold slots to the newest texture slot; 'now' only < 6 h; chips on atNewestSlot; refresh chip after 30 min hidden. Browser-verified vs a 48 h stale manifest |
-| T11 | Timeline marks: a key, and targets you can hit | TODO | — | **AF** — 8 px targets, no legend |
-| T12 | Explainer copy pass | TODO | — | **AF** — aurora copy is wrong, not just unclear. The info panel's copy was rewritten separately 2026-09-11 (T23); the four explainer items here remain |
+| T11 | Timeline marks: a key, and targets you can hit | DONE | `0378e07` | 44 px hit areas split at midpoints in clusters; '?' key. Phone feel is T8 |
+| T12 | Explainer copy pass | DONE | `a7f6adc` | copy approved by the user 2026-10-05; aurora both hemispheres, flare vs eruption (CME) once, local time everywhere (UTC second on event cards), stale storm banner guard |
 | T4 | Reconcile CLAUDE.md / HANDOFF.md with the shipped tree | DONE | `0830ac0` | plan phase 3: CLAUDE.md 71K -> 40K chars, HANDOFF 206K -> 48K, TASKS 104K -> 41K; history archived verbatim under docs/ |
 | T6 | First real app tests | PARTIAL — vitest DONE | `9db561b`+`17f8c94` | 33 app tests (winding/frame from the engine's own matrices, labels, manifest, cards, QR guard, latest-request). Playwright + cmd_all contract test are plan 6.1 |
 | T13 | Tap a live value to open its explainer | TODO | — | **AF** |
@@ -72,7 +72,7 @@ older rows it absorbs say which phase owns them. Plan phase → rows: 1 = T24-T3
 | T14 | Press-and-hold fine scrub on the timeline | TODO | — | **AF** — new gesture |
 | T7 | Accessibility pass (`prefers-reduced-motion`, zoom, focus) | TODO | — | |
 | T8 | Phone verification | BLOCKED | — | needs the Chrome extension connected + a handset |
-| T9 | Decide the eruption layer | TODO | — | `ERUPTIONS_ENABLED = false` on `main` |
+| T9 | Decide the eruption layer | PARTIAL — naming decided | `a7f6adc` | user chose 'Eruption (CME)' as the guest term (2026-10-05). Whether to turn the layer on (ERUPTIONS_ENABLED) is still open |
 | T10 | Dead-code cleanup in `sdoCatalog.ts` | TODO | — | monolith splits deferred, see below |
 | T17 | Zoom out to the heliosphere, with the Voyagers | TODO | — | **AF** — largest new feature; needs scoping |
 | T18 | A vertical reel of the 72 h field | DONE | — | `scripts/render_reel.py`; asked for outside the plan |

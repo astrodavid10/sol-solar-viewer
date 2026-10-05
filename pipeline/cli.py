@@ -815,6 +815,55 @@ def _texture_history(ctx: Ctx, layers: List[dict], primary: dict) -> dict:
             "history_failed": failed, "slots": len(targets)}
 
 
+def _carry_forward_layer(ctx: Ctx, channel: dict) -> Optional[dict]:
+    """The previously published layer for ``channel``, if it may stand in.
+
+    A non-default channel that fails this run (0193 failed its limb-fit guard
+    in 3 of 4 runs around 2026-10-04) used to vanish from the site, and
+    _prune_orphan_textures then deleted its whole history, so the next passing
+    run started over under the 15-frame cap. Carrying the last good layer
+    forward keeps the guest's option and the files, but ONLY while that layer
+    is under the channel's own age ceiling -- an old map is exactly what T24
+    stopped publishing. Its status, obs_age_hours and `carried: true` say what
+    it is; every file it names must already be on disk in ``ctx.out`` (seeded
+    from gh-pages in CI, footgun 31).
+    """
+    from .texture import export as texture_export
+    prev = read_json(ctx.out / "texture/texture.json") or {}
+    code = channel["code"]
+    layer = next((ly for ly in (prev.get("layers") or [])
+                  if isinstance(ly, dict) and ly.get("channel") == code), None)
+    if not layer:
+        return None
+    obs = parse_iso_z(str(layer.get("obs_iso") or ""))
+    if obs is None:
+        return None
+    age = age_hours(obs, ctx.now)
+    ceiling = texture_export.max_age_hours(channel)
+    if age > ceiling:
+        print("    {0}: previous layer is {1:.1f} h old (> {2:.0f} h); not "
+              "carried forward".format(code, age, ceiling))
+        return None
+    carried = {k: v for k, v in layer.items() if k != "frames"}
+    files = [carried.get("url")]
+    files += [t.get("url") for t in (carried.get("off_limb") or {}).get("tiers") or []]
+    if carried.get("high_res"):
+        files.append(carried["high_res"].get("url"))
+    missing = [f for f in files if not f or not (ctx.out / "texture" / f).exists()]
+    if missing:
+        print("    {0}: previous layer's files are not on disk ({1}); not "
+              "carried forward".format(code, ", ".join(map(str, missing))))
+        return None
+    for f in files:
+        ctx.staging.note("texture/" + f)
+    carried["carried"] = True
+    carried["obs_age_hours"] = round(age, 3)
+    carried["status"] = texture_export.texture_status(age, ceiling)
+    print("    {0}: carried forward the layer observed {1} ({2:.1f} h old)"
+          .format(code, carried.get("obs_iso"), age))
+    return carried
+
+
 def run_texture(ctx: Ctx) -> ProductResult:
     """Publish one Carrington map per TEX_CHANNELS entry.
 
@@ -843,6 +892,7 @@ def run_texture(ctx: Ctx) -> ProductResult:
 
     layers: List[dict] = []
     skipped: Dict[str, str] = {}
+    carried_codes: List[str] = []
     primary_doc: Optional[dict] = None
     primary_info: Optional[dict] = None
     total_bytes = 0
@@ -864,7 +914,12 @@ def run_texture(ctx: Ctx) -> ProductResult:
             # Loud, and carried into the index: a dropped layer used to cost
             # the guest an option while every check stayed green.
             print("  WARN {0} skipped: {1}".format(code, exc))
-            skipped[code] = str(exc)
+            prior = _carry_forward_layer(ctx, channel)
+            if prior is not None:
+                layers.append(prior)
+                carried_codes.append(code)
+            else:
+                skipped[code] = str(exc)
             continue
         ctx.staging.write_bytes("texture/" + doc["url"], blob)
         if near_blob is not None:
@@ -957,18 +1012,25 @@ def run_texture(ctx: Ctx) -> ProductResult:
     problems = []
     if skipped:
         problems.append("missing layer(s) {0}".format(", ".join(skipped)))
+    if carried_codes:
+        # Not a degradation on its own: the layer is inside its age ceiling
+        # and says so. Named in the note so the operator can see it.
+        notes_extra = "carried forward {0}".format(", ".join(carried_codes))
+    else:
+        notes_extra = ""
     if old_layers:
         problems.append("old layer(s) {0}".format(", ".join(old_layers)))
     status = "degraded" if problems else "ok"
     return ProductResult(
         name="texture", url="texture/texture.json", status=status,
         generated=ctx.now,
-        note="; ".join(problems),
+        note="; ".join(problems + ([notes_extra] if notes_extra else [])),
         extra={"obs_iso": primary_doc["obs_iso"],
                "obs_age_hours": round(primary_info["obs_age_hours"], 3),
                "bytes": total_bytes, "layers": len(layers),
                "layers_expected": len(TEX_CHANNELS),
                "layers_missing": sorted(skipped),
+               "layers_carried": sorted(carried_codes),
                "layer_ages_hours": {ly["channel"]: ly["obs_age_hours"]
                                     for ly in layers},
                "width": primary_doc["width"],
